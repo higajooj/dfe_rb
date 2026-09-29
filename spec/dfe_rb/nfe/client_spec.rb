@@ -50,6 +50,48 @@ RSpec.describe DfeRb::Nfe::Client do
       expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /production/)
     end
 
+    it "checks a SignedInvoice against this client's environment and its signature" do
+      production = nfe_client(transport, environment: :production)
+      expect { production.sign(signed) }.to raise_error(DfeRb::ValidationError, /built for homologacao/)
+
+      restored = DfeRb::Nfe::SignedInvoice.new(xml: signed.xml.sub("<natOp>Venda de mercadoria</natOp>", "<natOp>Outra</natOp>"), key: nil, digest_value: nil)
+      expect { client.sign(restored) }.to raise_error(DfeRb::ValidationError, /does not verify: digest mismatch/)
+    end
+
+    it "fills the key and digest of a SignedInvoice restored from storage" do
+      restored = client.sign(DfeRb::Nfe::SignedInvoice.new(xml: signed.xml, key: nil, digest_value: nil))
+      expect(restored).to eq(signed)
+    end
+
+    it "validates raw XML against the schema and the business rules" do
+      without_nature = invoice.to_xml.sub("<natOp>Venda de mercadoria</natOp>", "")
+      expect { client.sign(without_nature) }.to raise_error(DfeRb::ValidationError, /natOp/)
+
+      bad_cnpj = invoice.to_xml.sub("<CNPJ>11222333000181</CNPJ>", "<CNPJ>11222333000182</CNPJ>")
+      expect { client.sign(bad_cnpj) }.to raise_error(DfeRb::ValidationError, /dest\/CNPJ: 11222333000182 is not a valid CNPJ/)
+      expect(client.sign(bad_cnpj, strict: false).key).to eq(invoice.key.to_s)
+    end
+
+    it "reads the key and issuer however the XML is quoted or indented" do
+      quoted = signed.xml.sub(%(Id="NFe#{signed.key}"), %(Id='NFe#{signed.key}'))
+      expect(client.sign(quoted).key).to eq(signed.key)
+
+      other = nfe_client(transport).tap { |c| c.instance_variable_set(:@certificate, nfe_certificate(cnpj: "11222333000181")) }
+      indented = signed.xml.sub("<emit><CNPJ>", "<emit>\n  <CNPJ>")
+      expect { other.sign(indented) }.to raise_error(DfeRb::ValidationError, /CNPJ root 11222333 but the issuer is 11444777000161/)
+    end
+
+    it "drops the XML declaration of signed input so lots and nfeProc stay well-formed" do
+      declared = client.sign(%(<?xml version="1.0" encoding="UTF-8"?>\n#{signed.xml}))
+      expect(declared.xml).to eq(signed.xml)
+
+      transport.answer(:authorization, ret_env_nfe_sync(prot_nfe(signed.key, digest: signed.digest_value)))
+      result = client.authorize(%(<?xml version="1.0" encoding="UTF-8"?>#{signed.xml}))
+
+      expect(Nokogiri::XML(transport.calls_to(:authorization).first.xml) { |c| c.strict }.errors).to be_empty
+      expect(Nokogiri::XML(result.proc_xml) { |c| c.strict }.errors).to be_empty
+    end
+
     it "raises with every problem when the invoice is invalid" do
       bad = client.build_invoice { |nfe| nfe.number 1 }
       expect { client.sign(bad) }.to raise_error(DfeRb::ValidationError)
@@ -202,6 +244,40 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(transport.calls_to(:authorization_return).size).to eq(3)
     end
 
+    it "keeps the receipt when polling fails, and #resume finishes the lot" do
+      transport.answer(:authorization, ret_env_nfe(receipt: "351000000012345"))
+      transport.answer(:authorization_return, DfeRb::TransportError.new("ReadTimeout"))
+      transport.answer(:consult, ret_cons_sit_nfe(notes[0].key, code: 217, message: "NF-e nao consta na base de dados da SEFAZ"))
+
+      pending = client.authorize(notes)
+
+      expect(pending.map(&:status)).to eq(%i[pending pending])
+      expect(pending.map(&:receipt)).to eq(["351000000012345"] * 2)
+      expect(pending.first.message).to include("ReadTimeout")
+
+      transport.replace(:authorization_return, ret_cons_reci_nfe([prot_nfe(notes[0].key), prot_nfe(notes[1].key, protocol: "135260000000002")]))
+      results = client.resume(pending.first.receipt, pending)
+
+      expect(results.map(&:status)).to eq(%i[authorized authorized])
+      expect(results.map(&:protocol)).to eq(%w[135260000000123 135260000000002])
+      expect(results.first.proc_xml).to include(notes[0].xml)
+      expect(transport.calls_to(:authorization_return).last.xml).to include("<nRec>351000000012345</nRec>")
+    end
+
+    it "looks the notes up when polling fails and SEFAZ already has them" do
+      transport.answer(:authorization, ret_env_nfe)
+      transport.answer(:authorization_return, DfeRb::TransportError.new("ReadTimeout"))
+      transport.answer(:consult, ->(xml) {
+        note = notes.find { |n| xml.include?(n.key) }
+        ret_cons_sit_nfe(note.key, protocol_xml: prot_nfe(note.key, digest: note.digest_value))
+      })
+
+      results = client.authorize(notes)
+
+      expect(results.map(&:status)).to eq(%i[authorized authorized])
+      expect(results).to all(be_recovered)
+    end
+
     it "rejects lots that are empty or above 50 notes" do
       expect { client.authorize([]) }.to raise_error(ArgumentError, /nothing/)
       expect { client.authorize([signed] * 51) }.to raise_error(ArgumentError, /at most 50/)
@@ -223,6 +299,23 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(result).to be_recovered
       expect(result.protocol).to eq("135260000000123")
       expect(result.proc_xml).to include(signed.xml)
+    end
+
+    it "reports a note canceled since as canceled, never as authorized" do
+      transport.answer(:authorization, timeout)
+      transport.answer(:consult, ->(_xml) {
+        ret_cons_sit_nfe(signed.key, code: 101, message: "Cancelamento de NF-e homologado",
+          protocol_xml: prot_nfe(signed.key, digest: signed.digest_value))
+      })
+
+      result = client.authorize(signed)
+
+      expect(result).not_to be_authorized
+      expect(result).to be_canceled
+      expect(result.code).to eq(101)
+      expect(result.protocol).to eq("135260000000123")
+      expect(result.proc_xml).to include(signed.xml)
+      expect { client.authorize!(signed) }.to raise_error(DfeRb::Nfe::Rejected, /101/)
     end
 
     it "re-raises the transport error when SEFAZ never saw the note (safe to send the same XML again)" do
@@ -333,7 +426,7 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(info.at_xpath("nfe:detEvento/nfe:nProt", ns).text).to eq("135260000000123")
       expect(DfeRb::Nfe::Signature.verify(request.xml)).to be(true)
       expect(Nokogiri::XML(result.proc_xml).root.name).to eq("procEventoNFe")
-      expect(result.filename).to eq("#{signed.key}_110111-procEventoNFe.xml")
+      expect(result.filename).to eq("#{signed.key}_110111_01-procEventoNFe.xml")
     end
 
     it "validates cancellation arguments" do
@@ -351,6 +444,7 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(xml).to include("<nSeqEvento>2</nSeqEvento>", "<descEvento>Carta de Correcao</descEvento>")
       expect(xml).to include("A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N")
       expect(xml).to include("ID110110#{signed.key}02")
+      expect(result.filename).to eq("#{signed.key}_110110_02-procEventoNFe.xml")
     end
 
     it "reports an event SEFAZ refused" do

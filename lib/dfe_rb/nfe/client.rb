@@ -7,6 +7,7 @@ module DfeRb
     #   signed = client.sign(invoice)          # store signed.xml before sending
     #   result = client.authorize(signed)
     #   File.write("#{result.key}-procNFe.xml", result.proc_xml) if result.authorized?
+    #   result = client.resume(result.receipt, [result]) if result.pending?   # lot answer still pending
     class Client
       MAX_LOT = 50
       DEFAULT_POLLING = {wait: 15, interval: 5, max_wait: 120}.freeze
@@ -43,22 +44,32 @@ module DfeRb
           received_at: response.text("dhRecbto"), average_seconds: response.text("tMed")&.to_i, xml: response.xml)
       end
 
-      # Validates and signs an Invoice, or signs raw <NFe> XML. Returns a SignedInvoice whose
-      # `xml` must be stored before it is sent, so a lost answer can be resolved later.
+      # Validates and signs an Invoice, or raw <NFe> XML (signed or not). Returns a
+      # SignedInvoice whose `xml` must be stored before it is sent, so a lost answer can be
+      # resolved later.
+      #
+      # Raw XML goes through the same schema and business-rule checks as an Invoice. A
+      # SignedInvoice (or one restored from storage) is not validated again, but like any
+      # input it must be for this client's environment, belong to the certificate's company
+      # and carry a signature that verifies.
       #
       # With `strict: false` the local business-rule checks are skipped (the schema and value
       # formats are always enforced).
       def sign(input, strict: true)
-        return input if input.is_a?(SignedInvoice)
+        document = case input
+        when Invoice then Document.new(input.to_xml(strict: strict))
+        when SignedInvoice then Document.new(input.xml)
+        else validated(Document.new(input), strict: strict)
+        end
+        check_environment(document)
+        check_certificate(document)
 
-        xml = input.is_a?(Invoice) ? input.to_xml(strict: strict) : input.to_s
-        check_environment(xml)
-        check_certificate(xml)
-        signed = xml.include?("<Signature") ? xml : Signature.sign_nfe(xml, certificate)
+        signed = document.signed? ? document.xml : Signature.sign_nfe(document.xml, certificate)
         problem = Signature.verify(signed)
         raise ValidationError, ["the signature does not verify: #{problem}"] unless problem == true
 
-        SignedInvoice.new(xml: signed, key: signed[/<infNFe[^>]*\sId="NFe(\w{44})"/, 1], digest_value: Signature.digest_value(signed))
+        result = SignedInvoice.new(xml: signed, key: document.key, digest_value: Signature.digest_value(signed))
+        (result == input) ? input : result
       end
 
       # Sends one NF-e (synchronously) or up to 50 (as an asynchronous lot). Accepts Invoices,
@@ -68,13 +79,32 @@ module DfeRb
       # If the answer is lost (timeout...) or SEFAZ reports the key as a duplicate, the key is
       # looked up and, when the stored note is this same document, its protocol is returned
       # (result.recovered? is true) instead of an error.
-      def authorize(input, lot_id: nil, recover: true, polling: {})
+      #
+      # A lot whose processing couldn't be awaited (polling timed out or failed) comes back
+      # as pending results carrying the receipt: finish it with #resume.
+      def authorize(input, lot_id: nil, recover: true, polling: {}, strict: true)
         many = input.is_a?(Array)
-        signed = Array(input).map { |item| sign(item) }
+        signed = Array(input).map { |item| sign(item, strict: strict) }
         raise ArgumentError, "nothing to authorize" if signed.empty?
         raise ArgumentError, "a lot holds at most #{MAX_LOT} notes (got #{signed.size})" if signed.size > MAX_LOT
 
         results = transmit(signed, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
+        many ? results : results.first
+      end
+
+      # Collects the answer to an asynchronous lot SEFAZ already accepted (cStat 103), given
+      # its receipt and the notes sent in it: SignedInvoices, or the pending
+      # AuthorizationResults #authorize returned. Returns results as #authorize does.
+      def resume(receipt, notes, recover: true, polling: {})
+        many = notes.is_a?(Array)
+        signed = Array(notes).map do |note|
+          next sign(note) unless note.is_a?(AuthorizationResult)
+
+          sign(SignedInvoice.new(xml: note.signed_xml, key: note.key, digest_value: Signature.digest_value(note.signed_xml)))
+        end
+        raise ArgumentError, "nothing to resume" if signed.empty?
+
+        results = collect_lot(signed, receipt.to_s, DEFAULT_POLLING.merge(wait: 0).merge(polling), recover)
         many ? results : results.first
       end
 
@@ -159,8 +189,18 @@ module DfeRb
 
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
 
-      def check_environment(xml)
-        declared = xml[%r{<tpAmb>(\d)</tpAmb>}, 1]
+      # Schema and (unless strict: false) business rules for XML that didn't come from an
+      # Invoice.
+      def validated(document, strict:)
+        problems = Schemas.nfe_issues(document.xml)
+        problems += Validator.new(document.to_infnfe).issues if strict && problems.empty?
+        raise ValidationError, problems unless problems.empty?
+
+        document
+      end
+
+      def check_environment(document)
+        declared = document.environment
         return if declared.nil? || declared == Environment.code(environment)
 
         raise ValidationError, ["the NFe was built for #{(declared == "1") ? "production" : "homologacao"} " \
@@ -168,13 +208,13 @@ module DfeRb
       end
 
       # The certificate must be valid and belong to the issuer's company (same CNPJ root).
-      def check_certificate(xml)
+      def check_certificate(document)
         problems = []
         problems << "the certificate expired on #{certificate.expires_at.utc.iso8601}" if certificate.expired?
         problems << "the certificate is not valid yet (starts #{certificate.not_before.utc.iso8601})" if certificate.not_before > @clock.now
 
-        issuer = xml[%r{<emit><CNPJ>([0-9A-Z]{14})</CNPJ>}, 1]
-        issuer_cpf = xml[%r{<emit><CPF>(\d{11})</CPF>}, 1]
+        issuer = document.issuer_cnpj
+        issuer_cpf = document.issuer_cpf
         if issuer && certificate.cnpj_root && issuer[0, 8] != certificate.cnpj_root
           problems << "the certificate belongs to CNPJ root #{certificate.cnpj_root} but the issuer is #{issuer} (rej. 213)"
         elsif issuer_cpf && certificate.cpf && issuer_cpf != certificate.cpf
@@ -201,17 +241,36 @@ module DfeRb
         end
 
         receipt = lot.text("nRec")
-        answer = lot
-        protocols = []
-        if sync
-          protocol_xml = lot.fragment("protNFe")
-          protocols = [Protocol.parse(protocol_xml)] if protocol_xml
-        elsif lot.code == StatusCodes::BATCH_RECEIVED
-          answer = wait_for_lot(receipt, polling)
-          protocols = answer.fragments("protNFe").map { |xml| Protocol.parse(xml) }
+        return collect_lot(signed, receipt, polling, recover) if !sync && lot.code == StatusCodes::BATCH_RECEIVED
+
+        protocol_xml = sync && lot.fragment("protNFe")
+        protocols = protocol_xml ? [Protocol.parse(protocol_xml)] : []
+        signed.map { |note| result_for(note, lot, protocols, receipt, recover) }
+      end
+
+      # Polls an accepted lot and maps its protocols to the notes. When polling fails the
+      # receipt is kept: each note is looked up by key (with `recover`) and whatever is still
+      # unknown comes back pending, to be finished with #resume.
+      def collect_lot(signed, receipt, polling, recover)
+        answer = begin
+          wait_for_lot(receipt, polling)
+        rescue TransportError => e
+          return signed.map { |note| (recover && recovered_quietly(note, e)) || pending(note, receipt, e) }
         end
 
+        protocols = answer.fragments("protNFe").map { |xml| Protocol.parse(xml) }
         signed.map { |note| result_for(note, answer, protocols, receipt, recover) }
+      end
+
+      def pending(note, receipt, cause)
+        build_result(note, StatusCodes::BATCH_RECEIVED, "Lote recebido; resultado pendente (#{cause.message})", nil, receipt, nil)
+      end
+
+      # #recovered, but a lookup that fails too just leaves the note pending.
+      def recovered_quietly(note, cause)
+        recovered(note, cause: cause)
+      rescue TransportError
+        nil
       end
 
       # Polls the lot until SEFAZ has processed it (cStat 104) or `max_wait` seconds passed.
@@ -229,7 +288,11 @@ module DfeRb
 
       def result_for(note, answer, protocols, receipt, recover)
         protocol = protocols.find { |candidate| candidate.key == note.key }
-        return build_result(note, answer.code, answer.message, nil, receipt, answer.xml) unless protocol
+        unless protocol
+          # An expired receipt (cStat 106) says nothing about the notes: ask for each key.
+          found = recover && answer.code == StatusCodes::BATCH_NOT_FOUND && recovered_quietly(note, answer)
+          return found || build_result(note, answer.code, answer.message, nil, receipt, answer.xml)
+        end
 
         if recover && StatusCodes.duplicate?(protocol.code)
           found = recovered(note, cause: protocol)
@@ -248,14 +311,16 @@ module DfeRb
 
       # Looks the key up after a lost answer or a duplicate report. Returns the result when SEFAZ
       # holds this very document, nil when it holds nothing (safe to send again), and raises
-      # Conflict when it holds a different one.
+      # Conflict when it holds a different one. A note canceled since keeps its authorization
+      # protocol but reports the consult's status (101...), so it is never taken as usable.
       def recovered(note, cause:)
         found = consult(note.key)
         return unless found.found? && found.protocol_xml
 
         if found.digest_value == note.digest_value
           protocol = Protocol.parse(found.protocol_xml)
-          build_result(note, protocol.code, protocol.message, protocol, nil, found.xml, recovered: true)
+          code, message = found.canceled? ? [found.code, found.message] : [protocol.code, protocol.message]
+          build_result(note, code, message, protocol, nil, found.xml, recovered: true)
         else
           raise Conflict, "SEFAZ already holds #{note.key} with different content (#{found.code} #{found.message}); " \
             "the note being sent differs from the stored one. (#{cause.message})"

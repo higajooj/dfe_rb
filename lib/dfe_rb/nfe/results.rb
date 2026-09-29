@@ -11,7 +11,8 @@ module DfeRb
       :key, :code, :message, :protocol, :received_at, :alerts, :digest_value,
       :signed_xml, :protocol_xml, :response_xml, :receipt, :recovered
     ) do
-      # :authorized, :authorized_late, :authorized_with_alert, :denied, :pending or :rejected.
+      # :authorized, :authorized_late, :authorized_with_alert, :canceled, :denied, :pending or
+      # :rejected. :canceled only comes from a recovery: the note was authorized, then canceled.
       def status
         case code
         when StatusCodes::AUTHORIZED then :authorized
@@ -19,11 +20,14 @@ module DfeRb
         when StatusCodes::AUTHORIZED_WITH_ALERT then :authorized_with_alert
         when *StatusCodes::DENIED then :denied
         when StatusCodes::BATCH_RECEIVED, StatusCodes::BATCH_PROCESSING then :pending
+        when StatusCodes::CANCELED, *StatusCodes::CANCELED_LATE then :canceled
         else :rejected
         end
       end
 
       def authorized? = StatusCodes.authorized?(code)
+
+      def canceled? = status == :canceled
 
       def denied? = status == :denied
 
@@ -37,9 +41,9 @@ module DfeRb
       def recovered? = recovered
 
       # The nfeProc to archive and hand to the recipient (<key>-procNFe.xml): the signed NFe
-      # and its protocol. Also produced for denied notes, which SEFAZ keeps.
+      # and its protocol. Also produced for denied and canceled notes, which SEFAZ keeps.
       def proc_xml
-        return if protocol_xml.nil? || !(authorized? || denied?)
+        return if protocol_xml.nil? || !(authorized? || denied? || canceled?)
 
         Proc.nfe(signed_xml, protocol_xml)
       end
@@ -85,7 +89,8 @@ module DfeRb
         Proc.event(event_xml, return_xml)
       end
 
-      def filename = "#{key}_#{type}-procEventoNFe.xml"
+      # One file per event: each CC-e sequence is kept.
+      def filename = "#{key}_#{type}_#{format("%02d", sequence)}-procEventoNFe.xml"
     end
 
     # The outcome of an inutilização request. `approved?` is cStat 102.
