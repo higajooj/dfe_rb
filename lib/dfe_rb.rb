@@ -34,9 +34,21 @@ module DfeRb
     def ssl_options
       {ssl_verify_mode: :peer, ssl_cert_store: cert_store}
     end
+
+    # The XML with the text of LOG_FILTERS elements blanked out, safe to log.
+    def filter_xml(xml)
+      names = LOG_FILTERS.join("|")
+      xml.gsub(%r{(<(?:\w+:)?(?:#{names})(?:\s[^>]*)?>)[^<]*(</)}m, '\1[FILTERED]\2')
+    end
   end
 end
 
+require_relative "dfe_rb/errors"
+require_relative "dfe_rb/environment"
+require_relative "dfe_rb/tax_id"
+require_relative "dfe_rb/certificate"
 require_relative "dfe_rb/signer"
+require_relative "dfe_rb/transport"
 require_relative "dfe_rb/dfe"
 require_relative "dfe_rb/manifest"
+require_relative "dfe_rb/nfe"

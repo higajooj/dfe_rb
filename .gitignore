@@ -4,3 +4,8 @@
 /tmp/
 Gemfile.lock
 *.gem
+
+# Real certificates and local notes must never be committed
+/notes/
+*.pfx
+*.p12

@@ -226,7 +226,7 @@ module DfeRb
     #   </X509Data>
     # </SecurityTokenReference> (optional)
     # </KeyInfo>
-    def x509_data_node(issuer_in_security_token = false)
+    def x509_data_node(issuer_in_security_token = false, issuer_serial: true)
       issuer_name_node   = Nokogiri::XML::Node.new('X509IssuerName', document)
       issuer_name_node.content = cert.issuer.to_s(OpenSSL::X509::Name::RFC2253)
 
@@ -241,7 +241,7 @@ module DfeRb
       cetificate_node.content = Base64.encode64(cert.to_der).delete("\n")
 
       data_node          = Nokogiri::XML::Node.new('X509Data', document)
-      data_node.add_child(issuer_serial_node)
+      data_node.add_child(issuer_serial_node) if issuer_serial
       data_node.add_child(cetificate_node)
 
       if issuer_in_security_token
@@ -257,10 +257,12 @@ module DfeRb
       set_namespace_for_node(key_info_node, DS_NAMESPACE, ds_namespace_prefix)
       set_namespace_for_node(security_token_reference_node, WSSE_NAMESPACE, ds_namespace_prefix) if issuer_in_security_token
       set_namespace_for_node(data_node, DS_NAMESPACE, ds_namespace_prefix)
-      set_namespace_for_node(issuer_serial_node, DS_NAMESPACE, ds_namespace_prefix)
+      set_namespace_for_node(issuer_serial_node, DS_NAMESPACE, ds_namespace_prefix) if issuer_serial
       set_namespace_for_node(cetificate_node, DS_NAMESPACE, ds_namespace_prefix)
-      set_namespace_for_node(issuer_name_node, DS_NAMESPACE, ds_namespace_prefix)
-      set_namespace_for_node(issuer_number_node, DS_NAMESPACE, ds_namespace_prefix)
+      if issuer_serial
+        set_namespace_for_node(issuer_name_node, DS_NAMESPACE, ds_namespace_prefix)
+        set_namespace_for_node(issuer_number_node, DS_NAMESPACE, ds_namespace_prefix)
+      end
 
       data_node
     end
@@ -274,6 +276,7 @@ module DfeRb
     # * [+:inclusive_namespaces+] Array of namespace prefixes which definitions should be added to node during canonicalization
     # * [+:enveloped+]
     # * [+:enveloped_legacy+]     add solely `enveloped-signature` in `Transforms` with :enveloped:.
+    # * [+:enveloped_first+]      with :enveloped:, list `enveloped-signature` before the c14n transform.
     # * [+:ref_type+]             add `Type` attribute to Reference node, if ref_type is not nil
     #
     # Example of XML that will be inserted in message for call like <tt>digest!(node, inclusive_namespaces: ['soap'])</tt>:
@@ -342,6 +345,7 @@ module DfeRb
     # Available options:
     # * [+:security_token+]       Serializes certificate in DER format, encodes it with Base64 and inserts it within +<BinarySecurityToken>+ tag
     # * [+:issuer_serial+]
+    # * [+:x509_certificate+]     KeyInfo/X509Data holding only the X509Certificate (what NF-e requires)
     # * [+:issuer_in_security_token+]
     # * [+:inclusive_namespaces+] Array of namespace prefixes which definitions should be added to signed info node during canonicalization
 
@@ -352,6 +356,8 @@ module DfeRb
 
       if options[:issuer_serial]
         x509_data_node(options[:issuer_in_security_token])
+      elsif options[:x509_certificate]
+        x509_data_node(false, issuer_serial: false)
       end
 
       if options[:inclusive_namespaces]
@@ -405,10 +411,15 @@ module DfeRb
 
       # transforms_node.add_child(transform_node('http://www.w3.org/2001/10/xml-exc-c14n#', options))
 
+      # :enveloped_first lists enveloped-signature before c14n, the order of the NF-e MOC samples.
+      if options[:enveloped] && options[:enveloped_first]
+        transforms_node.add_child(transform_node('http://www.w3.org/2000/09/xmldsig#enveloped-signature', options))
+      end
+
       # NFe web services only work with this one
       transforms_node.add_child(transform_node('http://www.w3.org/TR/2001/REC-xml-c14n-20010315', options))
 
-      transforms_node.add_child(transform_node('http://www.w3.org/2000/09/xmldsig#enveloped-signature', options)) if options[:enveloped]
+      transforms_node.add_child(transform_node('http://www.w3.org/2000/09/xmldsig#enveloped-signature', options)) if options[:enveloped] && !options[:enveloped_first]
     end
 
     # Check are we using ws security?

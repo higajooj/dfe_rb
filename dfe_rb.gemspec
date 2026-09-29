@@ -6,9 +6,10 @@ Gem::Specification.new do |spec|
   spec.authors = ["Daniel Higa"]
   spec.email = ["danielhiga10@gmail.com"]
 
-  spec.summary = "Brazilian SEFAZ DF-e client: NF-e distribution queries and recipient manifestation."
-  spec.description = "Talks to the SEFAZ NFeDistribuicaoDFe and NFeRecepcaoEvento web services with an A1 " \
-    "certificate: fetches documents by NSU or access key and sends signed manifestation events."
+  spec.summary = "Brazilian SEFAZ DF-e client: emit NF-e, query distribution, manifest as recipient."
+  spec.description = "Issues NF-e (modelo 55, layout 4.00) in production and homologacao with an A1 certificate: " \
+    "builds and validates the XML, signs it, authorizes it (sync and lot), consults, cancels, corrects and " \
+    "inutilizes. Also fetches documents from NFeDistribuicaoDFe and sends recipient manifestation events."
   spec.homepage = "https://github.com/higajooj/dfe_rb"
   spec.license = "MPL-2.0"
   spec.required_ruby_version = ">= 3.3"
@@ -20,6 +21,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "base64"
+  spec.add_dependency "bigdecimal"
   spec.add_dependency "nokogiri", "~> 1.16"
   spec.add_dependency "savon", "~> 2.17"
 
