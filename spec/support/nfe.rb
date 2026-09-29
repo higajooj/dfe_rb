@@ -48,7 +48,7 @@ module NfeHelpers
     DfeRb::Nfe::Client.new(certificate: nfe_certificate, uf: "SP", transport: transport, sleeper: ->(_seconds) {}, **options)
   end
 
-  def simples_invoice(client, number: 1, &block)
+  def simples_invoice(client, number: 1, payment: [:money, "20.00"], &block)
     client.build_invoice do |nfe|
       nfe.series 1
       nfe.number number
@@ -69,7 +69,7 @@ module NfeHelpers
         i.pis cst: "07"
         i.cofins cst: "07"
       end
-      nfe.payment :money, "20.00"
+      nfe.payment(*payment) if payment
       block&.call(nfe)
     end
   end

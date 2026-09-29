@@ -29,12 +29,12 @@ module DfeRb
       def scope = Scope.new(Schema.nfe.find("infNFe"), @infnfe)
 
       # The tag-keyed values with defaults and derived fields filled in.
-      def resolved
-        Resolver.new(environment: environment, memo: @memo, clock: @clock).call(@infnfe)
-      end
+      def resolved = resolve.first
 
       def key
-        id = resolved["@Id"] or raise ValidationError, ["cannot build the access key yet: fill in the issuer, series, number and issue date"]
+        tree, problems = resolve
+        id = tree["@Id"] or raise ValidationError,
+          problems.empty? ? ["cannot build the access key yet: fill in the issuer, series, number and issue date"] : problems
         AccessKey.parse(id.delete_prefix("NFe"))
       end
 
@@ -62,11 +62,18 @@ module DfeRb
 
       private
 
+      # [the resolved tree, the problems met while resolving it]
+      def resolve
+        resolver = Resolver.new(environment: environment, memo: @memo, clock: @clock)
+        tree = resolver.call(@infnfe)
+        [tree, resolver.issues]
+      end
+
       def render(strict:)
-        tree = resolved
+        tree, problems = resolve
         writer = XmlWriter.new
         xml = writer.write("infNFe" => tree)
-        found = writer.issues.dup
+        found = problems + writer.issues
         found.concat(Schemas.nfe_issues(xml)) if found.empty?
         found.concat(Validator.new(tree).issues) if strict
         [xml, found]

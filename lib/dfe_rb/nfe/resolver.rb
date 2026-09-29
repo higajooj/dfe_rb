@@ -1,4 +1,5 @@
 require "bigdecimal"
+require "date"
 require "time"
 
 module DfeRb
@@ -13,14 +14,20 @@ module DfeRb
       # produce another cNF or emission time). Held by the Invoice.
       Memo = Struct.new(:numeric_code, :issued_at)
 
+      # Problems that stopped a field from being derived (the access key needs a valid
+      # emission date, series and number), as validation messages.
+      attr_reader :issues
+
       def initialize(environment:, memo:, clock: Time)
         @environment = Environment.normalize(environment)
         @memo = memo
         @clock = clock
+        @issues = []
       end
 
       # `infNFe` (tag-keyed Hash) => a resolved copy.
       def call(infnfe)
+        @issues = []
         inf = Marshal.load(Marshal.dump(infnfe))
         normalize(inf, Schema.nfe.find("infNFe"))
         ide = (inf["ide"] ||= {})
@@ -67,7 +74,9 @@ module DfeRb
         ide["procEmi"] ||= 0
         ide["verProc"] ||= "dfe_rb #{DfeRb::VERSION}"
         ide["indIntermed"] ||= 0 if [2, 3, 4, 9].include?(ide["indPres"].to_i)
-        ide["dhEmi"] ||= (@memo.issued_at ||= now_in(state))
+        # A copy, so nothing done to the tree can change the memoized time.
+        ide["dhEmi"] ||= (@memo.issued_at ||= now_in(state)).dup
+        ide["dhEmi"] = ide["dhEmi"].to_time if ide["dhEmi"].is_a?(DateTime)
         ide["cNF"] ||= (@memo.numeric_code ||= AccessKey.generate_numeric_code(number: ide["nNF"]))
       end
 
@@ -148,7 +157,10 @@ module DfeRb
         tax_id = emit["CNPJ"] || emit["CPF"]
         return unless tax_id && ide["cUF"] && ide["nNF"] && ide["dhEmi"]
 
-        key = AccessKey.build(state: ide["cUF"], issued_at: issued_time(ide["dhEmi"]), tax_id: tax_id,
+        issued_at = issued_time(ide["dhEmi"])
+        return unless key_parts_valid?(ide, issued_at)
+
+        key = AccessKey.build(state: ide["cUF"], issued_at: issued_at, tax_id: tax_id,
           series: ide["serie"].to_i, number: ide["nNF"].to_i, numeric_code: ide["cNF"], model: ide["mod"].to_i,
           emission_type: ide["tpEmis"].to_i)
         ide["cDV"] = key.check_digit
@@ -156,8 +168,28 @@ module DfeRb
         inf["@versao"] = "4.00"
       end
 
+      # The key has fixed-width positions: values that don't fit are reported instead of
+      # producing a malformed key.
+      def key_parts_valid?(ide, issued_at)
+        problems = []
+        problems << "ide/dhEmi: #{ide["dhEmi"].inspect} is not a date and time (e.g. 2026-09-29T10:00:00-03:00)" unless issued_at
+        problems << "ide/serie: #{ide["serie"]} is not a series (0 to 999)" unless digits?(ide["serie"], 0..999)
+        problems << "ide/nNF: #{ide["nNF"]} is not an invoice number (1 to 999999999)" unless digits?(ide["nNF"], 1..999_999_999)
+        problems << "ide/cNF: #{ide["cNF"]} is not an 8-digit numeric code" unless ide["cNF"].to_s.match?(/\A\d{1,8}\z/)
+        problems << "ide/tpEmis: #{ide["tpEmis"]} is not an emission type (1 to 9)" unless digits?(ide["tpEmis"], 1..9)
+        @issues.concat(problems)
+        problems.empty?
+      end
+
+      def digits?(value, range) = value.to_s.match?(/\A\d+\z/) && range.cover?(value.to_i)
+
       def issued_time(value)
-        value.respond_to?(:strftime) ? value : Time.iso8601(value.to_s)
+        return value.to_time if value.is_a?(DateTime)
+        return value if value.respond_to?(:strftime)
+
+        Time.iso8601(value.to_s)
+      rescue ArgumentError
+        nil
       end
     end
   end

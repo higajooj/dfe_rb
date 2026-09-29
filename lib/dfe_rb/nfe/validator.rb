@@ -8,7 +8,11 @@ module DfeRb
     # the NTs that amend them); rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      IBS_CBS_MANDATORY_SINCE = Time.utc(2026, 8, 3)
+      # IBSCBS mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by tpAmb: in
+      # homologação since 01/07/2026, in production not yet ("implementação futura").
+      IBS_CBS_MANDATORY_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => nil}.freeze
+      # tPag 90 (sem pagamento) and 91 (pagamento posterior) carry vPag 0.00 (RV YA03-30).
+      DEFERRED_PAYMENT_KINDS = %w[90 91].freeze
       MAX_STANDARD_SERIES = 889
 
       def initialize(infnfe)
@@ -160,16 +164,23 @@ module DfeRb
           return add "pag/detPag: at least one payment is required (use kind: :no_payment for none)"
         end
 
+        deferred = details.select { |detail| DEFERRED_PAYMENT_KINDS.include?(detail["tPag"].to_s) }
+        unless deferred.all? { |detail| Totals.number(detail["vPag"]).zero? }
+          add "pag/detPag: with tPag 90 (no payment) or 91 (paid later) vPag must be 0.00 (rej. 904)"
+        end
+        check_payment_total(details) unless deferred.any?
+      end
+
+      # RV YA03-10 is only active for NFC-e ("implementação futura para modelo 55").
+      def check_payment_total(details)
+        return unless @ide["mod"].to_s == "65"
+        return if %w[3 4].include?(@ide["finNFe"].to_s)
+
         paid = Totals.sum(details) { |detail| detail["vPag"] }
         total = Totals.number(@inf.dig("total", "ICMSTot", "vNF"))
-        no_payment = details.all? { |detail| detail["tPag"].to_s == "90" }
-        adjustment = %w[3 4].include?(@ide["finNFe"].to_s)
+        return unless paid < total - TOLERANCE
 
-        if no_payment
-          add "pag/detPag: with tPag 90 (no payment) vPag must be 0.00 (rej. 871)" unless paid.zero?
-        elsif !adjustment && paid < total - TOLERANCE
-          add "pag: the payments (#{amount(paid)}) are less than the invoice total (#{amount(total)}) (rej. 865)"
-        end
+        add "pag: the payments (#{amount(paid)}) are less than the invoice total (#{amount(total)}) (rej. 865)"
       end
 
       def check_billing
@@ -181,22 +192,33 @@ module DfeRb
         check_amount("cobr/dup", Totals.sum(installments) { |dup| dup["vDup"] }, net, "the invoice net amount (fat/vLiq)")
       end
 
-      # Regime normal must carry IBS/CBS on ordinary notes since the RTC took effect.
+      # Regime normal must carry IBS/CBS where the RTC is in force (RV UB12-10). Devolução
+      # (finNFe 4) is exempt; so is a complementar note referencing one issued before 2027,
+      # which can't be told from here, so finNFe 2 is left to SEFAZ.
       def check_ibs_cbs
         return unless @inf.dig("emit", "CRT").to_s == "3"
-        return unless %w[1 3].include?(@ide["finNFe"].to_s)
-        return unless issued_at && issued_at >= IBS_CBS_MANDATORY_SINCE
+        return if %w[2 4].include?(@ide["finNFe"].to_s)
+
+        since = IBS_CBS_MANDATORY_SINCE[@ide["tpAmb"].to_s]
+        return unless since && issued_at && issued_at >= since
 
         Array(@inf["det"]).each_with_index do |item, index|
           next if item.dig("imposto", "IBSCBS") || item.dig("prod", "comb")
 
-          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for regime normal since 03/08/2026 (rej. 1115)"
+          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for regime normal in homologacao since " \
+            "#{since.strftime("%d/%m/%Y")} (rej. 1115)"
         end
       end
 
+      # dhEmi as a Time, without touching the value in the tree (Time#utc would change it in
+      # place, and with it the invoice's memoized issue time).
       def issued_at
         value = @ide["dhEmi"]
-        value.respond_to?(:utc) ? value.utc : (Time.iso8601(value.to_s).utc if value)
+        return value.to_time.getutc if value.respond_to?(:to_time) && !value.is_a?(String)
+
+        Time.iso8601(value.to_s).getutc if value
+      rescue ArgumentError
+        nil
       end
 
       def check_amount(path, given, expected, description, rejection = nil)

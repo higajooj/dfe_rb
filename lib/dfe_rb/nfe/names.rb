@@ -140,7 +140,8 @@ module DfeRb
           money: "01", check: "02", credit_card: "03", debit_card: "04", store_credit: "05", food_voucher: "10",
           meal_voucher: "11", gift_voucher: "12", fuel_voucher: "13", commercial_installment: "14", bank_slip: "15",
           bank_deposit: "16", instant_payment: "17", pix: "17", bank_transfer: "18", cashback: "19",
-          static_pix: "20", store_credit_card: "21", other_electronic: "22", no_payment: "90", other: "99"
+          static_pix: "20", store_credit_card: "21", other_electronic: "22", no_payment: "90", deferred_payment: "91",
+          other: "99"
         },
         "indPag" => {cash: 0, installments: 1},
         "orig" => {

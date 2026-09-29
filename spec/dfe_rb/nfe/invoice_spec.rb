@@ -316,6 +316,41 @@ RSpec.describe DfeRb::Nfe::Invoice do
 
       expect(invoice.issues).to contain_exactly(a_string_matching(%r{det\[1\]/imposto/IBSCBS: mandatory for regime normal}))
     end
+
+    it "does not require IBS/CBS in production yet (NT 2025.002 v1.51, RV UB12-10)" do
+      production = nfe_client(NfeHelpers::FakeTransport.new, environment: :production)
+      invoice = normal_regime(production) { |nfe|
+        nfe.item do |i|
+          i.code "A1"
+          i.description "Item"
+          i.ncm "84713012"
+          i.cfop "5102"
+          i.unit "UN"
+          i.quantity 1
+          i.unit_price "10.00"
+          i.icms cst: "00", origin: 0, base_mode: 3, base: "10.00", rate: "18.00", amount: "1.80"
+          i.pis cst: "07"
+          i.cofins cst: "07"
+        end
+        nfe.payment :money, "10.00"
+      }
+
+      expect(invoice.issues).to eq([])
+    end
+
+    it "keeps the same issue time and key however often it is rendered" do
+      clock = Class.new { def self.now = Time.new(2026, 9, 30, 23, 30, 0, "-03:00") }
+      invoice = normal_regime(nfe_client(NfeHelpers::FakeTransport.new, clock: clock)) { |nfe|
+        taxed_item(nfe)
+        nfe.payment :credit_card, "300.00"
+      }
+
+      first = invoice.to_xml
+      expect(invoice.issues).to eq([])
+      expect(invoice.to_xml).to eq(first)
+      expect(invoice.key.year_month).to eq("2609")
+      expect(Nokogiri::XML(first).at_xpath("//nfe:dhEmi", ns).text).to eq("2026-09-30T23:30:00-03:00")
+    end
   end
 
   describe "tax groups" do
@@ -469,23 +504,55 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(issues_of { |nfe| nfe.recipient cnpj: "11222333000182" }).to include(a_string_matching(%r{dest/CNPJ: 11222333000182 is not a valid CNPJ}))
     end
 
-    it "flags reserved series and a payment below the total" do
+    it "flags reserved series" do
       expect(issues_of { |nfe| nfe.series 920 }).to include(a_string_matching(/serie: 920 is reserved/))
-      low = simples_invoice(client) { |nfe|
+    end
+
+    it "leaves payments below the total to SEFAZ on modelo 55 (RV YA03-10 is not active for it)" do
+      invoice = simples_invoice(client, payment: [:money, "5.00"])
+      expect(invoice.issues).to eq([])
+    end
+
+    it "accepts pagamento posterior (tPag 91) with vPag 0.00 and rejects any other amount" do
+      expect(simples_invoice(client, payment: [:deferred_payment, "0.00"]).issues).to eq([])
+      expect(simples_invoice(client, payment: [:deferred_payment, "20.00"]).issues)
+        .to include(a_string_matching(/tPag 90 \(no payment\) or 91 \(paid later\) vPag must be 0.00 \(rej. 904\)/))
+    end
+
+    it "reports a bad issue date or a series out of range instead of raising" do
+      expect(issues_of { |nfe| nfe.series 1000 }).to include(a_string_matching(%r{ide/serie: 1000 is not a series}))
+      expect(issues_of { |nfe| nfe.issued_at "bad-date" }).to include(a_string_matching(%r{ide/dhEmi: "bad-date" is not a date}))
+      expect { client.sign(simples_invoice(client) { |nfe| nfe.series 1000 }) }.to raise_error(DfeRb::ValidationError, /serie/)
+    end
+
+    it "accepts a DateTime issue date" do
+      invoice = simples_invoice(client) { |nfe| nfe.issued_at DateTime.new(2026, 9, 30, 23, 30, 0, "-03:00") }
+
+      expect(invoice.issues).to eq([])
+      expect(text(doc(invoice), "//nfe:ide/nfe:dhEmi")).to eq("2026-09-30T23:30:00-03:00")
+      expect(invoice.key.year_month).to eq("2609")
+    end
+
+    it "adds the retained monophase ICMS to the invoice total" do
+      invoice = simples_invoice(client, payment: [:money, "42.00"]) { |nfe|
         nfe.item { |i|
-          i.code "5"
-          i.description "x"
-          i.ncm "84713012"
+          i.code "7"
+          i.description "Diesel"
+          i.ncm "27101921"
           i.cfop "6102"
-          i.unit "UN"
+          i.unit "L"
           i.quantity 1
-          i.unit_price "30.00"
-          i.icms(csosn: "102", origin: 0)
+          i.unit_price "20.00"
+          i.icms cst: "15", origin: 0, mono_base: "10", mono_ad_rem: "0.1", mono_amount: "1.00",
+            mono_retained_base: "10", mono_retained_ad_rem: "0.2", mono_retained_amount: "2.00"
           i.pis(cst: "07")
           i.cofins(cst: "07")
         }
       }
-      expect(low.issues).to include(a_string_matching(/pag: the payments \(20.00\) are less than the invoice total \(50.00\)/))
+
+      expect(invoice.issues).to eq([])
+      expect(text(doc(invoice), "//nfe:ICMSTot/nfe:vICMSMonoReten")).to eq("2.00")
+      expect(text(doc(invoice), "//nfe:ICMSTot/nfe:vNF")).to eq("42.00")
     end
 
     it "flags totals that disagree with the items" do

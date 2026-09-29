@@ -5,6 +5,9 @@ module DfeRb
     # Derives the invoice totals (<total>) from the items, following the sums the validation
     # rules of Anexo I §W require. Tax values themselves are never computed: they come from
     # the items.
+    #
+    # Item values are rounded as the XML will show them before they are added, so a total
+    # always matches the sum of what the recipient (and SEFAZ) reads.
     module Totals
       ZERO = BigDecimal(0)
 
@@ -14,6 +17,12 @@ module DfeRb
       ICMS_FCP_ST = %w[ICMS10 ICMS30 ICMS70 ICMS90 ICMSPart ICMSSN201 ICMSSN202 ICMSSN900].freeze
       ICMS_FCP_ST_RET = %w[ICMS60 ICMSST ICMSSN500].freeze
       ICMS_EXEMPTION = %w[ICMS20 ICMS30 ICMS40 ICMS70 ICMS90 ICMSPart].freeze
+      # Monophase fuel taxation (NT 2023.001): each tag exists only in the variants that carry it.
+      ICMS_MONO = %w[ICMS02 ICMS15 ICMS53 ICMS61].freeze
+      MONO_TAGS = %w[qBCMono vICMSMono qBCMonoReten vICMSMonoReten qBCMonoRet vICMSMonoRet].freeze
+      QUANTITY_PLACES = 4
+      # Faturamento direto de veículos novos (veicProd/tpOp).
+      DIRECT_VEHICLE_SALE = "2"
 
       module_function
 
@@ -29,8 +38,9 @@ module DfeRb
 
       def money(value) = number(value).round(2, half: :up)
 
-      def sum(items)
-        items.sum(ZERO) { |item| number(yield(item)) }
+      # Sum of the values the block picks, each rounded to `places` as the XML writes it.
+      def sum(items, places: 2)
+        items.sum(ZERO) { |item| number(yield(item)).round(places, half: :up) }
       end
 
       def icms_variant(item)
@@ -39,8 +49,8 @@ module DfeRb
       end
 
       # Sum of `tag` over the items whose ICMS variant is in `variants`.
-      def icms_sum(items, variants, tag)
-        sum(items) do |item|
+      def icms_sum(items, variants, tag, places: 2)
+        sum(items, places: places) do |item|
           name, values = icms_variant(item)
           (name && variants.include?(name)) ? values[tag] : nil
         end
@@ -79,6 +89,12 @@ module DfeRb
           "vOutro" => prod.call("vOutro")
         }
 
+        if items.any? { |item| ICMS_MONO.include?(icms_variant(item)&.first) }
+          MONO_TAGS.each do |tag|
+            total[tag] = icms_sum(items, ICMS_MONO, tag, places: tag.start_with?("q") ? QUANTITY_PLACES : 2)
+          end
+        end
+
         destination = items.filter_map { |item| item.dig("imposto", "ICMSUFDest") }
         unless destination.empty?
           total["vFCPUFDest"] = sum(destination) { |d| d["vFCPUFDest"] }
@@ -86,37 +102,50 @@ module DfeRb
           total["vICMSUFRemet"] = sum(destination) { |d| d["vICMSUFRemet"] }
         end
 
-        total["vNF"] = invoice_amount(total, deduct_exemption: exemption_deducted?(items))
+        total["vNF"] = invoice_amount(total, items)
         total.transform_values { |value| money(value) }
       end
 
-      # vNF as RV W16-10 defines it. (IBS/CBS/IS are "por fora" and stay out in 2026.)
-      def invoice_amount(total, deduct_exemption: false)
-        amount = number(total["vProd"]) - number(total["vDesc"]) + number(total["vST"]) + number(total["vFCPST"]) +
-          number(total["vFrete"]) + number(total["vSeg"]) + number(total["vOutro"]) + number(total["vII"]) +
-          number(total["vIPI"]) + number(total["vIPIDevol"])
-        amount -= number(total["vICMSDeson"]) if deduct_exemption
-        amount
+      # vNF as RV W16-10 defines it (NT 2023.001 v1.60). IBS/CBS/IS are "por fora" and stay
+      # out in 2026.
+      def invoice_amount(total, items)
+        amount = number(total["vProd"]) - number(total["vDesc"]) + number(total["vFrete"]) + number(total["vSeg"]) +
+          number(total["vOutro"]) + number(total["vII"]) + number(total["vIPI"]) + number(total["vIPIDevol"])
+        amount -= deducted_exemption(items)
+        amount += sum(items) { |item| item.dig("imposto", "PISST", "vPIS") if item.dig("imposto", "PISST", "indSomaPISST").to_s == "1" }
+        amount += sum(items) do |item|
+          item.dig("imposto", "COFINSST", "vCOFINS") if item.dig("imposto", "COFINSST", "indSomaCOFINSST").to_s == "1"
+        end
+        return amount if direct_vehicle_sale?(items)
+
+        amount + number(total["vST"]) + number(total["vFCPST"]) + number(total["vICMSMonoReten"])
       end
 
-      def exemption_deducted?(items)
-        items.any? do |item|
-          _name, values = icms_variant(item)
-          values && values["indDeduzDeson"].to_s == "1"
+      # vICMSDeson of the items that flag it as deducted from their value (indDeduzDeson=1).
+      def deducted_exemption(items)
+        sum(items) do |item|
+          name, values = icms_variant(item)
+          values["vICMSDeson"] if ICMS_EXEMPTION.include?(name) && values["indDeduzDeson"].to_s == "1"
         end
       end
 
-      # IBSCBSTot for the items carrying a normal-tax <gIBSCBS> group, or nil.
+      def direct_vehicle_sale?(items)
+        items.any? { |item| item.dig("prod", "veicProd", "tpOp").to_s == DIRECT_VEHICLE_SALE }
+      end
+
+      # IBSCBSTot, required once any item carries <IBSCBS> (RV W34-20), or nil. The IBS/CBS,
+      # monophase and credit-reversal groups appear only when some item has them.
       def ibs_cbs_total(items)
-        groups = items.filter_map { |item| item.dig("imposto", "IBSCBS", "gIBSCBS") }
-        return if groups.empty?
+        taxed = items.filter_map { |item| item.dig("imposto", "IBSCBS") }
+        return if taxed.empty?
 
+        groups = taxed.filter_map { |ibscbs| ibscbs["gIBSCBS"] }
         part = ->(*path) { sum(groups) { |group| group.dig(*path) } }
-        credit = ->(tag, side) { sum(items) { |item| item.dig("imposto", "IBSCBS", "gCredPresOper", side, tag) } }
+        credit = ->(tag, side) { sum(taxed) { |ibscbs| ibscbs.dig("gCredPresOper", side, tag) } }
 
-        {
-          "vBCIBSCBS" => money(part.call("vBC")),
-          "gIBS" => {
+        total = {"vBCIBSCBS" => money(part.call("vBC"))}
+        unless groups.empty?
+          total["gIBS"] = {
             "gIBSUF" => {"vDif" => money(part.call("gIBSUF", "gDif", "vDif")),
                          "vDevTrib" => money(part.call("gIBSUF", "gDevTrib", "vDevTrib")),
                          "vIBSUF" => money(part.call("gIBSUF", "vIBSUF"))},
@@ -126,15 +155,38 @@ module DfeRb
             "vIBS" => money(part.call("vIBS")),
             "vCredPres" => money(credit.call("vCredPres", "gIBSCredPres")),
             "vCredPresCondSus" => money(credit.call("vCredPresCondSus", "gIBSCredPres"))
-          },
-          "gCBS" => {
+          }
+          total["gCBS"] = {
             "vDif" => money(part.call("gCBS", "gDif", "vDif")),
             "vDevTrib" => money(part.call("gCBS", "gDevTrib", "vDevTrib")),
             "vCBS" => money(part.call("gCBS", "vCBS")),
             "vCredPres" => money(credit.call("vCredPres", "gCBSCredPres")),
             "vCredPresCondSus" => money(credit.call("vCredPresCondSus", "gCBSCredPres"))
           }
-        }
+        end
+
+        mono = taxed.filter_map { |ibscbs| ibscbs["gIBSCBSMono"] }
+        unless mono.empty?
+          total["gMono"] = %w[vIBSMono vCBSMono vIBSMonoReten vCBSMonoReten vIBSMonoRet vCBSMonoRet].to_h do |tag|
+            [tag, money(mono.sum(ZERO) { |group| nested_sum(group, tag) })]
+          end
+        end
+
+        reversals = taxed.filter_map { |ibscbs| ibscbs["gEstornoCred"] }
+        unless reversals.empty?
+          total["gEstornoCred"] = %w[vIBSEstCred vCBSEstCred].to_h { |tag| [tag, money(sum(reversals) { |group| group[tag] })] }
+        end
+        total
+      end
+
+      # Sum of every `tag` anywhere inside `data` (the monophase group nests its values by
+      # ad rem / ad valorem and by kind).
+      def nested_sum(data, tag)
+        case data
+        when Hash then data.sum(ZERO) { |key, value| (key == tag) ? number(value).round(2, half: :up) : nested_sum(value, tag) }
+        when Array then data.sum(ZERO) { |value| nested_sum(value, tag) }
+        else ZERO
+        end
       end
     end
   end

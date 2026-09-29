@@ -149,6 +149,8 @@ module DfeRb
       def format_time(time, type)
         return time.strftime("%Y-%m-%d") if type&.name == "TData"
 
+        time = time.to_time if time.is_a?(DateTime) # keeps the offset; DateTime has no utc_offset
+
         offset = time.utc_offset
         raise Invalid, "needs a whole-hour UTC offset (got #{time.strftime("%:z")})" unless (offset % 3600).zero?
 
