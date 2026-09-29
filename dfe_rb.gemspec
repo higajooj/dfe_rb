@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Brazilian SEFAZ DF-e client: emit NF-e, query distribution, manifest as recipient."
   spec.description = "Issues NF-e (modelo 55, layout 4.00) in production and homologacao with an A1 certificate: " \
     "builds and validates the XML, signs it, authorizes it (sync and lot), consults, cancels, corrects and " \
-    "inutilizes. Also fetches documents from NFeDistribuicaoDFe and sends recipient manifestation events."
+    "inutilizes. Also queries NFeDistribuicaoDFe with typed document metadata and sends all four recipient manifestation events."
   spec.homepage = "https://github.com/higajooj/dfe_rb"
   spec.license = "MPL-2.0"
   spec.required_ruby_version = ">= 3.3"
@@ -23,7 +23,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency "base64"
   spec.add_dependency "bigdecimal"
   spec.add_dependency "nokogiri", "~> 1.16"
-  spec.add_dependency "savon", "~> 2.17"
 
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.13"

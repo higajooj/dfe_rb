@@ -5,7 +5,7 @@
 Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 
 - **Emit NF-e** (modelo 55, layout 4.00) in production and homologação: build, validate, sign, authorize, consult, cancel, correct (CC-e) and inutilize. IBS/CBS (Reforma Tributária) included.
-- **Distribution** (`NFeDistribuicaoDFe`) and **recipient manifestation** events: `DfeRb::Dfe` and `DfeRb::Manifest`.
+- **Distribution** (`NFeDistribuicaoDFe`) and all four **recipient manifestations** through `DfeRb::Nfe::Distribution::Client`: typed metadata, exact decoded XML, consumption guidance, and signed events ready to archive.
 
 Not covered yet: NFC-e (modelo 65), contingency (SVC, EPEC, offline), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
 
@@ -118,6 +118,93 @@ client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por er
 event.proc_xml                                                   # procEventoNFe to archive, as event.filename ("<chave>_<tpEvento>_<seq>-procEventoNFe.xml")
 ```
 
+## Distribution and recipient manifestation
+
+```ruby
+distribution = DfeRb::Nfe::Distribution::Client.new(
+  certificate: certificate, environment: :production,
+  tax_id: "11.444.777/0001-61" # optional: defaults to the certificate holder
+)
+
+batch = distribution.distribute(after: 0) # one request, at most 50 documents
+if batch.success?
+  batch.documents.each { |document| File.binwrite(document.filename, document.xml) }
+  # Persist batch.last_nsu only AFTER storing every document successfully.
+end
+
+batch.code; batch.message
+batch.last_nsu; batch.max_nsu # 15-digit strings, or nil when not supplied
+batch.more?                 # true only when a sequential distribution has more documents
+batch.retry_at              # advisory Time for a known cooldown, otherwise nil
+
+distribution.fetch_nsu("42")       # one specific document; fills a known NSU gap
+received_key = batch.documents.find(&:invoice?)&.key
+distribution.fetch_key(received_key) if received_key # one received NF-e; excludes its events
+```
+
+This client always uses **Ambiente Nacional**, independently of the issuer's authorizer. Optional `uf: "MS"` sends `cUFAutor`; omitting it leaves that optional field out. Like the emission client, it accepts `transport:`, `endpoints:`, `timeouts:`, `logger:` and `clock:`. Endpoint overrides use `:distribution` and `:manifestation`; `raw(service, xml)` returns the unparsed service answer. Homologação is the default. CNPJ punctuation/case is normalized; numeric and alphanumeric CNPJ and CPF are supported. A company's certificate can query any branch sharing its CNPJ base; an e-CPF can query only its own CPF. Certificate validity and identity are checked before requests.
+
+Every query returns a `DistributionResult`. Its status is `:documents` (138), `:empty` (137), `:blocked` (656), `:unavailable` (108/109), or `:rejected`; `success?` includes both 137 and 138. `distribute!`, `fetch_nsu!`, and `fetch_key!` raise `DfeRb::Nfe::Rejected` or `ConsumptionBlocked` for unsuccessful outcomes and retain the result in `error.result`. Results also expose `query` (`:dist_nsu`, `:cons_nsu`, `:cons_key`), `environment`, `application_version`, `responded_at`, `request_xml`, and `response_xml`.
+
+Documents expose `kind`, `schema`, optional `nsu`, `key` where available, `xml`, and `filename`. The XML is the **exact decompressed content**, including its declaration and whitespace. There are five document types:
+
+| Type | Kind | Metadata |
+| --- | --- | --- |
+| `InvoiceSummary` | `:invoice_summary` | `issuer_tax_id`, `issuer_name`, `state_registration`, `issued_at`, `direction`, `total`, `digest_value`, `received_at`, `protocol`, `situation_code`, `status` |
+| `InvoiceDocument` | `:invoice` | Issuer identity/name, `recipient_tax_id`, issue/receipt times, `total`, `protocol`, `code`, `message` |
+| `EventSummary` | `:event_summary` | `type`, `sequence`, `description`, `author_tax_id`, `authority`, `occurred_at`, `registered_at`, `protocol` |
+| `EventDocument` | `:event` | Event summary metadata plus `code` and `message` |
+| `UnknownDocument` | `:unknown` | Preserved XML and a safe deterministic filename |
+
+These classes live under `DfeRb::Nfe::Distribution`. Monetary totals are `BigDecimal`, timestamps are `Time` with their source offset, and protocol numbers remain strings. Historic date-only issue dates become midnight UTC. The invoice summary's `status` is `:authorized`, `:denied`, `:canceled`, or `:unknown`; a downloaded full invoice's authorization protocol does not by itself establish its current situation—keep subsequent events too. `summary?`, `invoice?`, and `event?` distinguish documents. Full invoice contents remain available through XML rather than a second invoice object model.
+
+The actual XML root determines the document type. Other valid XML is preserved as `UnknownDocument`, and distributed events are not restricted to the four manifestation types. The gem never opens a schema named in a response. Invalid XML, Base64, Gzip/CRC, conflicting protocol identities, and oversized decompression raise `Distribution::InvalidResponse < DfeRb::TransportError`, with `response_xml`, `schema`, and `nsu` where available. A bad document fails the entire batch. The decompressed limit is 10 MiB per document; adjust `max_document_bytes:` when necessary.
+
+### Consumption rules and cursors
+
+The gem performs **one request per call**. It does not sleep, paginate, retry, store cursors, enforce in-memory quotas, or coordinate processes. Your application must share a single ordered `ultNSU` cursor for each interested party/environment across every consumer and preserve SEFAZ's returned `last_nsu` rather than deriving it from document NSUs. Returned document NSUs and response cursors can be absent; targeted queries never advance your distribution cursor.
+
+After a sequential 137, or a successful batch reaching `max_nsu`, wait at least one hour. Any 656 also requires a one-hour wait; another request before the hour expires restarts the block. `retry_at` is computed conservatively from local response receipt. Targeted queries have a limit of 20 queries per hour; coordinate their use across consumers. An empty targeted query does not imply sequential exhaustion, so it has no automatic cooldown advice unless it returns 656.
+
+Documents are available for up to 90 days after reception by Ambiente Nacional. New consumers start generating NSUs on their first sequential query; there is no retroactive NSU generation. After more than 60 days without use, generation pauses and resumes on the next sequential query, also without backfilling the gap. A zero cursor does not guarantee recovery of every invoice from the last 90 days. Issuers retrieve distributed documents of interest, such as recipient events, rather than their own issued invoices.
+
+### Explicit recipient manifestations
+
+```ruby
+key = received_key # select a received NF-e from your application
+
+distribution.manifest(key, type: :awareness) # 210210: Ciência da Operação
+# Choose the appropriate conclusive statement for the actual operation:
+distribution.manifest(key, type: :confirmation)      # 210200
+distribution.manifest(key, type: :unknown_operation) # 210220
+distribution.manifest(key, type: :not_performed, reason: "Mercadoria recusada pelo destinatario") # 210240
+```
+
+These are alternative statements of the recipient's knowledge and participation; select the one that describes the operation. The gem never sends one while querying or decoding documents. Awareness is optional and is not conclusive. It, confirmation, and operation-not-performed can make full XML available to the recipient; unknown-operation does not unlock it. The intended workflow is: retrieve summary, explicitly submit the appropriate manifestation, then retrieve the newly available full XML with a later distribution or targeted query. Availability is asynchronous and not guaranteed by the event response alone.
+
+Each conclusive type permits sequences 1 and 2; awareness permits only 1. Set `sequence: 2` explicitly for a second occurrence; the gem never increments it after a rejection or duplicate. The current NT specifies awareness within 10 days of authorization and conclusive manifestations within 90 days, with the applicable rectification rules. The application must decide which manifestation is appropriate and track its legal deadlines/history; the gem cannot infer that from an access key.
+
+For durable submission, prepare and store the signed event first:
+
+```ruby
+event = distribution.prepare_manifestation(key, type: :awareness) # UTC now; optional at: Time
+File.binwrite(event.filename, event.xml)
+manifestation = distribution.manifest(event)
+File.binwrite(manifestation.filename, manifestation.proc_xml) if manifestation.registered?
+
+restored = DfeRb::Nfe::Distribution::SignedManifestation.new(xml: File.binread(event.filename))
+# Pass restored to manifest only when your recovery policy calls for resubmission.
+
+confirmation = distribution.prepare_manifestation(key, type: :confirmation, sequence: 2)
+responses = distribution.manifest([event, confirmation], lot_id: "123") # up to 20, one call
+```
+
+A key-based call builds and submits in one step. Arrays return arrays in input order, including for one element. Prepared events permit mixed types; a scalar returns one `ManifestationResult`. Stored events are revalidated for their author, environment, official details, signing certificate identity, signature, and event ID. A renewed certificate for the same company can transmit an earlier event; the embedded signing certificate must have been valid at the event time. The exact signed bytes are kept. `reason:` is required only for `:not_performed`, with 15–255 characters. Duplicate event identities within a batch are rejected locally, and prepared events cannot have their type/details overridden.
+
+Manifestation results distinguish `:registered` (135, `linked?`), `:registered_unlinked` (136), `:duplicate` (573), and `:rejected`. `registered?` includes 135/136. They expose `key`, official event `type`, `sequence`, `code`, `message`, `protocol`, `registered_at`, `event_xml`, `return_xml`, `request_xml`, and `response_xml`. Only registered answers produce `proc_xml`. `manifest!` raises for unsuccessful events, including duplicates; it does not turn a duplicate into a registration or invent its protocol. Malformed, missing, or conflicting event answers raise `InvalidResponse`.
+
+A transport failure preserves `maybe_processed?`. A lost manifestation answer may already have registered the event: keep the signed XML and reconcile the outcome before resubmission. There is no automatic retry or recovery lookup, and distribution queries after a lost answer may still have affected SEFAZ's consumption controls.
+
 ## Advanced
 
 ```ruby
@@ -141,8 +228,8 @@ Certificates: A1 only, from a `.pfx` (`DfeRb::Certificate.from_pkcs12`), PEM, or
 DFE_RB_LIVE=1 DFE_RB_PFX=empresa.pfx DFE_RB_PFX_PASSWORD=... bundle exec rspec spec/live
 ```
 
-They confirm the SOAP contract and every service with your certificate. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`.
+They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`.
 
 ## Legislation
 
-Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
+Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).

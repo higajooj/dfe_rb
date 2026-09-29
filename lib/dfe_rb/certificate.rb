@@ -8,9 +8,38 @@ module DfeRb
     CNPJ_OID = "2.16.76.1.3.3"
     CPF_OID = "2.16.76.1.3.1"
 
+    # The holder is readable from a public X509 certificate too (restored XML signatures).
+    module Identity
+      module_function
+
+      def cnpj(certificate)
+        other_name(certificate, CNPJ_OID)&.slice(/\A[0-9A-Z]{12}[0-9]{2}\z/) ||
+          certificate.subject.to_a.find { |name, *| name == "CN" }&.dig(1).to_s[/:([0-9A-Z]{12}[0-9]{2})\z/, 1]
+      end
+
+      def cpf(certificate) = other_name(certificate, CPF_OID)&.slice(8, 11)
+
+      def other_name(certificate, oid)
+        san = certificate.extensions.find { |extension| extension.oid == "subjectAltName" }
+        return unless san
+
+        OpenSSL::ASN1.decode(san.value_der).value.each do |name|
+          next unless name.tag_class == :CONTEXT_SPECIFIC && name.tag == 0
+
+          name_oid, value = name.value
+          return value.value.first.value.to_s.dup.force_encoding(Encoding::UTF_8) if name_oid.value == oid
+        end
+        nil
+      end
+    end
+    private_constant :Identity
+
     attr_reader :certificate, :private_key, :chain
 
     class << self
+      # CNPJ/CPF of a public X509 certificate, without requiring its private key.
+      def tax_id_of(certificate) = Identity.cnpj(certificate) || Identity.cpf(certificate)
+
       # A PKCS#12 (.pfx / .p12) file's bytes and password. Many ICP-Brasil A1 files use
       # RC2-40, which OpenSSL 3 only reads through its "legacy" provider; that provider is
       # loaded just long enough to open the file.
@@ -73,17 +102,14 @@ module DfeRb
     end
 
     # The holder's CNPJ, from the ICP-Brasil subjectAltName, or nil.
-    def cnpj
-      @cnpj ||= other_name(CNPJ_OID)&.slice(/\A[0-9A-Z]{12}[0-9]{2}\z/) ||
-        subject_common_name.to_s[/:([0-9A-Z]{12}[0-9]{2})\z/, 1]
-    end
+    def cnpj = @cnpj ||= Identity.cnpj(certificate)
 
     # First 8 characters of the CNPJ: any branch's certificate may sign for the whole company.
     def cnpj_root = cnpj&.slice(0, 8)
 
     # The holder's CPF (e-CPF certificates), or nil.
     def cpf
-      @cpf ||= other_name(CPF_OID)&.slice(8, 11)
+      @cpf ||= Identity.cpf(certificate)
     end
 
     def tax_id = cnpj || cpf
@@ -102,22 +128,5 @@ module DfeRb
     def base64 = [to_der].pack("m0")
 
     def inspect = "#<#{self.class} cnpj=#{cnpj.inspect} expires_at=#{expires_at.iso8601}>"
-
-    private
-
-    def subject_common_name = certificate.subject.to_a.find { |name, *| name == "CN" }&.dig(1)
-
-    def other_name(oid)
-      san = certificate.extensions.find { |extension| extension.oid == "subjectAltName" }
-      return unless san
-
-      OpenSSL::ASN1.decode(san.value_der).value.each do |name|
-        next unless name.tag_class == :CONTEXT_SPECIFIC && name.tag == 0
-
-        name_oid, value = name.value
-        return value.value.first.value.to_s.dup.force_encoding(Encoding::UTF_8) if name_oid.value == oid
-      end
-      nil
-    end
   end
 end

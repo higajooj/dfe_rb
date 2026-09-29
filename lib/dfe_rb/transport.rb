@@ -4,7 +4,8 @@ require "nokogiri"
 
 module DfeRb
   # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
-  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>. No WSDL is fetched.
+  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>. National distribution
+  # endpoints supply their operation wrapper/result tag. No WSDL is fetched.
   #
   # Anything responding to #post(endpoint, xml) can stand in for it (tests, proxies, retries).
   class Transport
@@ -22,35 +23,43 @@ module DfeRb
 
     # endpoint: anything with #url, #namespace and #operation (see Nfe::Endpoints).
     def post(endpoint, xml)
-      envelope = self.class.envelope(endpoint.namespace, xml)
+      wrapper = endpoint.respond_to?(:request_wrapper) ? endpoint.request_wrapper : nil
+      result_tag = endpoint.respond_to?(:result_tag) ? endpoint.result_tag : "nfeResultMsg"
+      envelope = self.class.envelope(endpoint.namespace, xml, wrapper: wrapper)
       log(:info) { "SEFAZ #{endpoint.operation} #{endpoint.url}" }
       log(:debug) { "request: #{DfeRb.filter_xml(envelope)}" }
 
       body = perform(URI(endpoint.url), envelope, endpoint)
       log(:debug) { "response: #{DfeRb.filter_xml(body)}" }
-      self.class.extract_result(body)
+      self.class.extract_result(body, result_tag: result_tag)
     end
 
     class << self
-      def envelope(namespace, xml)
+      def envelope(namespace, xml, wrapper: nil)
         payload = xml.sub(/\A\s*<\?xml[^>]*\?>\s*/, "")
+        message = %(<nfeDadosMsg xmlns="#{namespace}">#{payload}</nfeDadosMsg>)
+        message = %(<#{wrapper} xmlns="#{namespace}">#{message}</#{wrapper}>) if wrapper
         %(<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ) +
           %(xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="#{SOAP_ENVELOPE_NAMESPACE}"><soap12:Body>) +
-          %(<nfeDadosMsg xmlns="#{namespace}">#{payload}</nfeDadosMsg></soap12:Body></soap12:Envelope>)
+          %(#{message}</soap12:Body></soap12:Envelope>)
       end
 
-      # The XML document inside <nfeResultMsg>, or a TransportError for SOAP faults and
+      # The XML document inside the endpoint's result tag, or a TransportError for SOAP faults and
       # bodies that aren't a SEFAZ answer.
-      def extract_result(body)
+      def extract_result(body, result_tag: "nfeResultMsg")
         doc = Nokogiri::XML(body) { |config| config.strict.nonet }
+        raise TransportError.new("response contains a DTD", maybe_processed: true) if doc.internal_subset || doc.external_subset
         if (fault = doc.at_xpath("//*[local-name()='Fault']"))
           reason = fault.at_xpath(".//*[local-name()='Text' or local-name()='faultstring']")&.text
           raise TransportError.new("SOAP fault: #{reason || fault.text.strip}", maybe_processed: false)
         end
 
-        result = doc.at_xpath("//*[local-name()='nfeResultMsg']")
+        results = doc.xpath("//*[local-name()='#{result_tag}']")
+        result = results.first
         content = result&.element_children&.first
-        raise TransportError.new("response has no <nfeResultMsg> content", maybe_processed: true) unless content
+        unless results.size == 1 && content && result.element_children.size == 1
+          raise TransportError.new("response has no unambiguous <#{result_tag}> content", maybe_processed: true)
+        end
 
         content.dup.to_xml(save_with: Nokogiri::XML::Node::SaveOptions::AS_XML)
       rescue Nokogiri::XML::SyntaxError => e

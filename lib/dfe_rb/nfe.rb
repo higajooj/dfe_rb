@@ -28,3 +28,5 @@ module DfeRb
   module Nfe
   end
 end
+
+require_relative "nfe/distribution"

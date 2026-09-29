@@ -1,6 +1,6 @@
-require "savon"
 require "nokogiri"
 require "date"
+require "time"
 require "openssl"
 
 require_relative "dfe_rb/version"
@@ -13,14 +13,7 @@ module DfeRb
   CA_BUNDLE = File.expand_path("dfe_rb/certs/icp-brasil.pem", __dir__)
 
   class << self
-    # Savon logging is off unless a logger is set.
     attr_accessor :logger
-
-    def savon_log_options
-      return {log: false} unless logger
-
-      {log: true, logger: logger, log_headers: false, pretty_print_xml: false, filters: LOG_FILTERS}
-    end
 
     # System roots plus ICP-Brasil, which some SEFAZ endpoints chain to and
     # which isn't in OS trust stores.
@@ -49,6 +42,4 @@ require_relative "dfe_rb/tax_id"
 require_relative "dfe_rb/certificate"
 require_relative "dfe_rb/signer"
 require_relative "dfe_rb/transport"
-require_relative "dfe_rb/dfe"
-require_relative "dfe_rb/manifest"
 require_relative "dfe_rb/nfe"
