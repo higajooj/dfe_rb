@@ -79,14 +79,16 @@ i.ibs_cbs cst: "000", class_code: "000001", base: "300.00",
           ibs_uf: {rate: "0.10", amount: "0.30"}, ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "2.70"}
 ```
 
-The XML group comes from the CST/CSOSN. Regime normal (`tax_regime: :normal`) must carry IBS/CBS on ordinary notes; the CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
+The XML group comes from the CST/CSOSN. Regime normal (`tax_regime: :normal`) must carry IBS/CBS on every note except returns (RV UB12-10): in homologação since 01/07/2026, and not yet in production (NT 2025.002 v1.51 moved it to a future date). The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
+
+`vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 
 ## Other ways to describe an invoice
 
 ```ruby
 client.build_invoice(number: 1, issuer: {...}, items: [{code: "1", description: "Widget", ...}])   # hash
 i.c_prod "SKU-1"; i.xProd "Widget"   # inside an item, every field also answers to its official tag: c_prod, "cProd", x_prod...
-client.sign(File.read("nfe.xml"))   # raw <NFe> XML from another system: checked, signed, sent as is
+client.sign(File.read("nfe.xml"))   # raw <NFe> XML from another system: schema + business rules, signed, sent as is
 ```
 
 Unknown names fail with a suggestion (`nature_of_operacion` → did you mean `nature_of_operation`?), and symbols map to codes (`tax_regime: :normal`, `payment :pix, ...`, `presence: :internet`).
@@ -95,13 +97,16 @@ Unknown names fail with a suggestion (`nature_of_operacion` → did you mean `na
 
 ```ruby
 results = client.authorize([signed_a, signed_b])   # 2..50 notes: asynchronous lot, polled until processed
-client.authorize(signed).status                    # :authorized, :authorized_late, :authorized_with_alert, :denied, :rejected, :pending
+client.authorize(signed).status                    # :authorized, :authorized_late, :authorized_with_alert, :denied, :rejected, :pending, :canceled
+client.resume(result.receipt, pending_results)     # finish a lot whose answer couldn't be awaited (result.pending?)
 client.authorize!(signed)                          # raises DfeRb::Nfe::Rejected / Denied / ConsumptionBlocked instead
 ```
 
 A rejection is a *result* (SEFAZ answered "no"); exceptions are for problems: `DfeRb::ValidationError` (`#issues` lists everything wrong locally, nothing was sent), `DfeRb::TransportError` (`#maybe_processed?` tells whether SEFAZ may have acted), `DfeRb::CertificateError`, `DfeRb::Nfe::Conflict`.
 
-Lost answers are handled for you: after a timeout that may have reached SEFAZ, or a duplicate rejection (204/539), the gem asks for the key. If SEFAZ holds this same document it returns its protocol (`result.recovered?`); if it holds a different one, `Conflict` is raised; if it holds nothing, the original error is re-raised and the *same signed XML* can be sent again. This is why you must store `signed.xml` first and never rebuild a note that may have been sent.
+Lost answers are handled for you: after a timeout that may have reached SEFAZ, or a duplicate rejection (204/539), the gem asks for the key. If SEFAZ holds this same document it returns its protocol (`result.recovered?`), or `:canceled` if the note was canceled since; if it holds a different one, `Conflict` is raised; if it holds nothing, the original error is re-raised and the *same signed XML* can be sent again. This is why you must store `signed.xml` first and never rebuild a note that may have been sent. A stored note can be handed back as `SignedInvoice.new(xml: File.read(path), key: nil, digest_value: nil)` or as the XML itself; it is checked against the client's environment, certificate and signature before it goes out.
+
+If polling an accepted lot fails, the results come back `pending?` with the lot's `receipt` (notes SEFAZ already reports are recovered by key); `client.resume(receipt, results)` collects the rest.
 
 ## After authorization
 
@@ -110,7 +115,7 @@ client.consult(key)                                              # => ConsultRes
 client.cancel(key, protocol: result.protocol, reason: "Erro na digitação dos dados")   # 110111, up to 24 h
 client.correct(key, text: "Corrigir o endereço de entrega", sequence: 1)               # CC-e 110110
 client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por erro")
-event.proc_xml                                                   # procEventoNFe to archive
+event.proc_xml                                                   # procEventoNFe to archive, as event.filename ("<chave>_<tpEvento>_<seq>-procEventoNFe.xml")
 ```
 
 ## Advanced
