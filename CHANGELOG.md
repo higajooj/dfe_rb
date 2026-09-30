@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Replace the distribution/awareness PoC with `DfeRb::Nfe::Distribution::Client`: sequential distribution, targeted NSU/key queries, and all four explicit recipient manifestation types. Defaults to homologação and the certificate's identity; accepts CPF and numeric/alphanumeric CNPJ, branch identities, national endpoint overrides, and the shared injectable transport.
 - Immutable distribution results with cursor/cooldown guidance and typed document metadata. Exact decoded XML is preserved for summaries, complete invoices, arbitrary distributed events, historic layouts, and unknown document types. Strict, bounded Base64/Gzip/XML decoding raises contextual `InvalidResponse` rather than silently losing a document.
