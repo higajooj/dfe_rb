@@ -5,11 +5,11 @@ module DfeRb
         Endpoint = Data.define(:service, :url, :namespace, :operation, :authorizer, :request_wrapper, :result_tag)
         SERVICES = {
           distribution: ["NFeDistribuicaoDFe", "nfeDistDFeInteresse", "nfeDistDFeInteresse", "nfeDistDFeInteresseResult"],
-          manifestation: ["NFeRecepcaoEvento4", "nfeRecepcaoEventoNF", nil, "nfeResultMsg"]
+          manifestation: ["NFeRecepcaoEvento4", "nfeRecepcaoEventoNF", nil, "nfeRecepcaoEventoNFResult"]
         }.freeze
         BASES = {
-          distribution: {production: "https://www1.nfe.fazenda.gov.br/", homologacao: "https://hom.nfe.fazenda.gov.br/"},
-          manifestation: {production: "https://www.nfe.fazenda.gov.br/", homologacao: "https://hom.nfe.fazenda.gov.br/"}
+          distribution: {production: "https://www1.nfe.fazenda.gov.br/", homologacao: "https://hom1.nfe.fazenda.gov.br/"},
+          manifestation: {production: "https://www.nfe.fazenda.gov.br/", homologacao: "https://hom1.nfe.fazenda.gov.br/"}
         }.freeze
 
         module_function

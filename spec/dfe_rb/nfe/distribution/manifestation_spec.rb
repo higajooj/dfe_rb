@@ -25,7 +25,7 @@ RSpec.describe "Recipient manifestation" do
       expect(DfeRb::Nfe::Signature.verify(result.proc_xml)).to be(true)
       expect(DfeRb::Nfe::Distribution::Xml.parse(result.proc_xml).root.name).to eq("procEventoNFe")
       expect(result.filename).to eq("#{key}_#{code}_01-procEventoNFe.xml")
-      expect(transport.calls.last.url).to include("hom.nfe.fazenda.gov.br/NFeRecepcaoEvento4/")
+      expect(transport.calls.last.url).to include("hom1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/")
     end
   end
 

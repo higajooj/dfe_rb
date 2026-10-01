@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix the national homologação host for distribution and manifestation: `hom1.nfe.fazenda.gov.br` (`hom.` answers 404).
+- Read manifestation answers from AN's `<nfeRecepcaoEventoNFResult>` body; every manifestation raised `TransportError` before.
+- Live lifecycle check covers regime normal issuers (ICMS 00 plus IBS/CBS), sends `infRespTec` and the recipient IE, and is verified end to end against SEFAZ-MS homologação.
+
 ## 0.3.0
 
 - Replace the distribution/awareness PoC with `DfeRb::Nfe::Distribution::Client`: sequential distribution, targeted NSU/key queries, and all four explicit recipient manifestation types. Defaults to homologação and the certificate's identity; accepts CPF and numeric/alphanumeric CNPJ, branch identities, national endpoint overrides, and the shared injectable transport.

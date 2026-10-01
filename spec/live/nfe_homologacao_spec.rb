@@ -8,7 +8,8 @@
 # The "protocol" examples only need a valid certificate: they check that SEFAZ understands what
 # the gem sends (SOAP contract, signatures, schema) by looking at the answers. The "lifecycle"
 # example needs an issuer registered at the state (DFE_RB_LIVE_UF, DFE_RB_LIVE_IE and an address
-# through DFE_RB_LIVE_CITY_CODE / _CITY / _ZIP / _STREET / _DISTRICT); it is skipped otherwise.
+# through DFE_RB_LIVE_CITY_CODE / _CITY / _ZIP / _STREET / _STREET_NUMBER / _DISTRICT); it is skipped otherwise.
+# DFE_RB_LIVE_REGIME=normal switches the item to ICMS 00 plus IBS/CBS (required in homologacao).
 RSpec.describe "NF-e against SEFAZ homologacao", live: true do
   def self.certificate
     @certificate ||= begin
@@ -47,7 +48,9 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
     end
 
     it "accepts a signed, schema-valid NFe and answers with a business verdict" do
-      invoice = client.build_invoice do |nfe|
+      # The issuer below is in SP, so this goes to SP whatever DFE_RB_LIVE_UF says.
+      sp = DfeRb::Nfe::Client.new(certificate: certificate, uf: "SP", timeouts: {read: 60})
+      invoice = sp.build_invoice do |nfe|
         nfe.series 1
         nfe.number 1
         nfe.nature_of_operation "Venda de mercadoria"
@@ -70,7 +73,7 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
         nfe.payment :money, "10.00"
       end
 
-      result = client.authorize(invoice)
+      result = sp.authorize(invoice)
 
       # Not a signature/schema/parsing problem: those have their own codes (2xx, 4xx).
       expect([100, 209, 245, 203, 205, 206, 207, 208, 210, 230, 231, 233]).to include(result.code), "#{result.code} #{result.message}"
@@ -92,17 +95,17 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       issuer = {
         tax_id: certificate.cnpj, name: ENV.fetch("DFE_RB_LIVE_NAME", "EMPRESA DE TESTE LTDA"), state_registration: ENV.fetch("DFE_RB_LIVE_IE"),
         tax_regime: ENV.fetch("DFE_RB_LIVE_REGIME", "simples").to_sym,
-        address: {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: "100", district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"),
+        address: {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: ENV.fetch("DFE_RB_LIVE_STREET_NUMBER", "100"), district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"),
                   city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), city: ENV.fetch("DFE_RB_LIVE_CITY"), state: uf, zip: ENV.fetch("DFE_RB_LIVE_ZIP")}
       }
-      number = Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]))
+      number = Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]), 10)
 
       invoice = client.build_invoice do |nfe|
         nfe.series 1
         nfe.number number
         nfe.nature_of_operation "Venda de mercadoria"
         nfe.issuer(**issuer)
-        nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", address: issuer[:address]
+        nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", state_registration: issuer[:state_registration], address: issuer[:address]
         nfe.item do |i|
           i.code "1"
           i.description "Produto"
@@ -111,11 +114,19 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
           i.unit "UN"
           i.quantity 1
           i.unit_price "10.00"
-          i.icms csosn: "102", origin: :domestic
+          if issuer[:tax_regime] == :normal
+            i.icms cst: "00", origin: :domestic, base_mode: 3, base: "10.00", rate: "17.00", amount: "1.70"
+            i.ibs_cbs cst: "000", class_code: "000001", base: "10.00", ibs_uf: {rate: "0.10", amount: "0.01"},
+              ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "0.09"}
+          else
+            i.icms csosn: "102", origin: :domestic
+          end
           i.pis cst: "07"
           i.cofins cst: "07"
         end
         nfe.payment :money, "10.00"
+        # Several authorizers (MS among them) reject notes without a responsavel tecnico (972).
+        nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"
       end
 
       signed = client.sign(invoice)

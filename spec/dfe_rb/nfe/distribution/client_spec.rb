@@ -22,7 +22,7 @@ RSpec.describe DfeRb::Nfe::Distribution::Client do
     expect(payload.at_css("distNSU ultNSU").text).to eq("000000000000000")
     expect(payload.at_css("CNPJ").text).to eq(Fixtures::HR_CNPJ)
     expect(payload.at_css("cUFAutor")).to be_nil
-    expect(transport.calls.last.url).to include("hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe")
+    expect(transport.calls.last.url).to include("hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe")
   end
 
   it "accepts a branch of the same company and sends cUFAutor independently of national routing" do

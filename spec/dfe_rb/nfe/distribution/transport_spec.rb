@@ -30,12 +30,22 @@ RSpec.describe "National SOAP contracts" do
       ep = DfeRb::Nfe::Distribution::Endpoints.resolve(service: :manifestation, environment: environment)
       expect(ep.request_wrapper).to be_nil
       expect(ep.operation).to eq("nfeRecepcaoEventoNF")
-      expect(ep.result_tag).to eq("nfeResultMsg")
+      expect(ep.result_tag).to eq("nfeRecepcaoEventoNFResult")
       expect(ep.authorizer).to eq("AN")
-      expect(ep.url).to eq("https://#{(environment == :production) ? "www" : "hom"}.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx")
+      expect(ep.url).to eq("https://#{(environment == :production) ? "www" : "hom1"}.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx")
       envelope = DfeRb::Transport.envelope(ep.namespace, "<envEvento/>", wrapper: ep.request_wrapper)
       expect(Nokogiri::XML(envelope).at_xpath("//*[local-name()='Body']/*").name).to eq("nfeDadosMsg")
     end
+  end
+
+  it "extracts manifestation answers from AN's nfeRecepcaoEventoNFResult body" do
+    ep = DfeRb::Nfe::Distribution::Endpoints.resolve(service: :manifestation, environment: :homologacao)
+    # Shape answered by hom1.nfe.fazenda.gov.br (AN_1.10.5): no nfeResultMsg element.
+    body = %(<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"><soap:Body>) +
+      %(<nfeRecepcaoEventoNFResult xmlns="#{ep.namespace}"><retEnvEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">) +
+      %(<cStat>128</cStat></retEnvEvento></nfeRecepcaoEventoNFResult></soap:Body></soap:Envelope>)
+    stub_request(:post, ep.url).to_return(body: body)
+    expect(Nokogiri::XML(transport.post(ep, "<envEvento/>")).root.name).to eq("retEnvEvento")
   end
 
   it "filters docZip and signature material from logged national traffic" do
