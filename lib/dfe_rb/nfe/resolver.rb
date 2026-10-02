@@ -47,7 +47,7 @@ module DfeRb
         addresses(inf)
         state = emit.dig("enderEmit", "UF")
 
-        defaults(ide, emit, state)
+        defaults(ide, emit, state, Array(inf["det"]))
         recipient(inf, ide, state)
         items(inf, ide, state)
         inf["transp"] ||= {}
@@ -89,16 +89,24 @@ module DfeRb
         end
       end
 
-      def defaults(ide, emit, state)
+      def defaults(ide, emit, state, det)
         ide["cUF"] ||= States.code(state) if state
         ide["mod"] ||= 55
         ide["serie"] ||= 1
-        ide["tpNF"] ||= 1
+        # A credit or debit note type fixes finNFe (RV B25.1-10, B25.2-10); a credit note is
+        # an entry (B25-110), and so is a note whose CFOPs are all entries (I08-10).
+        ide["finNFe"] ||= if ide["tpNFCredito"]
+          5
+        elsif ide["tpNFDebito"]
+          6
+        else
+          1
+        end
+        ide["tpNF"] ||= (ide["finNFe"].to_s == "5" || entry_cfops?(det)) ? 0 : 1
         ide["cMunFG"] ||= emit.dig("enderEmit", "cMun")
         ide["tpImp"] ||= 1
         ide["tpEmis"] ||= 1
         ide["tpAmb"] ||= Environment.code(@environment)
-        ide["finNFe"] ||= 1
         ide["indPres"] ||= 1
         ide["procEmi"] ||= 0
         ide["verProc"] ||= "dfe_rb #{DfeRb::VERSION}"
@@ -107,6 +115,12 @@ module DfeRb
         ide["dhEmi"] ||= (@memo.issued_at ||= now_in(state)).dup
         ide["dhEmi"] = ide["dhEmi"].to_time if ide["dhEmi"].is_a?(DateTime)
         ide["cNF"] ||= (@memo.numeric_code ||= AccessKey.generate_numeric_code(number: ide["nNF"]))
+      end
+
+      # Every item has a full CFOP of entry (1xxx, 2xxx, 3xxx). A 3-digit CFOP takes its
+      # first digit from tpNF, so it can't decide it.
+      def entry_cfops?(det)
+        det.any? && det.all? { |item| Tables.cfop(item.dig("prod", "CFOP").to_s[/\A\d{4}\z/])&.entry? }
       end
 
       def now_in(state)

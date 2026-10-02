@@ -64,12 +64,12 @@ end
 
 You provide the facts of the operation: parties, items, the bases and rates of each tax (or the tax classification), payments, the number and series. The gem does not choose a tax treatment and does not store numbering.
 
-The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `finNFe`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
+The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
 
 - **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from your `vBCST` (the ST base is state law, so you give it), `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
 - **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, and the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give). A return, complement or adjustment carries the rates of the operation it refers to, so you give them; so does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
 - **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE), and each CFOP's indicators (IT 2023.002, through `DfeRb::Nfe::Tables.cfop("6916")`). The CFOP table is the `.xlsx` the Portal Nacional da NF-e publishes: `script/update_tables --cfop <file.xlsx>` regenerates it.
-- **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries).
+- **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries). `finNFe` is 5 with a `credit_note_type` (`tpNFCredito`), 6 with a `debit_note_type`, otherwise 1; `tpNF` is 0 (entry) on a credit note or when every item has an entry CFOP (`1102`), otherwise 1. A devolução CFOP (`5202`) on a note that isn't a return is flagged (rej. 328): give `purpose :return` yourself, since a complement of a return (`:complementary`) takes the same CFOPs.
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
 - **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
 
@@ -253,7 +253,7 @@ A CFOP's indicators, by their names in IT 2023.002:
 | `nfe?` | `indNFe` | may be used on an NF-e (rej. 770 otherwise) |
 | `communication?` | `indComunica` | is a communication service |
 | `transport?` | `indTransp` | is a transport service (allowed in `retTransp`) |
-| `devolution?` | `indDevol` | is a devolução (the only kind a `finNFe` 4 note takes) |
+| `devolution?` | `indDevol` | is a devolução (the only kind a `finNFe` 4 note takes, and flagged on a note that isn't a return) |
 | `goods_return?` | `indRetor` | is a retorno |
 | `annulment?` | `indAnula` | is an anulação de valor |
 | `remittance?` | `indRemes` | is a remessa |

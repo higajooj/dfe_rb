@@ -243,6 +243,49 @@ RSpec.describe DfeRb::Nfe::Invoice do
     end
   end
 
+  describe "operation and purpose inference" do
+    def with_cfops(*cfops, &block)
+      normal_regime(client) do |nfe|
+        cfops.each { |cfop| taxed_item(nfe) { |i| i.cfop cfop } }
+        block&.call(nfe)
+      end
+    end
+
+    it "makes a note whose CFOPs are all entries an entry note" do
+      expect(with_cfops("1102").resolved["ide"]).to include("tpNF" => 0, "finNFe" => 1)
+    end
+
+    it "keeps an exit note when the CFOPs are mixed or only 3-digit, and flags the entry one" do
+      mixed = with_cfops("1102", "5102")
+      expect(mixed.resolved["ide"]["tpNF"]).to eq(1)
+      expect(mixed.issues).to include(a_string_matching(/det\[1\]\/prod\/CFOP: 1102 does not fit the operation/))
+
+      short = with_cfops("102").resolved
+      expect(short["ide"]["tpNF"]).to eq(1)
+      expect(short["det"].first["prod"]["CFOP"]).to eq("5102")
+    end
+
+    it "derives the purpose and direction of credit and debit notes from their type" do
+      expect(with_cfops("1102") { |nfe| nfe.credit_note_type "04" }.resolved["ide"]).to include("finNFe" => 5, "tpNF" => 0)
+      expect(with_cfops("5102") { |nfe| nfe.debit_note_type "01" }.resolved["ide"]).to include("finNFe" => 6, "tpNF" => 1)
+    end
+
+    it "keeps an explicit purpose and direction" do
+      ide = with_cfops("1102") { |nfe|
+        nfe.operation_type :exit
+        nfe.purpose :adjustment
+      }.resolved["ide"]
+      expect(ide).to include("tpNF" => 1, "finNFe" => 3)
+    end
+
+    it "flags a devolução CFOP on a note that isn't a return (RV I08-144)" do
+      expect(with_cfops("5202").issues)
+        .to include(a_string_matching(/det\[1\]\/prod\/CFOP: 5202 is a devolução CFOP.*purpose :return.*rej\. 328/))
+      expect(with_cfops("5202") { |nfe| nfe.purpose :return }.issues).not_to include(a_string_matching(/rej\. 328/))
+      expect(with_cfops("1202") { |nfe| nfe.credit_note_type "03" }.issues).not_to include(a_string_matching(/rej\. 328/))
+    end
+  end
+
   describe "regime normal" do
     it "picks the ICMS group from the CST and validates against the schema" do
       invoice = normal_regime(client) { |nfe|

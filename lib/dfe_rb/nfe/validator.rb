@@ -15,6 +15,8 @@ module DfeRb
       IBS_CBS_MANDATORY_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => nil}.freeze
       DEFERRED_PAYMENT_KINDS = Resolver::DEFERRED_PAYMENT_KINDS
       MAX_STANDARD_SERIES = 889
+      # Credit note types that may carry devolução CFOPs (tpNFCredito, RV I08-144).
+      DEVOLUTION_CREDIT_NOTES = %w[03 04 06].freeze
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
@@ -111,6 +113,7 @@ module DfeRb
         end
 
         check_cfop(where, prod["CFOP"])
+        check_devolution_cfop(where, prod["CFOP"])
         check_gtin("#{where}/prod/cEAN", prod["cEAN"])
         check_gtin("#{where}/prod/cEANTrib", prod["cEANTrib"])
         check_icms(where, item)
@@ -125,6 +128,19 @@ module DfeRb
 
         add "#{where}/prod/CFOP: #{cfop} does not fit the operation (idDest #{@ide["idDest"]}, " \
           "#{(@ide["tpNF"].to_s == "0") ? "entry" : "exit"}): it must start with #{expected} (rej. 731-733)"
+      end
+
+      # RV I08-144: a devolução CFOP (indDevol) only on a return, a complement or a credit
+      # note of type 03, 04 or 06.
+      def check_devolution_cfop(where, cfop)
+        return unless Tables.cfop(cfop)&.devolution?
+
+        purpose = @ide["finNFe"].to_s
+        return if %w[2 4].include?(purpose)
+        return if purpose == "5" && DEVOLUTION_CREDIT_NOTES.include?(@ide["tpNFCredito"].to_s.rjust(2, "0"))
+
+        add "#{where}/prod/CFOP: #{cfop} is a devolução CFOP; a return note needs purpose :return (finNFe 4), " \
+          "or :complementary for a complement of one (rej. 328)"
       end
 
       def check_gtin(path, value)

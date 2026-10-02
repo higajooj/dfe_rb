@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Derive `tpNF` 0 (entry) when every item has an entry CFOP (`1102`) or the note is a credit note, and `finNFe` 5/6 from `credit_note_type`/`debit_note_type` (RV I08-10, B25-110, B25.1-10, B25.2-10). Both used to default to an exit note of purpose 1, which SEFAZ rejects.
+- Flag a devolução CFOP (`indDevol`) on a note that isn't a return, a complement or a credit note of type 03/04/06 (RV I08-144, rej. 328), telling you to set `purpose :return`.
 - `DfeRb::Nfe::Tables.cfops` lists the CFOP table, optionally `matching:` title words (case and accents ignored) and a code prefix; `Tables.cfop` also takes `"5.102"` and `5102`.
 - A `Cfop` tells its direction (`entry?`, `exit?`), `scope` (`:internal`, `:interstate`, `:foreign`) and `valid_on?(date)`.
 - README documents the official tables and maps each CFOP method to its IT 2023.002 indicator.
