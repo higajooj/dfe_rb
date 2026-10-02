@@ -7,6 +7,12 @@ module DfeRb
   class Certificate
     CNPJ_OID = "2.16.76.1.3.3"
     CPF_OID = "2.16.76.1.3.1"
+    # Where OpenSSL 3 installs its providers, when the openssl CLI can't say.
+    MODULE_DIRS = %w[
+      /usr/lib/ossl-modules /usr/lib64/ossl-modules /usr/lib/x86_64-linux-gnu/ossl-modules
+      /usr/lib/aarch64-linux-gnu/ossl-modules /usr/local/lib/ossl-modules /usr/local/lib64/ossl-modules
+      /opt/homebrew/lib/ossl-modules /usr/local/opt/openssl@3/lib/ossl-modules
+    ].freeze
 
     # The holder is readable from a public X509 certificate too (restored XML signatures).
     module Identity
@@ -71,13 +77,41 @@ module DfeRb
 
       def with_legacy_provider(original_error)
         provider = begin
-          OpenSSL::Provider.load("legacy")
+          load_legacy_provider
         rescue NameError, OpenSSL::OpenSSLError
           raise original_error
         end
         yield
       ensure
         provider&.unload
+      end
+
+      # Precompiled Rubies (mise, rv...) carry an OpenSSL that looks for its providers where
+      # it was built, so the legacy provider is retried from the system's OpenSSL 3 modules
+      # directory. OPENSSL_MODULES is set only for that load, unless the user already set it.
+      def load_legacy_provider
+        OpenSSL::Provider.load("legacy")
+      rescue OpenSSL::OpenSSLError
+        dir = !ENV.key?("OPENSSL_MODULES") && system_modules_dir
+        raise unless dir
+
+        begin
+          ENV["OPENSSL_MODULES"] = dir
+          OpenSSL::Provider.load("legacy")
+        ensure
+          ENV.delete("OPENSSL_MODULES")
+        end
+      end
+
+      def system_modules_dir
+        reported = begin
+          IO.popen(["openssl", "version", "-m"], err: File::NULL, &:read)[/MODULESDIR: "([^"]+)"/, 1]
+        rescue SystemCallError
+          nil
+        end
+        [reported, *MODULE_DIRS].compact.find do |dir|
+          %w[legacy.so legacy.dylib].any? { |file| File.exist?(File.join(dir, file)) }
+        end
       end
 
       def pkcs12_error_message(error)

@@ -74,10 +74,12 @@ RSpec.describe DfeRb::Certificate do
         false
       end
 
+      modules = ENV["OPENSSL_MODULES"]
       certificate = described_class.from_pkcs12(pfx, password)
 
       expect(certificate.cnpj).to eq("11444777000161")
       expect(OpenSSL::Provider.provider_names).not_to include("legacy")
+      expect(ENV["OPENSSL_MODULES"]).to eq(modules)
     end
   end
 
