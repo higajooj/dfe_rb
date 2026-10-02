@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+- Derive every field whose value is deterministic, keeping whatever is given explicitly:
+  - per-item tax amounts from base × rate: ICMS, FCP, CST 51 deferral, ST by margin, IPI, PIS/COFINS, DIFAL, IS, and IBS/CBS (base, deferral, effective rate, amounts)
+  - `vItem`, `vNFTot` and `ISTot`
+  - the interstate ICMS rate, the DIFAL partition and the IBS/CBS standard rates of the issue year
+  - the IBS/CBS CST and rate reduction from `cClassTrib`
+  - IBGE city names and codes
+  - 3-digit CFOPs completed to fit the operation
+  - single-payment and billing amounts, and installment numbers
+- `technical_contact:` on `Client` and `Invoice` fills `infRespTec` and computes `hashCSRT` from the CSRT.
+- Ship the IBGE municipality and cClassTrib tables, with `script/update_tables` to refresh them.
+- Validate supplied FCP, DIFAL, IS, IBS/CBS amounts, effective rates, `vItem`, `vNFTot` and `hashCSRT` against the values SEFAZ recomputes.
 
 - Fix the national homologação host for distribution and manifestation: `hom1.nfe.fazenda.gov.br` (`hom.` answers 404).
 - Read manifestation answers from AN's `<nfeRecepcaoEventoNFResult>` body; every manifestation raised `TransportError` before.

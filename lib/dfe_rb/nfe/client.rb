@@ -19,8 +19,10 @@ module DfeRb
       # environment: :homologacao (default, no fiscal value) or :production.
       # endpoints:   URL overrides per service, e.g. {authorization: "https://..."}.
       # transport:   anything with #post(endpoint, xml); defaults to the mTLS SOAP client.
+      # technical_contact: the software house's infRespTec for every invoice built here
+      #              ({cnpj:, contact:, email:, phone:, csrt_id:, csrt:}); see Invoice.
       def initialize(certificate:, uf:, environment: Environment::HOMOLOGACAO, endpoints: {}, transport: nil,
-        timeouts: {}, logger: nil, clock: Time, sleeper: Kernel.method(:sleep))
+        timeouts: {}, logger: nil, clock: Time, sleeper: Kernel.method(:sleep), technical_contact: nil)
         @certificate = certificate
         @uf = States.abbreviation(uf)
         @environment = Environment.normalize(environment)
@@ -28,13 +30,14 @@ module DfeRb
         @transport = transport || Transport.new(certificate: certificate, timeouts: timeouts, logger: logger)
         @clock = clock
         @sleeper = sleeper
+        @technical_contact = technical_contact
       end
 
       def production? = environment == Environment::PRODUCTION
 
       # A new invoice for this client's environment. Fill it with a block and/or a hash.
       def build_invoice(attributes = nil, **fields, &block)
-        Invoice.new(attributes, environment: environment, clock: @clock, **fields, &block)
+        Invoice.new(attributes, environment: environment, clock: @clock, technical_contact: @technical_contact, **fields, &block)
       end
 
       # Is the authorizer up? (cStat 107)

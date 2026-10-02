@@ -11,15 +11,22 @@ module DfeRb
     #   invoice.to_xml  # => the unsigned <NFe>
     #
     # Whatever isn't given is defaulted or derived when the XML is produced (see Resolver).
+    #
+    # `technical_contact:` is the software house's infRespTec ({cnpj:, contact:, email:,
+    # phone:, csrt_id:, csrt:}); with `csrt:` the hashCSRT is computed for each key. The CSRT
+    # itself never goes into the XML.
     class Invoice
       attr_reader :environment
 
       # `attributes` (or plain keywords) may hold any field: Invoice.new(number: 1, issuer: {...}).
-      def initialize(attributes = nil, environment: Environment::HOMOLOGACAO, clock: Time, **fields)
+      def initialize(attributes = nil, environment: Environment::HOMOLOGACAO, clock: Time, technical_contact: nil, **fields)
         @environment = Environment.normalize(environment)
         @clock = clock
         @infnfe = {}
         @memo = Resolver::Memo.new
+        contact = (technical_contact || {}).transform_keys(&:to_sym)
+        @csrt = contact.delete(:csrt)
+        scope.technical_contact(contact) unless contact.empty?
         given = (attributes || {}).merge(fields)
         scope.__assign(given) unless given.empty?
         yield scope if block_given?
@@ -64,7 +71,7 @@ module DfeRb
 
       # [the resolved tree, the problems met while resolving it]
       def resolve
-        resolver = Resolver.new(environment: environment, memo: @memo, clock: @clock)
+        resolver = Resolver.new(environment: environment, memo: @memo, clock: @clock, csrt: @csrt)
         tree = resolver.call(@infnfe)
         [tree, resolver.issues]
       end
@@ -75,7 +82,7 @@ module DfeRb
         xml = writer.write("infNFe" => tree)
         found = problems + writer.issues
         found.concat(Schemas.nfe_issues(xml)) if found.empty?
-        found.concat(Validator.new(tree).issues) if strict
+        found.concat(Validator.new(tree, csrt: @csrt).issues) if strict
         [xml, found]
       end
     end

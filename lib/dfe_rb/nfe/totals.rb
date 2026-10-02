@@ -23,6 +23,8 @@ module DfeRb
       QUANTITY_PLACES = 4
       # Faturamento direto de veículos novos (veicProd/tpOp).
       DIRECT_VEHICLE_SALE = "2"
+      # From this year IBS, CBS and IS enter vItem (RV VB01-10, exceção 1).
+      IBS_CBS_IN_TOTAL_SINCE = 2027
 
       module_function
 
@@ -131,6 +133,44 @@ module DfeRb
 
       def direct_vehicle_sale?(items)
         items.any? { |item| item.dig("prod", "veicProd", "tpOp").to_s == DIRECT_VEHICLE_SALE }
+      end
+
+      # vItem, the item's share of the invoice total (RV VB01-10, VB01-20). IBS, CBS and IS
+      # are "por fora" and only count from 2027.
+      def item_amount(item, year)
+        prod = item["prod"] || {}
+        imposto = item["imposto"] || {}
+        name, icms = icms_variant(item)
+        icms ||= {}
+        pick = ->(variants, tag) { (name && variants.include?(name)) ? number(icms[tag]).round(2, half: :up) : ZERO }
+        money_of = ->(value) { number(value).round(2, half: :up) }
+
+        amount = %w[vProd vFrete vSeg vOutro].sum(ZERO) { |tag| money_of.call(prod[tag]) } - money_of.call(prod["vDesc"])
+        amount -= pick.call(ICMS_EXEMPTION, "vICMSDeson") if icms["indDeduzDeson"].to_s == "1"
+        amount += money_of.call(imposto.dig("II", "vII")) + money_of.call(imposto.dig("IPI", "IPITrib", "vIPI")) +
+          money_of.call(item.dig("impostoDevol", "IPI", "vIPIDevol"))
+        %w[PIS COFINS].each do |tax|
+          st = imposto["#{tax}ST"]
+          amount += money_of.call(st["v#{tax}"]) if st && st["indSoma#{tax}ST"].to_s == "1"
+        end
+        unless direct_vehicle_sale?([item])
+          amount += pick.call(ICMS_ST, "vICMSST") + pick.call(ICMS_FCP_ST, "vFCPST") + pick.call(ICMS_MONO, "vICMSMonoReten")
+        end
+        if year && year >= IBS_CBS_IN_TOTAL_SINCE
+          group = imposto.dig("IBSCBS", "gIBSCBS") || {}
+          mono = imposto.dig("IBSCBS", "gIBSCBSMono") || {}
+          amount += money_of.call(group["vIBS"]) + money_of.call(group.dig("gCBS", "vCBS")) + money_of.call(imposto.dig("IS", "vIS"))
+          amount += money_of.call(mono["vTotIBSMonoItem"]) + money_of.call(mono["vTotCBSMonoItem"]) unless direct_vehicle_sale?([item])
+        end
+        money(amount)
+      end
+
+      # ISTot, required once any item carries <IS> (RV W31-20), or nil.
+      def selective_total(items)
+        taxed = items.filter_map { |item| item.dig("imposto", "IS") }
+        return if taxed.empty?
+
+        {"vIS" => money(sum(taxed) { |group| group["vIS"] })}
       end
 
       # IBSCBSTot, required once any item carries <IBSCBS> (RV W34-20), or nil. The IBS/CBS,

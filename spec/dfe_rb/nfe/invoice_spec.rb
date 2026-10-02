@@ -636,6 +636,110 @@ RSpec.describe DfeRb::Nfe::Invoice do
     end
   end
 
+  describe "derived values" do
+    let(:clock) { Class.new { def self.now = Time.new(2026, 9, 29, 10, 0, 0, "-03:00") } }
+    let(:client) { nfe_client(NfeHelpers::FakeTransport.new, clock: clock) }
+
+    def interstate(client, &block)
+      client.build_invoice do |nfe|
+        nfe.number 78
+        nfe.nature_of_operation "Venda"
+        nfe.issuer tax_id: "11444777000161", name: "EMPRESA LTDA", state_registration: "111111111111", tax_regime: :normal,
+          address: {street: "Rua A", number: "100", district: "Centro", city_code: "3550308", zip: "01001000"}
+        nfe.recipient cnpj: "11222333000181", name: "CLIENTE", state_registration: "123456789",
+          address: {street: "Rua B", number: "1", district: "Centro", city: "Goiânia", state: "GO", zip: "74000000"}
+        block.call(nfe)
+      end
+    end
+
+    def bare_item(nfe)
+      nfe.item do |i|
+        i.code "A1"
+        i.description "Item"
+        i.ncm "84713012"
+        i.cfop "102"
+        i.unit "UN"
+        i.quantity 3
+        i.unit_price "100.00"
+        i.icms cst: "00", origin: 0, base_mode: 3, base: "300.00"
+        i.pis cst: "01", base: "300.00", rate: "1.65"
+        i.cofins cst: "01", base: "300.00", rate: "7.60"
+        i.ibs_cbs class_code: "200034"
+        yield i if block_given?
+      end
+    end
+
+    it "fills every tax value from bases, rates and the tax classification" do
+      invoice = interstate(client) { |nfe|
+        bare_item(nfe)
+        nfe.payment :credit_card
+      }
+
+      expect(invoice.issues).to eq([])
+      document = doc(invoice)
+      values = {
+        "CFOP" => "//nfe:prod/nfe:CFOP", "pICMS" => "//nfe:ICMS00/nfe:pICMS", "vICMS" => "//nfe:ICMS00/nfe:vICMS",
+        "vPIS" => "//nfe:PISAliq/nfe:vPIS", "vCOFINS" => "//nfe:COFINSAliq/nfe:vCOFINS", "CST" => "//nfe:IBSCBS/nfe:CST",
+        "vBC" => "//nfe:gIBSCBS/nfe:vBC", "pAliqEfet" => "//nfe:gCBS/nfe:gRed/nfe:pAliqEfet", "vIBSUF" => "//nfe:gIBSUF/nfe:vIBSUF",
+        "vCBS" => "//nfe:gCBS/nfe:vCBS", "vItem" => "//nfe:det/nfe:vItem", "vNFTot" => "//nfe:total/nfe:vNFTot",
+        "vPag" => "//nfe:detPag/nfe:vPag"
+      }.transform_values { |path| text(document, path) }
+
+      # vBC = 300 - 21.00 ICMS - 4.95 PIS - 22.80 COFINS; CBS 0.90 less 60% = 0.36
+      expect(values).to eq("CFOP" => "6102", "pICMS" => "7.00", "vICMS" => "21.00", "vPIS" => "4.95", "vCOFINS" => "22.80",
+        "CST" => "200", "vBC" => "251.25", "pAliqEfet" => "0.36", "vIBSUF" => "0.10", "vCBS" => "0.90", "vItem" => "300.00",
+        "vNFTot" => "300.00", "vPag" => "300.00")
+    end
+
+    it "completes addresses from the IBGE table" do
+      document = doc(interstate(client) { |nfe|
+        bare_item(nfe)
+        nfe.payment :credit_card
+      })
+
+      expect(text(document, "//nfe:enderEmit/nfe:xMun")).to eq("São Paulo")
+      expect(text(document, "//nfe:enderDest/nfe:cMun")).to eq("5208707")
+    end
+
+    it "fills the billing and numbers the installments" do
+      invoice = interstate(client) { |nfe|
+        bare_item(nfe)
+        nfe.billing invoice: {number: "1", discount: "10.00"}, installments: [{due_date: "2026-10-29"}]
+        nfe.payment :deferred_payment
+      }
+
+      expect(invoice.issues).to eq([])
+      document = doc(invoice)
+      expect(%w[vOrig vDesc vLiq].map { |tag| text(document, "//nfe:fat/nfe:#{tag}") }).to eq(%w[300.00 10.00 290.00])
+      expect([text(document, "//nfe:dup/nfe:nDup"), text(document, "//nfe:dup/nfe:vDup")]).to eq(%w[001 290.00])
+      expect(text(document, "//nfe:detPag/nfe:vPag")).to eq("0.00")
+    end
+
+    it "derives the CSRT hash of NT 2018.005's example" do
+      invoice = DfeRb::Nfe::Invoice.new(technical_contact: {cnpj: "99999999999999", contact: "Nome do Contato",
+                                                            email: "email@empresaficticia.com.br", phone: "41999999999", csrt_id: "01", csrt: "G8063VRTNDMO886SFNK5LDUDEI24XJ22YIPO"}) do |nfe|
+        nfe.issuer tax_id: "78393592000146", address: {city_code: "4106902"}
+        nfe.series 890
+        nfe.number 604
+        nfe.numeric_code "02819069"
+        nfe.issued_at "2018-06-01T10:00:00-03:00"
+      end
+
+      tree = invoice.resolved
+      expect(tree["@Id"]).to eq("NFe41180678393592000146558900000006041028190697")
+      expect(tree["infRespTec"]).to include("idCSRT" => "01", "hashCSRT" => "aWv6LeEM4X6u4+qBI2OYZ8grigw=")
+    end
+
+    it "flags a supplied IBS/CBS amount that is not base x rate" do
+      invoice = normal_regime(client) { |nfe|
+        taxed_item(nfe) { |i| i.ibs_cbs cst: "000", class_code: "000001", base: "300.00", cbs: {rate: "0.90", amount: "2.00"} }
+        nfe.payment :credit_card, "300.00"
+      }
+
+      expect(invoice.issues).to include(a_string_matching(%r{gCBS/vCBS: 2.00 differs from .*\(2.70\) \(rej. 1069\)}))
+    end
+  end
+
   describe "value formats" do
     it "reports every bad value at once" do
       invoice = simples_invoice(client) { |nfe|

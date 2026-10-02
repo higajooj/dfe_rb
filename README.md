@@ -10,7 +10,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 Not covered yet: NFC-e (modelo 65), contingency (SVC, EPEC, offline), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.3.0"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.4.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.
@@ -62,9 +62,24 @@ end
 
 ## What you provide, what the gem derives
 
-You provide the facts of the operation: parties, items, per-item tax values (`vBC`, `pICMS`, `vICMS`, IBS/CBS...), payments, the number and series. The gem does not calculate taxes and does not store numbering.
+You provide the facts of the operation: parties, items, the bases and rates of each tax (or the tax classification), payments, the number and series. The gem does not choose a tax treatment and does not store numbering.
 
-The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `finNFe`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `vNF`), `vTroco`, `modFrete`. Anything you set yourself is kept. `cNF` and the issue time are generated once per invoice, so building the XML twice gives the same document.
+The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `finNFe`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
+
+- **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vBCST` by margin (`modBCST` 4) and `vICMSST`, `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
+- **Rates fixed by law**: the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, and the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give).
+- **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE).
+- **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries).
+- **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
+- **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
+
+Anything you set yourself is kept, and checked where SEFAZ checks it. `cNF` and the issue time are generated once per invoice, so building the XML twice gives the same document.
+
+```ruby
+client = DfeRb::Nfe::Client.new(certificate: certificate, uf: "SP",
+  technical_contact: {cnpj: "99999999000191", contact: "Fulano", email: "dev@example.com", phone: "11999999999",
+                      csrt_id: "01", csrt: ENV["CSRT"]})
+```
 
 ## Taxes
 
@@ -77,6 +92,11 @@ i.pis   cst: "01", base: "300.00", rate: "1.65", amount: "4.95"                 
 i.cofins cst: "07"                                                                            # => <COFINSNT>
 i.ibs_cbs cst: "000", class_code: "000001", base: "300.00",
           ibs_uf: {rate: "0.10", amount: "0.30"}, ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "2.70"}
+
+# The same, derived: amounts from bases and rates, IBS/CBS from the classification and the issue year
+i.icms  cst: "00", origin: 0, base_mode: 3, base: "300.00", rate: "18.00"
+i.pis   cst: "01", base: "300.00", rate: "1.65"
+i.ibs_cbs class_code: "200034"   # CST 200, 60% rate reduction, 2026 rates, base and amounts
 ```
 
 The XML group comes from the CST/CSOSN. Regime normal (`tax_regime: :normal`) must carry IBS/CBS on every note except returns (RV UB12-10): in homologação since 01/07/2026, and not yet in production (NT 2025.002 v1.51 moved it to a future date). The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).

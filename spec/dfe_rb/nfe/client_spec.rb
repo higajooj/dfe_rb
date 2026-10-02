@@ -510,5 +510,17 @@ RSpec.describe DfeRb::Nfe::Client do
     it "builds invoices for its own environment" do
       expect(nfe_client(transport, environment: :production).build_invoice.environment).to eq(:production)
     end
+
+    it "puts its technical contact on every invoice, signing it with the CSRT" do
+      contact = {cnpj: "11222333000181", contact: "Dev", email: "dev@example.com", phone: "11999999999", csrt_id: "01", csrt: "SECRET"}
+      invoice = simples_invoice(nfe_client(transport, technical_contact: contact))
+      key = invoice.key.to_s
+      xml = invoice.to_xml
+
+      group = Nokogiri::XML(xml).at_xpath("//nfe:infRespTec", "nfe" => NfeHelpers::NFE_NS)
+      expect(group.at_xpath("nfe:idCSRT", "nfe" => NfeHelpers::NFE_NS).text).to eq("01")
+      expect(group.at_xpath("nfe:hashCSRT", "nfe" => NfeHelpers::NFE_NS).text).to eq(Base64.strict_encode64(Digest::SHA1.digest("SECRET#{key}")))
+      expect(xml).not_to include("SECRET")
+    end
   end
 end

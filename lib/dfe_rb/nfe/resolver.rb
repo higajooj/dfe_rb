@@ -1,5 +1,7 @@
+require "base64"
 require "bigdecimal"
 require "date"
+require "digest"
 require "time"
 
 module DfeRb
@@ -9,6 +11,13 @@ module DfeRb
     # Anything the developer set explicitly is kept.
     class Resolver
       HOMOLOGACAO_RECIPIENT_NAME = "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+      # First CFOP digit by tpNF and idDest (RVs I08-*, rej. 731-733).
+      CFOP_PREFIX = {
+        "0" => {"1" => "1", "2" => "2", "3" => "3"},
+        "1" => {"1" => "5", "2" => "6", "3" => "7"}
+      }.freeze
+      # tPag 90 (sem pagamento) and 91 (pagamento posterior) carry vPag 0.00 (RV YA03-30).
+      DEFERRED_PAYMENT_KINDS = %w[90 91].freeze
 
       # Values that must stay the same across resolves of one invoice (a retry must never
       # produce another cNF or emission time). Held by the Invoice.
@@ -18,10 +27,13 @@ module DfeRb
       # emission date, series and number), as validation messages.
       attr_reader :issues
 
-      def initialize(environment:, memo:, clock: Time)
+      # csrt: the Código de Segurança do Responsável Técnico, which signs infRespTec/hashCSRT
+      # and never goes into the XML.
+      def initialize(environment:, memo:, clock: Time, csrt: nil)
         @environment = Environment.normalize(environment)
         @memo = memo
         @clock = clock
+        @csrt = csrt
         @issues = []
       end
 
@@ -32,15 +44,18 @@ module DfeRb
         normalize(inf, Schema.nfe.find("infNFe"))
         ide = (inf["ide"] ||= {})
         emit = inf["emit"] || {}
+        addresses(inf)
         state = emit.dig("enderEmit", "UF")
 
         defaults(ide, emit, state)
         recipient(inf, ide, state)
-        items(inf)
+        items(inf, ide, state)
         inf["transp"] ||= {}
         inf["transp"]["modFrete"] = 9 if inf["transp"]["modFrete"].nil?
         totals(inf)
+        billing(inf)
         identify(inf, ide, emit)
+        technical_contact(inf)
         inf
       end
 
@@ -57,6 +72,20 @@ module DfeRb
           else
             (value.is_a?(Array) ? value : [value]).each { |entry| normalize(entry, child) if entry.is_a?(Hash) }
           end
+        end
+      end
+
+      # A city code gives its state and name; a name and state give the code (IBGE table).
+      def addresses(inf)
+        [inf.dig("emit", "enderEmit"), inf.dig("dest", "enderDest"), inf["retirada"], inf["entrega"]].each do |address|
+          next unless address.is_a?(Hash)
+
+          code = address["cMun"].to_s
+          address["UF"] ||= States::CODES.key(code[0, 2].to_i) if code.match?(/\A\d{7}\z/)
+          next if address["UF"] == "EX"
+
+          address["xMun"] ||= Tables.city_name(code) unless code.empty?
+          address["cMun"] ||= Tables.city_code(address["xMun"], address["UF"]) if address["xMun"] && address["UF"]
         end
       end
 
@@ -112,8 +141,15 @@ module DfeRb
         ide["indFinal"] ||= (dest["indIEDest"].to_i == 9 && ide["idDest"].to_i != 3) ? 1 : 0
       end
 
-      def items(inf)
-        Array(inf["det"]).each_with_index do |item, index|
+      def items(inf, ide, state)
+        det = Array(inf["det"])
+        year = issued_time(ide["dhEmi"])&.year
+        context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
+          destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"))
+        # vItem is required with IBS/CBS (RV VB01-05).
+        item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
+
+        det.each_with_index do |item, index|
           item["@nItem"] ||= index + 1
           prod = (item["prod"] ||= {})
           prod["cEAN"] ||= "SEM GTIN"
@@ -123,23 +159,28 @@ module DfeRb
           prod["vUnTrib"] ||= prod["vUnCom"]
           prod["indTot"] ||= 1
           prod["vProd"] ||= Totals.money(Totals.number(prod["qCom"]) * Totals.number(prod["vUnCom"]))
-          derive_item_taxes(item)
+          prod["CFOP"] = cfop(prod["CFOP"], ide) if prod["CFOP"]
+          Calculator.call(item, context)
+          item["vItem"] ||= Totals.item_amount(item, year) if item_amounts
         end
       end
 
-      def derive_item_taxes(item)
-        group = item.dig("imposto", "IBSCBS", "gIBSCBS") or return
+      # A 3-digit CFOP ("102") gets the first digit the operation calls for ("6102").
+      def cfop(value, ide)
+        return value unless value.to_s.match?(/\A\d{3}\z/)
 
-        if group["vIBS"].nil? && (group["gIBSUF"] || group["gIBSMun"])
-          group["vIBS"] = Totals.money(Totals.number(group.dig("gIBSUF", "vIBSUF")) + Totals.number(group.dig("gIBSMun", "vIBSMun")))
-        end
+        prefix = CFOP_PREFIX.dig(ide["tpNF"].to_s, ide["idDest"].to_s)
+        prefix ? "#{prefix}#{value}" : value
       end
 
       def payment(inf)
         pag = inf["pag"] or return
         details = Array(pag["detPag"])
-        paid = Totals.sum(details) { |detail| detail["vPag"] }
         invoice_total = Totals.number(inf.dig("total", "ICMSTot", "vNF"))
+        if details.size == 1 && details.first["vPag"].nil?
+          details.first["vPag"] = DEFERRED_PAYMENT_KINDS.include?(details.first["tPag"].to_s) ? Totals.money(0) : Totals.money(invoice_total)
+        end
+        paid = Totals.sum(details) { |detail| detail["vPag"] }
         pag["vTroco"] ||= Totals.money(paid - invoice_total) if invoice_total.positive? && paid > invoice_total
       end
 
@@ -148,9 +189,39 @@ module DfeRb
         given = inf["total"] || {}
         icms = Totals.icms_total(det).merge(given["ICMSTot"] || {})
         inf["total"] = given.merge("ICMSTot" => icms)
+        selective = Totals.selective_total(det)
+        inf["total"]["ISTot"] ||= selective if selective
         ibs = Totals.ibs_cbs_total(det)
         inf["total"]["IBSCBSTot"] ||= ibs if ibs
+        # vNFTot is required with IBSCBSTot and is the sum of vItem (RV W60-05, W60-10).
+        if inf["total"]["IBSCBSTot"] && det.all? { |item| item["vItem"] }
+          inf["total"]["vNFTot"] ||= Totals.money(Totals.sum(det) { |item| item["vItem"] })
+        end
         payment(inf)
+      end
+
+      # fat/vOrig defaults to the invoice total and vLiq to vOrig less the discount; a single
+      # installment defaults to the net amount; installments are numbered 001, 002... in order.
+      def billing(inf)
+        cobr = inf["cobr"] or return
+        fat = cobr["fat"]
+        if fat
+          fat["vOrig"] ||= inf.dig("total", "ICMSTot", "vNF")
+          fat["vLiq"] ||= Totals.money(Totals.number(fat["vOrig"]) - Totals.number(fat["vDesc"]))
+        end
+        installments = Array(cobr["dup"])
+        installments.each_with_index { |dup, index| dup["nDup"] ||= format("%03d", index + 1) }
+        if installments.size == 1 && installments.first["vDup"].nil?
+          installments.first["vDup"] = fat ? fat["vLiq"] : inf.dig("total", "ICMSTot", "vNF")
+        end
+      end
+
+      # hashCSRT = Base64(SHA-1(CSRT + chave de acesso)) (NT 2018.005 §2.3).
+      def technical_contact(inf)
+        contact = inf["infRespTec"]
+        return unless @csrt && contact && inf["@Id"]
+
+        contact["hashCSRT"] ||= Base64.strict_encode64(Digest::SHA1.digest("#{@csrt}#{inf["@Id"].delete_prefix("NFe")}"))
       end
 
       def identify(inf, ide, emit)

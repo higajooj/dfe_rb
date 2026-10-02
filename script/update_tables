@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# Regenerates the official tables under lib/dfe_rb/nfe/data/ from their public sources:
+#
+#   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table NF-e city codes follow
+#   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
+#
+# Usage: script/update_tables [ibge.json] [svrs.html]   (downloads whatever isn't given)
+
+require "json"
+require "net/http"
+require "uri"
+
+IBGE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado"
+SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/TabelaClassificacaoTributaria"
+DATA = File.expand_path("../lib/dfe_rb/nfe/data", __dir__)
+
+def source(path, url)
+  return File.read(path, encoding: "UTF-8") if path
+
+  response = Net::HTTP.get_response(URI(url))
+  raise "#{url}: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+
+  response.body.force_encoding("UTF-8")
+end
+
+def date(value) = value && value[0, 10]
+
+def flag(value) = value ? "1" : "0"
+
+municipalities = JSON.parse(source(ARGV[0], IBGE_URL))
+  .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
+  .sort
+File.write(File.join(DATA, "municipalities.tsv"), municipalities.map { |row| row.join("\t") }.join("\n") + "\n")
+
+page = source(ARGV[1], SVRS_URL)
+json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"
+header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono dIniVig dFimVig]
+rows = JSON.parse(json).flat_map do |cst|
+  Array(cst["ClassificacoesTributarias"]).map do |klass|
+    [klass.fetch("CodClassTrib"), cst.fetch("Cst"), format("%.2f", klass.fetch("PercRedIbs")), format("%.2f", klass.fetch("PercRedCbs")),
+      flag(cst["IndExigeTrib"]), flag(cst["IndReducaoAliq"]), flag(cst["IndMonofasica"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s]
+  end
+end.sort
+File.write(File.join(DATA, "classifications.tsv"), ([header] + rows).map { |row| row.join("\t") }.join("\n") + "\n")
+
+puts "#{municipalities.size} municipalities, #{rows.size} classifications"
