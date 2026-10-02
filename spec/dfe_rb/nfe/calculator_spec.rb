@@ -1,6 +1,6 @@
 RSpec.describe DfeRb::Nfe::Calculator do
   let(:context) do
-    described_class::Context.new(origin_state: "SP", destination_state: "SP", destination: 1, year: 2026, purchase_reduction: nil)
+    described_class::Context.new(origin_state: "SP", destination_state: "SP", destination: 1, year: 2026, purchase_reduction: nil, purpose: 1)
   end
 
   def item(imposto, prod = {})
@@ -44,14 +44,20 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(%w[vICMSOp vICMSDif vICMS].map { |tag| decimal(icms[tag]) }).to eq(%w[18.0 6.0 12.0])
     end
 
-    it "builds the ST base from the margin and deducts the own ICMS" do
-      icms = calculate(
-        {"ICMS" => {"ICMS10" => {"vBC" => "100.00", "pICMS" => "18.00", "modBCST" => "4", "pMVAST" => "40.00", "pICMSST" => "18.00"}},
-         "IPI" => {"IPITrib" => {"vBC" => "100.00", "pIPI" => "10.00"}}}
-      )["ICMS"]["ICMS10"]
+    it "deducts the own ICMS from the ST tax, leaving the ST base to the issuer" do
+      given = {"vBC" => "100.00", "pICMS" => "18.00", "modBCST" => "4", "pMVAST" => "40.00", "pICMSST" => "18.00"}
+      icms = calculate({"ICMS" => {"ICMS10" => given.merge("vBCST" => "154.00")}})["ICMS"]["ICMS10"]
 
-      # (100 + 10 IPI) x 1.4 = 154.00; 154 x 18% - 18 = 9.72
-      expect(%w[vBCST vICMSST].map { |tag| decimal(icms[tag]) }).to eq(%w[154.0 9.72])
+      # 154 x 18% - 18 = 9.72
+      expect(decimal(icms["vICMSST"])).to eq("9.72")
+      # The ST base composition (discounts, freight, MVA) is state law.
+      expect(calculate({"ICMS" => {"ICMS10" => given}})["ICMS"]["ICMS10"]).not_to have_key("vBCST")
+    end
+
+    it "computes from the operands as the XML writes them" do
+      icms = calculate({"ICMS" => {"ICMS00" => {"vBC" => "1000000.00", "pICMS" => "18.000049"}}})["ICMS"]["ICMS00"]
+
+      expect(decimal(icms["vICMS"])).to eq("180000.0")
     end
 
     it "defaults the interstate rate on an interstate operation" do
@@ -62,6 +68,17 @@ RSpec.describe DfeRb::Nfe::Calculator do
 
       expect([decimal(domestic["pICMS"]), decimal(domestic["vICMS"])]).to eq(%w[7.0 7.0])
       expect(decimal(imported["pICMS"])).to eq("4.0")
+    end
+
+    it "leaves the rates fixed by law to the issuer outside a normal operation" do
+      devolution = described_class::Context.new(origin_state: "BA", destination_state: "SP", destination: 2, year: 2026, purpose: 4)
+      imposto = calculate({"ICMS" => {"ICMS00" => {"orig" => 0, "vBC" => "100.00"}},
+                           "ICMSUFDest" => {"vBCUFDest" => "100.00", "pICMSUFDest" => "18.00"},
+                           "IBSCBS" => {"cClassTrib" => "000001"}}, {}, devolution)
+
+      expect(imposto["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+      expect(imposto["ICMSUFDest"].keys).not_to include("pICMSInter", "pICMSInterPart")
+      expect(imposto["IBSCBS"]["gIBSCBS"]["gCBS"]).not_to have_key("pCBS")
     end
   end
 
@@ -78,7 +95,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
   end
 
   it "splits the DIFAL between the states with the partition of the year (NA11, NA13, NA15, NA17)" do
-    interstate = described_class::Context.new(origin_state: "SP", destination_state: "BA", destination: 2, year: 2026)
+    interstate = described_class::Context.new(origin_state: "SP", destination_state: "BA", destination: 2, year: 2026, purpose: 1)
     difal = calculate({"ICMS" => {"ICMS00" => {"orig" => 0, "vBC" => "100.00", "pICMS" => "7.00"}},
                        "ICMSUFDest" => {"vBCUFDest" => "100.00", "pICMSUFDest" => "20.50", "vBCFCPUFDest" => "100.00", "pFCPUFDest" => "2.00"}},
       {}, interstate)["ICMSUFDest"]
@@ -129,6 +146,21 @@ RSpec.describe DfeRb::Nfe::Calculator do
       cbs = ibs_cbs(group)["gIBSCBS"]["gCBS"]
 
       expect([decimal(cbs["gDif"]["vDif"]), decimal(cbs["vCBS"])]).to eq(%w[4.5 3.5])
+    end
+
+    it "charges nothing in the main group of a classification taxed in gTribRegular (UB18-10, UB56-10)" do
+      ibs = ibs_cbs({"cClassTrib" => "550001", "gIBSCBS" => {"vBC" => "1000.00"}})["gIBSCBS"]
+
+      expect([ibs["gIBSUF"]["pIBSUF"], ibs["gCBS"]["pCBS"]].map { |rate| decimal(rate) }).to eq(%w[0.0 0.0])
+      expect([ibs["gIBSUF"]["vIBSUF"], ibs["gCBS"]["vCBS"]].map { |value| decimal(value) }).to eq(%w[0.0 0.0])
+    end
+
+    it "computes no amount of a deferral CST until the deferral is given (UB22-20, UB59-10)" do
+      ibs = ibs_cbs({"cClassTrib" => "510001", "gIBSCBS" => {"vBC" => "1000.00"}})["gIBSCBS"]
+
+      expect(ibs["gIBSUF"]).not_to have_key("vIBSUF")
+      expect(ibs["gCBS"]).not_to have_key("vCBS")
+      expect(ibs).not_to have_key("vIBS")
     end
 
     it "leaves untaxed and monophase classifications without gIBSCBS" do

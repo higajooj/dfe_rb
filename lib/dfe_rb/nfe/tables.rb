@@ -8,12 +8,15 @@ module DfeRb
     module Tables
       DATA = File.expand_path("data", __dir__)
 
-      # One cClassTrib row: its CST, the rate reductions in percent and the CST's indicators.
+      # One cClassTrib row: its CST, the rate reductions in percent, the CST's indicators and
+      # whether it calls for the regular taxation group (ind_gTribRegular).
       Classification = Struct.new(:code, :cst, :ibs_reduction, :cbs_reduction, :taxed, :rate_reduction, :monophase,
-        :valid_from, :valid_until) do
+        :deferral, :regular_taxation, :valid_from, :valid_until) do
         def taxed? = taxed
         def rate_reduction? = rate_reduction
         def monophase? = monophase
+        def deferral? = deferral
+        def regular_taxation? = regular_taxation
       end
 
       module_function
@@ -45,10 +48,10 @@ module DfeRb
       end
 
       def classifications
-        @classifications ||= rows("classifications.tsv").drop(1).to_h do |code, cst, ibs, cbs, taxed, reduction, mono, from, to|
+        @classifications ||= rows("classifications.tsv").drop(1).to_h do |code, cst, ibs, cbs, taxed, reduction, mono, dif, regular, from, to|
           [code, Classification.new(code: code, cst: cst, ibs_reduction: BigDecimal(ibs), cbs_reduction: BigDecimal(cbs),
-            taxed: taxed == "1", rate_reduction: reduction == "1", monophase: mono == "1", valid_from: from,
-            valid_until: to.to_s.empty? ? nil : to).freeze]
+            taxed: taxed == "1", rate_reduction: reduction == "1", monophase: mono == "1", deferral: dif == "1",
+            regular_taxation: regular == "1", valid_from: from, valid_until: to.to_s.empty? ? nil : to).freeze]
         end.freeze
       end
 

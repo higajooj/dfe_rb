@@ -145,7 +145,8 @@ module DfeRb
         det = Array(inf["det"])
         year = issued_time(ide["dhEmi"])&.year
         context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
-          destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"))
+          destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"),
+          purpose: ide["finNFe"])
         # vItem is required with IBS/CBS (RV VB01-05).
         item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
 

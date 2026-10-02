@@ -11,13 +11,16 @@ require "net/http"
 require "uri"
 
 IBGE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado"
-SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/TabelaClassificacaoTributaria"
+SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/ClassificacaoTributaria"
 DATA = File.expand_path("../lib/dfe_rb/nfe/data", __dir__)
 
-def source(path, url)
+def source(path, url, redirects = 3)
   return File.read(path, encoding: "UTF-8") if path
 
   response = Net::HTTP.get_response(URI(url))
+  if response.is_a?(Net::HTTPRedirection) && redirects.positive?
+    return source(nil, URI.join(url, response["location"]).to_s, redirects - 1)
+  end
   raise "#{url}: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
   response.body.force_encoding("UTF-8")
@@ -34,11 +37,12 @@ File.write(File.join(DATA, "municipalities.tsv"), municipalities.map { |row| row
 
 page = source(ARGV[1], SVRS_URL)
 json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"
-header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono dIniVig dFimVig]
+header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono ind_gDif ind_gTribRegular dIniVig dFimVig]
 rows = JSON.parse(json).flat_map do |cst|
   Array(cst["ClassificacoesTributarias"]).map do |klass|
     [klass.fetch("CodClassTrib"), cst.fetch("Cst"), format("%.2f", klass.fetch("PercRedIbs")), format("%.2f", klass.fetch("PercRedCbs")),
-      flag(cst["IndExigeTrib"]), flag(cst["IndReducaoAliq"]), flag(cst["IndMonofasica"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s]
+      flag(cst["IndExigeTrib"]), flag(cst["IndReducaoAliq"]), flag(cst["IndMonofasica"]), flag(cst["IndDiferimento"]),
+      flag(klass["IndTribRegular"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s]
   end
 end.sort
 File.write(File.join(DATA, "classifications.tsv"), ([header] + rows).map { |row| row.join("\t") }.join("\n") + "\n")

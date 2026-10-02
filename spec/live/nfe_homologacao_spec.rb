@@ -10,6 +10,11 @@
 # example needs an issuer registered at the state (DFE_RB_LIVE_UF, DFE_RB_LIVE_IE and an address
 # through DFE_RB_LIVE_CITY_CODE / _CITY / _ZIP / _STREET / _STREET_NUMBER / _DISTRICT); it is skipped otherwise.
 # DFE_RB_LIVE_REGIME=normal switches the item to ICMS 00 plus IBS/CBS (required in homologacao).
+# DFE_RB_LIVE_ICMS_RATE is the internal ICMS rate of the issuer's state (default 17.00, MS).
+#
+# These checks show that SEFAZ accepts what the gem sends and derives. They don't show that
+# the tax inputs are right for a product in a given state: that is state law, and SEFAZ
+# authorizes a wrong internal rate all the same.
 RSpec.describe "NF-e against SEFAZ homologacao", live: true do
   def self.certificate
     @certificate ||= begin
@@ -30,6 +35,7 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
 
   let(:certificate) { self.class.certificate }
   let(:uf) { ENV.fetch("DFE_RB_LIVE_UF", "SP") }
+  let(:icms_rate) { ENV.fetch("DFE_RB_LIVE_ICMS_RATE", "17.00") }
   let(:client) { DfeRb::Nfe::Client.new(certificate: certificate, uf: uf, timeouts: {read: 60}) }
 
   describe "protocol" do
@@ -115,7 +121,7 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
           i.quantity 1
           i.unit_price "10.00"
           if issuer[:tax_regime] == :normal
-            i.icms cst: "00", origin: :domestic, base_mode: 3, base: "10.00", rate: "17.00", amount: "1.70"
+            i.icms cst: "00", origin: :domestic, base_mode: 3, base: "10.00", rate: icms_rate, amount: DfeRb::Nfe::Totals.money(BigDecimal(icms_rate) / 10).to_s("F")
             i.ibs_cbs cst: "000", class_code: "000001", base: "10.00", ibs_uf: {rate: "0.10", amount: "0.01"},
               ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "0.09"}
           else
@@ -158,11 +164,11 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
                    district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), zip: ENV.fetch("DFE_RB_LIVE_ZIP")}}
       end
 
-      def item(nfe, code, price, rate: nil, class_code: "000001")
+      def item(nfe, code, price, rate: nil, class_code: "000001", ncm: "84713012")
         nfe.item do |i|
           i.code code
           i.description "Produto #{code}"
-          i.ncm "84713012"
+          i.ncm ncm
           i.cfop "102"
           i.unit "UN"
           i.quantity 2
@@ -193,8 +199,9 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
           nfe.issuer(**issuer)
           nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", state_registration: issuer[:state_registration],
             address: issuer[:address].except(:city_code).merge(city: ENV.fetch("DFE_RB_LIVE_CITY"), state: uf)
-          item(nfe, "1", "123.45", rate: "17.00")
-          item(nfe, "2", "37.33", rate: "17.00", class_code: "200034") { |i| i.discount "1.11" }
+          item(nfe, "1", "123.45", rate: icms_rate)
+          # 200034 (60% off, LC 214 art. 210) covers only Annex VII foods: mel natural is one.
+          item(nfe, "2", "37.33", rate: icms_rate, class_code: "200034", ncm: "04090000") { |i| i.discount "1.11" }
           nfe.billing invoice: {number: "1"}, installments: [{due_date: (Date.today + 30).iso8601}]
           nfe.payment :bank_slip
           nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"

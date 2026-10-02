@@ -17,8 +17,10 @@ RSpec.describe DfeRb::Nfe::Tables do
     food = described_class.classification("200034")
 
     expect([food.cst, food.ibs_reduction.to_i, food.cbs_reduction.to_i]).to eq(["200", 60, 60])
-    expect([food.taxed?, food.rate_reduction?, food.monophase?]).to eq([true, true, false])
+    expect([food.taxed?, food.rate_reduction?, food.monophase?, food.deferral?, food.regular_taxation?]).to eq([true, true, false, false, false])
     expect(described_class.classification("410001").taxed?).to be(false)
+    expect(described_class.classification("510001").deferral?).to be(true)
+    expect(described_class.classification("550001").regular_taxation?).to be(true)
     expect(described_class.classification("999999")).to be_nil
   end
 end

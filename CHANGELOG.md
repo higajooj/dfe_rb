@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+- Fill the interstate ICMS rate, the DIFAL rates and the IBS/CBS standard rates only on a normal operation (`finNFe` 1); a return derived 12% where the original sale was taxed at 7%.
+- Stop deriving `vBCST`: how discounts and charges enter the ST base is state law. `vICMSST` is still derived from a given `vBCST`.
+- Classifications taxed in `gTribRegular` (e.g. 550001, suspension) get zero main IBS/CBS rates, and a deferral CST (510) gets no amounts until `gDif` is given; both used to get ordinary rates and full amounts. The shipped cClassTrib table now keeps `ind_gDif` and `ind_gTribRegular`, and `script/update_tables` follows the SVRS page's new address.
+- Validate `gTribRegular` (rej. 1065, 1114), `gDif` (rej. 1029/1030, 1044/1083, 1061/1090) and zero main rates under regular taxation (rej. 1026, 1036, 1037).
+- Compute from operands as the XML prints them (amounts with 2 places, rates and quantities with 4), so an amount always agrees with its printed base and rate.
+- README lists the inputs that are state law and never derived; the live checks take the internal ICMS rate from `DFE_RB_LIVE_ICMS_RATE`.
+- Validation compares against the expected amount rounded to cents, skips amounts the gem can't compute (IS with `adRemIS`), and takes the issue year from `dhEmi`'s own offset (a note issued on 31/12 evening was checked as the next year's).
+
 ## 0.4.1
 
 - Write a derived `pICMSInter` as the schema's enumeration (`"12.00"`, not `"12"`); interstate DIFAL notes failed schema validation.

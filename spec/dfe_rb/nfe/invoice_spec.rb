@@ -655,7 +655,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
       nfe.item do |i|
         i.code "A1"
         i.description "Item"
-        i.ncm "84713012"
+        i.ncm "04090000"   # mel natural, in Annex VII as 200034 requires
         i.cfop "102"
         i.unit "UN"
         i.quantity 3

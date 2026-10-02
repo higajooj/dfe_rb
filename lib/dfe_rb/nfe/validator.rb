@@ -169,33 +169,68 @@ module DfeRb
         if (selective = imposto["IS"])
           check_amount("#{where}/imposto/IS/vIS", selective["vIS"], Calculator.expected_selective(selective), "base x rate", 1019)
         end
-        check_ibs_cbs_item(where, imposto.dig("IBSCBS", "gIBSCBS"))
+        check_ibs_cbs_item(where, imposto["IBSCBS"])
         return unless item["vItem"] && issued_at
 
         check_amount("#{where}/vItem", item["vItem"], Totals.item_amount(item, issued_at.year),
           "the sum of the values that make it up", 1105)
       end
 
-      IBS_CBS_SPHERES = [["gIBSUF", "pIBSUF", "vIBSUF", 1041, 1035], ["gIBSMun", "pIBSMun", "vIBSMun", 1052, 1035],
-        ["gCBS", "pCBS", "vCBS", 1069, 1064]].freeze
+      # Per sphere: its tags and the rejections for the amount, the effective rate, the rate
+      # under regular taxation, and gDif missing where the CST requires it or given where it
+      # doesn't allow it.
+      IBS_CBS_SPHERES = [
+        ["gIBSUF", "pIBSUF", "vIBSUF", {amount: 1041, effective: 1035, rate: 1026, deferral: 1030, no_deferral: 1029}],
+        ["gIBSMun", "pIBSMun", "vIBSMun", {amount: 1052, effective: 1035, rate: 1036, deferral: 1044, no_deferral: 1083}],
+        ["gCBS", "pCBS", "vCBS", {amount: 1069, effective: 1064, rate: 1037, deferral: 1061, no_deferral: 1090}]
+      ].freeze
 
-      def check_ibs_cbs_item(where, group)
-        return unless group
+      def check_ibs_cbs_item(where, ibscbs)
+        group = ibscbs&.dig("gIBSCBS") or return
 
+        klass = Tables.classification(ibscbs["cClassTrib"])
+        check_regular_taxation(where, group, klass)
         purchase = @ide.dig("gCompraGov", "pRedutor")
-        IBS_CBS_SPHERES.each do |tag, rate_tag, amount_tag, rejection, rate_rejection|
+        IBS_CBS_SPHERES.each do |tag, rate_tag, amount_tag, codes|
           sphere = group[tag] or next
           path = "#{where}/imposto/IBSCBS/gIBSCBS/#{tag}"
+          check_deferral(path, sphere, klass, codes)
+          if klass&.regular_taxation? && @ide["finNFe"].to_s == "1" && !Totals.number(sphere[rate_tag]).zero?
+            add "#{path}/#{rate_tag}: must be 0 for cClassTrib #{klass.code}, taxed in gTribRegular (rej. #{codes[:rate]})"
+          end
           red = sphere["gRed"]
           if red && !red["pAliqEfet"].nil? && !sphere[rate_tag].nil? && !red["pRedAliq"].nil?
             expected = Calculator.effective_rate(sphere[rate_tag], red["pRedAliq"], purchase)
             if (Totals.number(red["pAliqEfet"]) - expected).abs > BigDecimal("0.0001")
               add "#{path}/gRed/pAliqEfet: #{red["pAliqEfet"]} differs from the rate less the reduction (#{expected.to_s("F")}) " \
-                "(rej. #{rate_rejection})"
+                "(rej. #{codes[:effective]})"
             end
           end
           check_amount("#{path}/#{amount_tag}", sphere[amount_tag], Calculator.expected_ibs_cbs(group, sphere, rate_tag),
-            "base x rate - deferral - returned tax", rejection)
+            "base x rate - deferral - returned tax", codes[:amount])
+        end
+      end
+
+      # gTribRegular is required exactly when the classification calls for it (RV UB68-10, UB68-11).
+      def check_regular_taxation(where, group, klass)
+        return unless klass
+
+        path = "#{where}/imposto/IBSCBS/gIBSCBS/gTribRegular"
+        if klass.regular_taxation? && group["gTribRegular"].nil?
+          add "#{path}: required for cClassTrib #{klass.code} (rej. 1065)"
+        elsif !klass.regular_taxation? && group["gTribRegular"]
+          add "#{path}: not allowed for cClassTrib #{klass.code} (rej. 1114)"
+        end
+      end
+
+      # gDif is required exactly when the CST calls for deferral (RV UB22, UB40, UB59).
+      def check_deferral(path, sphere, klass, codes)
+        return unless klass
+
+        if klass.deferral? && sphere["gDif"].nil?
+          add "#{path}/gDif: required for CST #{klass.cst} (rej. #{codes[:deferral]})"
+        elsif !klass.deferral? && sphere["gDif"]
+          add "#{path}/gDif: not allowed for CST #{klass.cst} (rej. #{codes[:no_deferral]})"
         end
       end
 
@@ -275,21 +310,22 @@ module DfeRb
         add "infRespTec/hashCSRT: does not match the CSRT and the access key (rej. 978)" unless given == expected
       end
 
-      # dhEmi as a Time, without touching the value in the tree (Time#utc would change it in
-      # place, and with it the invoice's memoized issue time).
+      # dhEmi as a Time in its own offset, whose year is the issue year the Resolver used.
       def issued_at
         value = @ide["dhEmi"]
-        return value.to_time.getutc if value.respond_to?(:to_time) && !value.is_a?(String)
+        return value.to_time if value.respond_to?(:to_time) && !value.is_a?(String)
 
-        Time.iso8601(value.to_s).getutc if value
+        Time.iso8601(value.to_s) if value
       rescue ArgumentError
         nil
       end
 
+      # Compares a given amount with the expected one rounded as the XML would show it; with
+      # no expected value (one the gem can't compute) there is nothing to compare.
       def check_amount(path, given, expected, description, rejection = nil)
-        return if given.nil?
+        return if given.nil? || expected.nil?
 
-        difference = (Totals.number(given) - Totals.number(expected)).abs
+        difference = (Totals.number(given) - Totals.money(expected)).abs
         return if difference <= TOLERANCE
 
         add "#{path}: #{amount(given)} differs from #{description} (#{amount(expected)})#{" (rej. #{rejection})" if rejection}"
