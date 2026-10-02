@@ -13,6 +13,8 @@ module DfeRb
       # IBSCBS mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by tpAmb: in
       # homologação since 01/07/2026, in production not yet ("implementação futura").
       IBS_CBS_MANDATORY_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => nil}.freeze
+      # RV NA01-20 exception 2: in production, the DIFAL group isn't required before this.
+      DIFAL_REQUIRED_SINCE = Time.new(2016, 7, 1, 0, 0, 0, "-03:00")
       DEFERRED_PAYMENT_KINDS = Resolver::DEFERRED_PAYMENT_KINDS
       MAX_STANDARD_SERIES = 889
       # Credit note types that may carry devolução CFOPs (tpNFCredito, RV I08-144).
@@ -20,7 +22,8 @@ module DfeRb
       # Credit note types that, like a return, must carry devolução CFOPs (RV I08-140, I08-141).
       RETURN_CREDIT_NOTES = %w[03 06].freeze
       # Accepted on a return besides the devolução CFOPs (RV I08-140, NT 2026.009): 1949/2949
-      # on any return, 5949/6949 on the symbolic return of natural gas (Ajuste SINIEF 22/21).
+      # on any note the rule covers, 5949/6949 on the symbolic return of natural gas (Ajuste
+      # SINIEF 22/21).
       RETURN_OTHER_CFOPS = %w[1949 2949].freeze
       NATURAL_GAS_RETURN_CFOPS = %w[5949 6949].freeze
       NATURAL_GAS_NCM = "27112100"
@@ -107,11 +110,24 @@ module DfeRb
           add "ide/indFinal: must be 1 (final consumer) when the recipient is not an ICMS taxpayer (rej. 696)"
         end
 
+        check_purpose_direction
+
         presence = [2, 3, 4, 9].include?(@ide["indPres"].to_i)
         if presence && @ide["indIntermed"].nil?
           add "ide/indIntermed: required when indPres is 2, 3, 4 or 9 (rej. 434)"
         elsif !presence && !@ide["indIntermed"].nil?
           add "ide/indIntermed: only allowed when indPres is 2, 3, 4 or 9 (rej. 435)"
+        end
+      end
+
+      # RV B25-110, B25-120: a credit note is an entry, a debit note an exit.
+      def check_purpose_direction
+        direction = @ide["tpNF"].to_s
+        case @ide["finNFe"].to_s
+        when "5"
+          add "ide/tpNF: a credit note (finNFe 5) is an entry, tpNF 0 (rej. 1161)" unless direction == "0"
+        when "6"
+          add "ide/tpNF: a debit note (finNFe 6) is an exit, tpNF 1 (rej. 1162)" unless direction == "1"
         end
       end
 
@@ -200,7 +216,7 @@ module DfeRb
             "use #{MEI_RETURN_CFOPS.join(", ")} (rej. 1179)"
         end
         return if row.devolution?
-        return if @ide["finNFe"].to_s == "4" && RETURN_OTHER_CFOPS.include?(row.code)
+        return if RETURN_OTHER_CFOPS.include?(row.code)
         return if NATURAL_GAS_RETURN_CFOPS.include?(row.code) && item.dig("prod", "NCM").to_s == NATURAL_GAS_NCM
 
         add "#{where}/prod/CFOP: #{cfop_label(row)} is not a devolução CFOP, which a return carries " \
@@ -228,7 +244,8 @@ module DfeRb
         return unless @inf.dig("dest", "indIEDest").to_s == "9"
         return if %w[1 4].include?(@inf.dig("emit", "CRT").to_s)
         return if %w[2 3 5 6].include?(@ide["finNFe"].to_s) || @ide.dig("gCompraGov", "tpOperGov").to_s == "2"
-        return if @ide["finNFe"].to_s == "4" && references_before_2016?
+        return if @ide["finNFe"].to_s == "4" && references_before_2016?(item)
+        return if @ide["tpAmb"].to_s == "1" && issued_at && issued_at < DIFAL_REQUIRED_SINCE
         return if row.goods_return? || row.remittance? || DIFAL_EXEMPT_CFOPS.include?(row.code)
 
         name, values = Totals.icms_variant(item)
@@ -268,12 +285,13 @@ module DfeRb
 
       def credit_note_type = @ide["tpNFCredito"].to_s.rjust(2, "0")
 
-      # Whether a referenced NF-e was issued before 2016 (the key's year digits, NA01-20).
-      def references_before_2016?
-        [@ide["NFref"]].flatten.compact.any? do |reference|
-          key = reference.is_a?(Hash) ? reference["refNFe"].to_s : ""
-          key.match?(/\A\d{4}/) && key[2, 2].to_i < 16
-        end
+      # Whether the note references an NF-e issued before 2016 (the key's year digits,
+      # NA01-20), in ide/NFref or in the item's DFeReferenciado, where a return references
+      # its note (VC02-14).
+      def references_before_2016?(item)
+        keys = [@ide["NFref"]].flatten.compact.map { |reference| reference.is_a?(Hash) ? reference["refNFe"].to_s : "" }
+        keys << item.dig("DFeReferenciado", "chaveAcesso").to_s
+        keys.any? { |key| key.match?(/\A\d{4}/) && key[2, 2].to_i < 16 }
       end
 
       # "6916 (Retorno de mercadoria ou bem recebido para conserto ou…)"

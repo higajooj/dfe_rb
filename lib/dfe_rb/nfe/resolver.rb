@@ -94,7 +94,8 @@ module DfeRb
         ide["mod"] ||= 55
         ide["serie"] ||= 1
         # A credit or debit note type fixes finNFe (RV B25.1-10, B25.2-10); a credit note is
-        # an entry (B25-110), and so is a note whose CFOPs are all entries (I08-10).
+        # an entry (B25-110) and a debit note an exit (B25-120). Any other note whose CFOPs
+        # are all entries is an entry (I08-10).
         ide["finNFe"] ||= if ide["tpNFCredito"]
           5
         elsif ide["tpNFDebito"]
@@ -102,7 +103,11 @@ module DfeRb
         else
           1
         end
-        ide["tpNF"] ||= (ide["finNFe"].to_s == "5" || entry_cfops?(det)) ? 0 : 1
+        ide["tpNF"] ||= case ide["finNFe"].to_s
+        when "5" then 0
+        when "6" then 1
+        else entry_cfops?(det) ? 0 : 1
+        end
         ide["cMunFG"] ||= emit.dig("enderEmit", "cMun")
         ide["tpImp"] ||= 1
         ide["tpEmis"] ||= 1
@@ -160,7 +165,7 @@ module DfeRb
         year = issued_time(ide["dhEmi"])&.year
         context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
           destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"),
-          purpose: ide["finNFe"])
+          purpose: ide["finNFe"], direction: ide["tpNF"])
         # vItem is required with IBS/CBS (RV VB01-05).
         item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
 

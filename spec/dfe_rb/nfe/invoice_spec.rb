@@ -270,6 +270,24 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(with_cfops("5102") { |nfe| nfe.debit_note_type "01" }.resolved["ide"]).to include("finNFe" => 6, "tpNF" => 1)
     end
 
+    it "keeps a debit note an exit whatever its CFOPs, and flags an entry one (B25-120)" do
+      debit = with_cfops("1102") { |nfe| nfe.debit_note_type "01" }
+
+      expect(debit.resolved["ide"]).to include("finNFe" => 6, "tpNF" => 1)
+      expect(debit.issues).to include(a_string_matching(/det\[1\]\/prod\/CFOP: 1102 .* does not fit the operation/))
+    end
+
+    it "leaves the interstate ICMS rate of an entry to the issuer" do
+      entry = normal_regime(client) do |nfe|
+        nfe.recipient cnpj: "11222333000181", name: "FORNECEDOR", state_registration: "123456789",
+          address: {street: "Rua C", number: "1", district: "Centro", city_code: "5208707", city: "Goiania", state: "GO", zip: "74000000"}
+        taxed_item(nfe, rate: nil, amount: nil) { |i| i.cfop "2102" }
+      end.resolved
+
+      expect(entry["ide"]).to include("tpNF" => 0, "idDest" => 2)
+      expect(entry["det"].first["imposto"]["ICMS"]["ICMS00"].values_at("pICMS", "vICMS")).to eq([nil, nil])
+    end
+
     it "keeps an explicit purpose and direction" do
       ide = with_cfops("1102") { |nfe|
         nfe.operation_type :exit

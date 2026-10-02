@@ -70,6 +70,15 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(decimal(imported["pICMS"])).to eq("4.0")
     end
 
+    it "leaves the interstate rate of an entry to the issuer, whose state the goods don't leave" do
+      entry = described_class::Context.new(origin_state: "SP", destination_state: "GO", destination: 2, year: 2026, purpose: 1, direction: 0)
+      imposto = calculate({"ICMS" => {"ICMS00" => {"orig" => 0, "vBC" => "300.00"}},
+                           "ICMSUFDest" => {"vBCUFDest" => "300.00", "pICMSUFDest" => "18.00"}}, {"CFOP" => "2102"}, entry)
+
+      expect(imposto["ICMS"]["ICMS00"].keys).not_to include("pICMS", "vICMS")
+      expect(imposto["ICMSUFDest"]).not_to have_key("pICMSInter")
+    end
+
     it "leaves the rates fixed by law to the issuer outside a normal operation" do
       devolution = described_class::Context.new(origin_state: "BA", destination_state: "SP", destination: 2, year: 2026, purpose: 4)
       imposto = calculate({"ICMS" => {"ICMS00" => {"orig" => 0, "vBC" => "100.00"}},
@@ -97,8 +106,12 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(decimal(imposto["IBSCBS"]["gIBSCBS"]["gCBS"]["pCBS"])).to eq("0.9")
     end
 
-    it "leaves the interstate rate of an anulação to the issuer" do
-      expect(calculate(taxes, {"CFOP" => "6206"}, interstate)["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+    it "leaves the interstate rate of an anulação to the issuer, but not the partition of the year" do
+      imposto = calculate(taxes, {"CFOP" => "6207"}, interstate)
+
+      expect(imposto["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+      expect(imposto["ICMSUFDest"]).not_to have_key("pICMSInter")
+      expect(decimal(imposto["ICMSUFDest"]["pICMSInterPart"])).to eq("100.0")
     end
 
     it "derives them for any other CFOP" do

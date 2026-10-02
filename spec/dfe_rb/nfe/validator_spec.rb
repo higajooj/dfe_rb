@@ -42,13 +42,21 @@ RSpec.describe DfeRb::Nfe::Validator do
     expect(regular).to eq(["det[1]/imposto/IBSCBS/gIBSCBS/gCBS/gDif: not allowed for CST 000 (rej. 1090)"])
   end
 
+  it "requires a credit note to be an entry and a debit note an exit (B25-110, B25-120)" do
+    issues = ->(ide) { described_class.new({"ide" => ide}).issues.grep(%r{\Aide/tpNF}) }
+
+    expect(issues.call("finNFe" => "5", "tpNF" => "1")).to eq(["ide/tpNF: a credit note (finNFe 5) is an entry, tpNF 0 (rej. 1161)"])
+    expect(issues.call("finNFe" => "6", "tpNF" => "0")).to eq(["ide/tpNF: a debit note (finNFe 6) is an exit, tpNF 1 (rej. 1162)"])
+    expect(issues.call("finNFe" => "5", "tpNF" => "0") + issues.call("finNFe" => "6", "tpNF" => "1")).to eq([])
+  end
+
   describe "CFOP rules" do
     # Issues of a note with one item on `cfop`, from a regime normal issuer with IE in SP.
-    def cfop_issues(cfop, ide: {}, emit: {}, dest: {}, prod: {}, imposto: {"ICMS" => {"ICMS00" => {"CST" => "00"}}}, inf: {})
+    def cfop_issues(cfop, ide: {}, emit: {}, dest: {}, prod: {}, imposto: {"ICMS" => {"ICMS00" => {"CST" => "00"}}}, inf: {}, extra: {})
       tree = {"ide" => {"finNFe" => "1", "tpNF" => "1", "dhEmi" => "2026-09-29T10:00:00-03:00"}.merge(ide),
               "emit" => {"IE" => "111111111111", "CRT" => "3", "enderEmit" => {"UF" => "SP"}}.merge(emit),
               "dest" => {"indIEDest" => "1", "enderDest" => {"UF" => "RJ"}}.merge(dest),
-              "det" => [{"prod" => {"CFOP" => cfop, "NCM" => "84713012"}.merge(prod), "imposto" => imposto}]}.merge(inf)
+              "det" => [{"prod" => {"CFOP" => cfop, "NCM" => "84713012"}.merge(prod), "imposto" => imposto}.merge(extra)]}.merge(inf)
       described_class.new(tree).issues.grep(%r{\A(det\[1\]|transp)})
     end
 
@@ -67,9 +75,10 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(cfop_issues("5202", ide: {"finNFe" => "4"})).to eq([])
     end
 
-    it "accepts 1949/2949 on any return and 5949/6949 on a natural gas return (I08-140)" do
+    it "accepts 1949/2949 on any note the rule covers and 5949/6949 on a natural gas return (I08-140, NT 2026.009)" do
       expect(cfop_issues("1949", ide: {"finNFe" => "4"})).to eq([])
-      expect(cfop_issues("1949", ide: {"finNFe" => "5", "tpNFCredito" => "03"})).to include(a_string_matching(/rej\. 327/))
+      expect(cfop_issues("1949", ide: {"finNFe" => "5", "tpNFCredito" => "03"})).to eq([])
+      expect(cfop_issues("2949", ide: {"finNFe" => "5", "tpNFCredito" => "06", "tpNF" => "0", "idDest" => "2"})).to eq([])
       expect(cfop_issues("5949", ide: {"finNFe" => "4"}, prod: {"NCM" => "27112100"})).to eq([])
       expect(cfop_issues("5949", ide: {"finNFe" => "4"})).to include(a_string_matching(/rej\. 327/))
     end
@@ -118,6 +127,14 @@ RSpec.describe DfeRb::Nfe::Validator do
         recent = "35261011444777000161550010000000011000000010"
         expect(difal_issues("6202", ide: {"finNFe" => "4", "NFref" => [{"refNFe" => old}]})).to eq([])
         expect(difal_issues("6202", ide: {"finNFe" => "4", "NFref" => [{"refNFe" => recent}]})).not_to eq([])
+        expect(difal_issues("6202", ide: {"finNFe" => "4"}, extra: {"DFeReferenciado" => {"chaveAcesso" => old}})).to eq([])
+        expect(difal_issues("6202", ide: {"finNFe" => "4"}, extra: {"DFeReferenciado" => {"chaveAcesso" => recent}})).not_to eq([])
+      end
+
+      it "is not required in production before 01/07/2016" do
+        expect(difal_issues(ide: {"tpAmb" => "1", "dhEmi" => "2016-06-30T10:00:00-03:00"})).to eq([])
+        expect(difal_issues(ide: {"tpAmb" => "1", "dhEmi" => "2016-07-01T10:00:00-03:00"})).not_to eq([])
+        expect(difal_issues(ide: {"tpAmb" => "2", "dhEmi" => "2016-06-30T10:00:00-03:00"})).not_to eq([])
       end
     end
 

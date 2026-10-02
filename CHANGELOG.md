@@ -1,18 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
-- Check every item's CFOP against the CFOP table before sending: unknown, out of force or not for NF-e (I08-04, rej. 770); a return or a credit note of type 03/06 without a devolução CFOP, accepting 1949/2949 and 5949/6949 for natural gas (I08-140 per NT 2026.009, rej. 327); a MEI's return outside its six CFOPs (I08-141, rej. 1179); an issuer without IE outside the `indExcIBSCBS` CFOPs (I08-191, rej. 159).
-- Require `icms_destination` (DIFAL) on an interstate sale to a non-contributor final consumer, with every NA01-20 exception (retorno and remessa CFOPs, 6552/6922/6929, `ICMSPart`, exempt or untaxed ICMS, Simples Nacional, delivery in the issuer's state, non-petroleum fuels, returns of pre-2016 notes...) (rej. 694).
+- Check every item's CFOP against the CFOP table before sending: unknown, out of force or not for NF-e (I08-04, rej. 770); a return or a credit note of type 03/06 without a devolução CFOP, accepting 1949/2949 on any of them and 5949/6949 for natural gas (I08-140 per NT 2026.009, rej. 327); a MEI's return outside its six CFOPs (I08-141, rej. 1179); an issuer without IE outside the `indExcIBSCBS` CFOPs (I08-191, rej. 159).
+- Require `icms_destination` (DIFAL) on an interstate sale to a non-contributor final consumer, with every NA01-20 exception (retorno and remessa CFOPs, 6552/6922/6929, `ICMSPart`, exempt or untaxed ICMS, Simples Nacional, delivery in the issuer's state, non-petroleum fuels, returns of pre-2016 notes referenced in `NFref` or the item's `DFeReferenciado`, production notes issued before 01/07/2016...) (rej. 694).
 - Require the `comb` group on a fuel CFOP (LA01-20, rej. 660) and a transport CFOP in `retTransp` (X16-10, rej. 722).
 - CFOP messages name the CFOP's title: `6916 (Retorno de mercadoria ou bem recebido para conserto…)`.
 - Open RC2-40 `.pfx` files on precompiled Rubies (mise, rv...), whose bundled OpenSSL looks for the legacy provider in the build machine's path: the provider is retried from the system's OpenSSL 3 modules directory.
-- Derive `tpNF` 0 (entry) when every item has an entry CFOP (`1102`) or the note is a credit note, and `finNFe` 5/6 from `credit_note_type`/`debit_note_type` (RV I08-10, B25-110, B25.1-10, B25.2-10). Both used to default to an exit note of purpose 1, which SEFAZ rejects.
+- Derive `tpNF` 0 (entry) when every item has an entry CFOP (`1102`) or the note is a credit note, 1 on a debit note whatever its CFOPs, and `finNFe` 5/6 from `credit_note_type`/`debit_note_type` (RV I08-10, B25-110, B25-120, B25.1-10, B25.2-10). Both used to default to an exit note of purpose 1, which SEFAZ rejects.
+- Flag a credit note that isn't an entry (B25-110, rej. 1161) and a debit note that isn't an exit (B25-120, rej. 1162).
 - Flag a devolução CFOP (`indDevol`) on a note that isn't a return, a complement or a credit note of type 03/04/06 (RV I08-144, rej. 328), telling you to set `purpose :return`.
 - `DfeRb::Nfe::Tables.cfops` lists the CFOP table, optionally `matching:` title words (case and accents ignored) and a code prefix; `Tables.cfop` also takes `"5.102"` and `5102`.
-- A `Cfop` tells its direction (`entry?`, `exit?`), `scope` (`:internal`, `:interstate`, `:foreign`) and `valid_on?(date)`.
+- A `Cfop` tells its direction (`entry?`, `exit?`), `scope` (`:internal`, `:interstate`, `:foreign`) and `valid_on?(date)`, up to but not including its end date (IT 2023.002).
 - README documents the official tables and maps each CFOP method to its IT 2023.002 indicator.
-- Leave the interstate ICMS rates (`pICMS`, `pICMSInter`, `pICMSInterPart`) to the issuer on an item with a retorno or anulação CFOP, even on a normal note: it carries the rates of the operation it refers to (RV N16-04, N16-20, NA09-30, NA11-10). `6916` used to get this year's rates. IBS/CBS standard rates are still filled, as their rules have no such exception.
+- Leave the interstate ICMS rates (`pICMS`, `pICMSInter`) to the issuer on an entry note, whose goods don't leave the issuer's state, and on an item with a retorno or anulação CFOP, even on a normal note: it carries the rates of the operation it refers to (RV N16-04, N16-20, NA09-30). A retorno also leaves `pICMSInterPart`, which follows the referenced note's year (NA11-10); an anulação still gets this year's. An entry from GO into SP used to get SP's outbound 7%, and `6916` this year's rates. IBS/CBS standard rates are still filled, as their rules have no such exception.
 - Ship the CFOP table of IT 2023.002 (validity, the nine indicators and the title), looked up with `DfeRb::Nfe::Tables.cfop`.
 - `script/update_tables` takes `--ibge`, `--svrs` and `--cfop` flags; `--cfop` regenerates `cfop.tsv` from the Portal Nacional's `.xlsx`.
 

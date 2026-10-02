@@ -49,6 +49,10 @@ RSpec.describe DfeRb::Nfe::Tables do
 
     onboard = described_class.cfop("3552")   # in force since 01/06/2021
     expect([onboard.valid_on?("2021-05-31"), onboard.valid_on?(Date.new(2021, 6, 1)), onboard.valid_on?]).to eq([false, true, true])
+
+    # Fim de vigência is the first day the code is no longer accepted (IT 2023.002).
+    retired = onboard.dup.tap { |row| row.valid_until = "2026-10-02" }
+    expect([retired.valid_on?("2026-10-01"), retired.valid_on?("2026-10-02")]).to eq([true, false])
   end
 
   it "lists every CFOP, or those matching a text and a code prefix" do

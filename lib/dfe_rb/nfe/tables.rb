@@ -40,10 +40,11 @@ module DfeRb
         def exit? = !entry?
         def scope = CFOP_SCOPES[code.to_i / 1000 % 4]
 
-        # Whether the code is in force on `date` (a Date, a Time or "yyyy-mm-dd").
+        # Whether the code is in force on `date` (a Date, a Time or "yyyy-mm-dd"): from its
+        # start up to, not including, its end, the first day it is no longer accepted (IT 2023.002).
         def valid_on?(date = Date.today)
           day = date.respond_to?(:strftime) ? date.strftime("%F") : date.to_s[0, 10]
-          valid_from <= day && (valid_until.nil? || day <= valid_until)
+          valid_from <= day && (valid_until.nil? || day < valid_until)
         end
       end
       CFOP_SCOPES = {1 => :internal, 2 => :interstate, 3 => :foreign}.freeze

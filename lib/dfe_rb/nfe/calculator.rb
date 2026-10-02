@@ -11,19 +11,27 @@ module DfeRb
     # present, and anything given explicitly is kept.
     module Calculator
       # What an item's taxes depend on beyond the item: the states of the operation, idDest,
-      # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe and
-      # the item's CFOP (set by `call`). Rates fixed by law are filled in only for a normal
-      # operation (finNFe 1): a return, adjustment or complement carries the rates of the
-      # operation it refers to, which only the issuer knows.
-      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :cfop) do
+      # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe,
+      # tpNF and the item's CFOP (set by `call`). Rates fixed by law are filled in only for a
+      # normal operation (finNFe 1): a return, adjustment or complement carries the rates of
+      # the operation it refers to, which only the issuer knows.
+      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction, :cfop) do
         def law_rates? = purpose.to_s == NORMAL
 
-        # The interstate ICMS rates (RV N16-04, N16-20, NA09-30, NA11-10) don't bind a
-        # retorno or an anulação CFOP either: it carries the rates of the operation it refers to.
-        def interstate_rates? = law_rates? && !Tables.cfop(cfop)&.then { |row| row.goods_return? || row.annulment? }
+        # The interstate ICMS rates (RV N16-04, N16-20, NA09-30) bind a normal exit only. An
+        # entry's goods don't leave the issuer's state, so the issuer gives the rate; a retorno
+        # or an anulação CFOP carries the rates of the operation it refers to.
+        def interstate_rates? = law_rates? && direction.to_s != ENTRY && !cfop_row&.then { |row| row.goods_return? || row.annulment? }
+
+        # The DIFAL partition follows the issue year (RV NA11-10), but a retorno CFOP's
+        # follows the year of the note it refers to.
+        def partition? = law_rates? && !cfop_row&.goods_return?
+
+        def cfop_row = Tables.cfop(cfop)
       end
 
       NORMAL = "1"
+      ENTRY = "0"
       HUNDRED = BigDecimal(100)
       ICMS_RATED = %w[ICMS00 ICMS10 ICMS20 ICMS70 ICMS90 ICMSPart].freeze
       ICMS_FCP_ON_FCP_BASE = %w[ICMS10 ICMS20 ICMS51 ICMS70 ICMS90].freeze
@@ -93,8 +101,8 @@ module DfeRb
         if context.interstate_rates?
           # An enumeration in the schema ("4.00", "7.00", "12.00"): written with its two places.
           group["pICMSInter"] ||= Rates.interstate(context.origin_state, context.destination_state, icms&.dig("orig"))&.then { |rate| format("%.2f", rate) }
-          group["pICMSInterPart"] ||= context.year && Rates.partition(context.year)
         end
+        group["pICMSInterPart"] ||= context.year && Rates.partition(context.year) if context.partition?
 
         fill(group, "vFCPUFDest") { expected_destination_fcp(group) }
         destination, origin = expected_destination_shares(group)
