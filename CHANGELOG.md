@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `DfeRb::Nfe::Tables.cfops` lists the CFOP table, optionally `matching:` title words (case and accents ignored) and a code prefix; `Tables.cfop` also takes `"5.102"` and `5102`.
+- A `Cfop` tells its direction (`entry?`, `exit?`), `scope` (`:internal`, `:interstate`, `:foreign`) and `valid_on?(date)`.
+- README documents the official tables and maps each CFOP method to its IT 2023.002 indicator.
+- Leave the interstate ICMS rates (`pICMS`, `pICMSInter`, `pICMSInterPart`) to the issuer on an item with a retorno or anulação CFOP, even on a normal note: it carries the rates of the operation it refers to (RV N16-04, N16-20, NA09-30, NA11-10). `6916` used to get this year's rates. IBS/CBS standard rates are still filled, as their rules have no such exception.
+- Ship the CFOP table of IT 2023.002 (validity, the nine indicators and the title), looked up with `DfeRb::Nfe::Tables.cfop`.
+- `script/update_tables` takes `--ibge`, `--svrs` and `--cfop` flags; `--cfop` regenerates `cfop.tsv` from the Portal Nacional's `.xlsx`.
+
 ## 0.4.2
 
 - Fill the interstate ICMS rate, the DIFAL rates and the IBS/CBS standard rates only on a normal operation (`finNFe` 1); a return derived 12% where the original sale was taxed at 7%.

@@ -11,12 +11,16 @@ module DfeRb
     # present, and anything given explicitly is kept.
     module Calculator
       # What an item's taxes depend on beyond the item: the states of the operation, idDest,
-      # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor) and finNFe.
-      # Rates fixed by law are filled in only for a normal operation (finNFe 1): a return,
-      # adjustment or complement carries the rates of the operation it refers to, which only
-      # the issuer knows.
-      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose) do
+      # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe and
+      # the item's CFOP (set by `call`). Rates fixed by law are filled in only for a normal
+      # operation (finNFe 1): a return, adjustment or complement carries the rates of the
+      # operation it refers to, which only the issuer knows.
+      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :cfop) do
         def law_rates? = purpose.to_s == NORMAL
+
+        # The interstate ICMS rates (RV N16-04, N16-20, NA09-30, NA11-10) don't bind a
+        # retorno or an anulação CFOP either: it carries the rates of the operation it refers to.
+        def interstate_rates? = law_rates? && !Tables.cfop(cfop)&.then { |row| row.goods_return? || row.annulment? }
       end
 
       NORMAL = "1"
@@ -33,6 +37,7 @@ module DfeRb
       # Fills the derivable values of one resolved <det> hash, in dependency order.
       def call(item, context)
         imposto = item["imposto"] or return item
+        context = context.dup.tap { |copy| copy.cfop = item.dig("prod", "CFOP") }
 
         ipi(imposto)
         icms(item, imposto, context)
@@ -54,7 +59,7 @@ module DfeRb
         name, group = (imposto["ICMS"] || {}).first
         return unless group
 
-        if context.law_rates? && context.destination.to_i == INTERSTATE && group.key?("vBC") && group["pICMS"].nil? && (ICMS_RATED + ["ICMS51"]).include?(name)
+        if context.interstate_rates? && context.destination.to_i == INTERSTATE && group.key?("vBC") && group["pICMS"].nil? && (ICMS_RATED + ["ICMS51"]).include?(name)
           group["pICMS"] = Rates.interstate(context.origin_state, context.destination_state, group["orig"])
         end
 
@@ -85,7 +90,7 @@ module DfeRb
       def destination_share(imposto, context)
         group = imposto["ICMSUFDest"] or return
         _, icms = (imposto["ICMS"] || {}).first
-        if context.law_rates?
+        if context.interstate_rates?
           # An enumeration in the schema ("4.00", "7.00", "12.00"): written with its two places.
           group["pICMSInter"] ||= Rates.interstate(context.origin_state, context.destination_state, icms&.dig("orig"))&.then { |rate| format("%.2f", rate) }
           group["pICMSInterPart"] ||= context.year && Rates.partition(context.year)

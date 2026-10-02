@@ -67,8 +67,8 @@ You provide the facts of the operation: parties, items, the bases and rates of e
 The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `finNFe`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
 
 - **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from your `vBCST` (the ST base is state law, so you give it), `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
-- **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, and the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give). A return, complement or adjustment carries the rates of the operation it refers to, so you give them.
-- **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE).
+- **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, and the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give). A return, complement or adjustment carries the rates of the operation it refers to, so you give them; so does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
+- **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE), and each CFOP's indicators (IT 2023.002, through `DfeRb::Nfe::Tables.cfop("6916")`). The CFOP table is the `.xlsx` the Portal Nacional da NF-e publishes: `script/update_tables --cfop <file.xlsx>` regenerates it.
 - **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries).
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
 - **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
@@ -226,6 +226,39 @@ A key-based call builds and submits in one step. Arrays return arrays in input o
 Manifestation results distinguish `:registered` (135, `linked?`), `:registered_unlinked` (136), `:duplicate` (573), and `:rejected`. `registered?` includes 135/136. They expose `key`, official event `type`, `sequence`, `code`, `message`, `protocol`, `registered_at`, `event_xml`, `return_xml`, `request_xml`, and `response_xml`. Only registered answers produce `proc_xml`. `manifest!` raises for unsuccessful events, including duplicates; it does not turn a duplicate into a registration or invent its protocol. Malformed, missing, or conflicting event answers raise `InvalidResponse`.
 
 A transport failure preserves `maybe_processed?`. A lost manifestation answer may already have registered the event: keep the signed XML and reconcile the outcome before resubmission. There is no automatic retry or recovery lookup, and distribution queries after a lost answer may still have affected SEFAZ's consumption controls.
+
+## Official tables
+
+The tables the gem derives from are yours to use too, loaded on first use and always matching the gem's release:
+
+```ruby
+cfop = DfeRb::Nfe::Tables.cfop("5.102")         # also "5102" or 5102; nil if unknown
+cfop.title                                      # => "Venda de mercadoria adquirida ou recebida de terceiros, ..."
+cfop.exit?, cfop.scope                          # => true, :internal (:interstate, :foreign)
+cfop.valid_on?(Date.today)                      # validity from the table (valid_from, valid_until)
+
+DfeRb::Nfe::Tables.cfops                                   # all 619, by code
+DfeRb::Nfe::Tables.cfops(matching: "6.9 retorno")          # title words (case and accents ignored) and code prefix
+DfeRb::Nfe::Tables.cfops.select(&:goods_return?)
+
+DfeRb::Nfe::Tables.classification("200034")     # cClassTrib: cst, ibs_reduction, cbs_reduction, deferral?...
+DfeRb::Nfe::Tables.city_name("5002704")         # => "Campo Grande"
+DfeRb::Nfe::Tables.city_code("sao paulo", "SP") # => "3550308"
+```
+
+A CFOP's indicators, by their names in IT 2023.002:
+
+| Method | Indicator | True when the CFOP... |
+|---|---|---|
+| `nfe?` | `indNFe` | may be used on an NF-e (rej. 770 otherwise) |
+| `communication?` | `indComunica` | is a communication service |
+| `transport?` | `indTransp` | is a transport service (allowed in `retTransp`) |
+| `devolution?` | `indDevol` | is a devolução (the only kind a `finNFe` 4 note takes) |
+| `goods_return?` | `indRetor` | is a retorno |
+| `annulment?` | `indAnula` | is an anulação de valor |
+| `remittance?` | `indRemes` | is a remessa |
+| `fuel?` / `fuel` | `indComb` | is a fuel operation: 1 requires the `comb` group, 2 also the carrier |
+| `ibs_cbs_only?` | `indExcIBSCBS` | may be used by an issuer with no IE (IBS/CBS only) |
 
 ## Advanced
 

@@ -703,6 +703,18 @@ RSpec.describe DfeRb::Nfe::Invoice do
         .to eq(%w[7.00 100.00 36.00 0.00])
     end
 
+    it "leaves the interstate rates of a retorno CFOP to the issuer" do
+      invoice = interstate(client) { |nfe|
+        bare_item(nfe) { |i| i.cfop "916" }
+        nfe.payment :credit_card
+      }
+
+      item = invoice.resolved["det"].first
+      expect(item["prod"]["CFOP"]).to eq("6916")
+      expect(item["imposto"]["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+      expect(item["imposto"]["IBSCBS"]["gIBSCBS"]["gCBS"]["pCBS"]).not_to be_nil
+    end
+
     it "completes addresses from the IBGE table" do
       document = doc(interstate(client) { |nfe|
         bare_item(nfe)

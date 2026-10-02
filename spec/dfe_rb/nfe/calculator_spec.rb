@@ -82,6 +82,33 @@ RSpec.describe DfeRb::Nfe::Calculator do
     end
   end
 
+  describe "retorno and anulação CFOPs (RV N16-04, N16-20, NA09-30, NA11-10)" do
+    let(:interstate) { described_class::Context.new(origin_state: "SP", destination_state: "BA", destination: 2, year: 2026, purpose: 1) }
+
+    def taxes = {"ICMS" => {"ICMS00" => {"orig" => 0, "vBC" => "100.00"}},
+                 "ICMSUFDest" => {"vBCUFDest" => "100.00", "pICMSUFDest" => "18.00"},
+                 "IBSCBS" => {"cClassTrib" => "000001"}}
+
+    it "leaves the interstate rates of a retorno to the issuer, but not the IBS/CBS rates" do
+      imposto = calculate(taxes, {"CFOP" => "6916"}, interstate)
+
+      expect(imposto["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+      expect(imposto["ICMSUFDest"].keys).not_to include("pICMSInter", "pICMSInterPart")
+      expect(decimal(imposto["IBSCBS"]["gIBSCBS"]["gCBS"]["pCBS"])).to eq("0.9")
+    end
+
+    it "leaves the interstate rate of an anulação to the issuer" do
+      expect(calculate(taxes, {"CFOP" => "6206"}, interstate)["ICMS"]["ICMS00"]).not_to have_key("pICMS")
+    end
+
+    it "derives them for any other CFOP" do
+      imposto = calculate(taxes, {"CFOP" => "6102"}, interstate)
+
+      expect(decimal(imposto["ICMS"]["ICMS00"]["pICMS"])).to eq("7.0")
+      expect([imposto["ICMSUFDest"]["pICMSInter"], decimal(imposto["ICMSUFDest"]["pICMSInterPart"])]).to eq(%w[7.00 100.0])
+    end
+  end
+
   it "computes IPI, PIS and COFINS by rate or by quantity" do
     imposto = calculate(
       "IPI" => {"IPITrib" => {"qUnid" => "3.0000", "vUnid" => "1.5000"}},

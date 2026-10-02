@@ -3,16 +3,40 @@
 #
 #   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table NF-e city codes follow
 #   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
+#   cfop.tsv             CFOP table of IT 2023.002, the .xlsx the Portal Nacional da NF-e publishes
 #
-# Usage: script/update_tables [ibge.json] [svrs.html]   (downloads whatever isn't given)
+# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx]
+#
+# IBGE and SVRS are downloaded when not given. The CFOP table has no stable address, so
+# cfop.tsv is regenerated only from a given .xlsx (read with the unzip command).
 
+require "date"
 require "json"
 require "net/http"
+require "nokogiri"
+require "open3"
+require "optparse"
 require "uri"
 
 IBGE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado"
 SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/ClassificacaoTributaria"
 DATA = File.expand_path("../lib/dfe_rb/nfe/data", __dir__)
+# The .xlsx column headers, in the order cfop.tsv writes them under its own names.
+CFOP_COLUMNS = {
+  "CFOP" => "CFOP", "Início de vigência" => "dIniVig", "Fim de vigência" => "dFimVig", "indNFe" => "indNFe",
+  "indComunica" => "indComunica", "indTransp" => "indTransp", "indDevol" => "indDevol", "indRetor" => "indRetor",
+  "indAnula" => "indAnula", "indRemes" => "indRemes", "indComb" => "indComb", "indExcIBSCBS" => "indExcIBSCBS",
+  "Título do CFOP" => "xTitulo"
+}.freeze
+EXCEL_EPOCH = Date.new(1899, 12, 30)
+
+options = {}
+OptionParser.new do |parser|
+  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx]"
+  parser.on("--ibge FILE", "IBGE municipalities JSON (downloaded if not given)") { |file| options[:ibge] = file }
+  parser.on("--svrs FILE", "SVRS cClassTrib page HTML (downloaded if not given)") { |file| options[:svrs] = file }
+  parser.on("--cfop FILE", "IT 2023.002 CFOP table .xlsx (cfop.tsv is left alone if not given)") { |file| options[:cfop] = file }
+end.parse!
 
 def source(path, url, redirects = 3)
   return File.read(path, encoding: "UTF-8") if path
@@ -30,12 +54,66 @@ def date(value) = value && value[0, 10]
 
 def flag(value) = value ? "1" : "0"
 
-municipalities = JSON.parse(source(ARGV[0], IBGE_URL))
+def write_tsv(file, rows) = File.write(File.join(DATA, file), rows.map { |row| row.join("\t") }.join("\n") + "\n")
+
+# One part of an .xlsx (a zip), namespaces removed.
+def xlsx_part(path, part)
+  xml, status = Open3.capture2("unzip", "-p", path, part, binmode: true)
+  raise "#{path}: could not read #{part} (unzip exit #{status.exitstatus})" unless status.success?
+
+  Nokogiri::XML(xml.force_encoding("UTF-8")).tap(&:remove_namespaces!)
+end
+
+# The first sheet's rows as arrays of cell texts, by column.
+def xlsx_rows(path)
+  strings = xlsx_part(path, "xl/sharedStrings.xml").xpath("//si").map { |si| si.xpath(".//t").map(&:text).join }
+  xlsx_part(path, "xl/worksheets/sheet1.xml").xpath("//sheetData/row").map do |row|
+    row.xpath("c").each_with_object([]) do |cell, values|
+      column = cell["r"][/\A[A-Z]+/].each_char.reduce(0) { |sum, letter| sum * 26 + letter.ord - 64 } - 1
+      values[column] = case cell["t"]
+      when "s" then strings.fetch(Integer(cell.at_xpath("v").text))
+      when "inlineStr" then cell.xpath("is//t").map(&:text).join
+      else cell.at_xpath("v")&.text
+      end
+    end
+  end
+end
+
+# An Excel date serial or a dd/mm/yyyy text as yyyy-mm-dd; empty stays empty.
+def xlsx_date(value)
+  value = value.to_s.strip
+  return "" if value.empty?
+  return (EXCEL_EPOCH + Integer(value.delete_suffix(".0"))).iso8601 if value.match?(/\A\d+(\.0)?\z/)
+
+  Date.strptime(value, "%d/%m/%Y").iso8601
+end
+
+def cfop_rows(path)
+  header, *rows = xlsx_rows(path)
+  header = header.map { |name| name.to_s.strip }
+  missing = CFOP_COLUMNS.keys - header
+  raise "#{path}: the CFOP table no longer has the columns #{missing.join(", ")}" unless missing.empty?
+
+  indexes = CFOP_COLUMNS.keys.map { |name| header.index(name) }
+  rows.filter_map do |row|
+    values = indexes.map { |index| row[index].to_s.strip }
+    next if values.all?(&:empty?)
+
+    code, from, to, *flags, title = values
+    code = code.delete_suffix(".0")
+    raise "#{path}: #{code.inspect} is not a CFOP" unless code.match?(/\A\d{4}\z/)
+    raise "#{path}: CFOP #{code} has an unexpected indicator in #{flags.inspect}" unless flags.all? { |value| value.match?(/\A[0-2]\z/) }
+
+    [code, xlsx_date(from), xlsx_date(to), *flags, title.gsub(/\s+/, " ")]
+  end.sort
+end
+
+municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
   .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
   .sort
-File.write(File.join(DATA, "municipalities.tsv"), municipalities.map { |row| row.join("\t") }.join("\n") + "\n")
+write_tsv("municipalities.tsv", municipalities)
 
-page = source(ARGV[1], SVRS_URL)
+page = source(options[:svrs], SVRS_URL)
 json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"
 header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono ind_gDif ind_gTribRegular dIniVig dFimVig]
 rows = JSON.parse(json).flat_map do |cst|
@@ -45,6 +123,12 @@ rows = JSON.parse(json).flat_map do |cst|
       flag(klass["IndTribRegular"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s]
   end
 end.sort
-File.write(File.join(DATA, "classifications.tsv"), ([header] + rows).map { |row| row.join("\t") }.join("\n") + "\n")
+write_tsv("classifications.tsv", [header] + rows)
 
-puts "#{municipalities.size} municipalities, #{rows.size} classifications"
+summary = "#{municipalities.size} municipalities, #{rows.size} classifications"
+if options[:cfop]
+  cfops = cfop_rows(options[:cfop])
+  write_tsv("cfop.tsv", [CFOP_COLUMNS.values] + cfops)
+  summary += ", #{cfops.size} CFOPs"
+end
+puts summary
