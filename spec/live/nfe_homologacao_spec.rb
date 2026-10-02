@@ -147,5 +147,87 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       unused = client.inutilize(series: 1, from: number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
       expect(unused).to be_approved, "#{unused.code} #{unused.message}"
     end
+
+    # Regime normal notes that give only bases, rates and the tax classification: every amount,
+    # rate, total, CFOP prefix and city code comes from the gem, and SEFAZ must agree with it.
+    describe "derived values" do
+      let(:issuer) do
+        {tax_id: certificate.cnpj, name: ENV.fetch("DFE_RB_LIVE_NAME", "EMPRESA DE TESTE LTDA"), state_registration: ENV.fetch("DFE_RB_LIVE_IE"),
+         tax_regime: :normal,
+         address: {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: ENV.fetch("DFE_RB_LIVE_STREET_NUMBER", "100"),
+                   district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), zip: ENV.fetch("DFE_RB_LIVE_ZIP")}}
+      end
+
+      def item(nfe, code, price, rate: nil, class_code: "000001")
+        nfe.item do |i|
+          i.code code
+          i.description "Produto #{code}"
+          i.ncm "84713012"
+          i.cfop "102"
+          i.unit "UN"
+          i.quantity 2
+          i.unit_price price
+          i.icms(**{cst: "00", origin: :domestic, base_mode: 3, base: DfeRb::Nfe::Totals.money(BigDecimal(price) * 2).to_s("F"), rate: rate}.compact)
+          i.pis cst: "01", base: DfeRb::Nfe::Totals.money(BigDecimal(price) * 2).to_s("F"), rate: "1.65"
+          i.cofins cst: "01", base: DfeRb::Nfe::Totals.money(BigDecimal(price) * 2).to_s("F"), rate: "7.60"
+          i.ibs_cbs class_code: class_code
+          yield i if block_given?
+        end
+      end
+
+      def authorize_and_cancel(invoice)
+        signed = client.sign(invoice)
+        result = client.authorize(signed)
+        expect(result).to be_authorized, "#{result.code} #{result.message}\n#{signed.xml}"
+
+        cancellation = client.cancel(signed.key, protocol: result.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
+        expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+        Nokogiri::XML(signed.xml)
+      end
+
+      it "authorizes an internal sale whose taxes, totals and codes were all derived" do
+        invoice = client.build_invoice do |nfe|
+          nfe.series 2   # apart from the lifecycle example's series 1, whose numbers also come from the clock
+          nfe.number Integer(Time.now.to_i.to_s[-7..], 10)
+          nfe.nature_of_operation "Venda de mercadoria"
+          nfe.issuer(**issuer)
+          nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", state_registration: issuer[:state_registration],
+            address: issuer[:address].except(:city_code).merge(city: ENV.fetch("DFE_RB_LIVE_CITY"), state: uf)
+          item(nfe, "1", "123.45", rate: "17.00")
+          item(nfe, "2", "37.33", rate: "17.00", class_code: "200034") { |i| i.discount "1.11" }
+          nfe.billing invoice: {number: "1"}, installments: [{due_date: (Date.today + 30).iso8601}]
+          nfe.payment :bank_slip
+          nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"
+        end
+
+        document = authorize_and_cancel(invoice)
+        ns = {"n" => "http://www.portalfiscal.inf.br/nfe"}
+        expect(document.xpath("//n:prod/n:CFOP", ns).map(&:text).uniq).to eq(["5102"])
+        expect(document.at_xpath("//n:det[2]//n:gCBS/n:gRed/n:pRedAliq", ns).text).to eq("60.00")
+        expect(document.at_xpath("//n:total/n:vNFTot", ns).text).to eq(document.at_xpath("//n:ICMSTot/n:vNF", ns).text)
+      end
+
+      it "authorizes an interstate sale to a final consumer with the DIFAL derived" do
+        invoice = client.build_invoice do |nfe|
+          nfe.series 3
+          nfe.number Integer(Time.now.to_i.to_s[-7..], 10)
+          nfe.nature_of_operation "Venda de mercadoria"
+          nfe.issuer(**issuer)
+          nfe.recipient cpf: "52998224725", name: "CONSUMIDOR",
+            address: {street: "Rua B", number: "1", district: "Centro", city: "São Paulo", state: "SP", zip: "01001000"}
+          item(nfe, "1", "250.00") do |i|
+            i.icms_destination destination_base: "500.00", destination_rate: "18.00", destination_fcp_base: "500.00",
+              destination_fcp_rate: "2.00"
+          end
+          nfe.payment :pix
+          nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"
+        end
+
+        document = authorize_and_cancel(invoice)
+        ns = {"n" => "http://www.portalfiscal.inf.br/nfe"}
+        expect(document.at_xpath("//n:ICMS00/n:pICMS", ns).text).to eq("12.00")
+        expect(document.at_xpath("//n:ICMSUFDest/n:vICMSUFDest", ns).text).to eq("30.00")
+      end
+    end
   end
 end

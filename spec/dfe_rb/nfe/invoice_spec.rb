@@ -640,14 +640,13 @@ RSpec.describe DfeRb::Nfe::Invoice do
     let(:clock) { Class.new { def self.now = Time.new(2026, 9, 29, 10, 0, 0, "-03:00") } }
     let(:client) { nfe_client(NfeHelpers::FakeTransport.new, clock: clock) }
 
-    def interstate(client, &block)
+    def interstate(client, recipient: {cnpj: "11222333000181", name: "CLIENTE", state_registration: "123456789"}, &block)
       client.build_invoice do |nfe|
         nfe.number 78
         nfe.nature_of_operation "Venda"
         nfe.issuer tax_id: "11444777000161", name: "EMPRESA LTDA", state_registration: "111111111111", tax_regime: :normal,
           address: {street: "Rua A", number: "100", district: "Centro", city_code: "3550308", zip: "01001000"}
-        nfe.recipient cnpj: "11222333000181", name: "CLIENTE", state_registration: "123456789",
-          address: {street: "Rua B", number: "1", district: "Centro", city: "Goiânia", state: "GO", zip: "74000000"}
+        nfe.recipient(**recipient, address: {street: "Rua B", number: "1", district: "Centro", city: "Goiânia", state: "GO", zip: "74000000"})
         block.call(nfe)
       end
     end
@@ -689,6 +688,19 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(values).to eq("CFOP" => "6102", "pICMS" => "7.00", "vICMS" => "21.00", "vPIS" => "4.95", "vCOFINS" => "22.80",
         "CST" => "200", "vBC" => "251.25", "pAliqEfet" => "0.36", "vIBSUF" => "0.10", "vCBS" => "0.90", "vItem" => "300.00",
         "vNFTot" => "300.00", "vPag" => "300.00")
+    end
+
+    it "derives the DIFAL of an interstate sale to a final consumer within the schema's enumerations" do
+      invoice = interstate(client, recipient: {cpf: "52998224725", name: "CONSUMIDOR"}) { |nfe|
+        bare_item(nfe) { |i| i.icms_destination destination_base: "300.00", destination_rate: "19.00" }
+        nfe.payment :pix
+      }
+
+      expect(invoice.issues).to eq([])
+      expect(invoice.resolved["ide"]).to include("idDest" => 2, "indFinal" => 1)
+      document = doc(invoice)
+      expect(%w[pICMSInter pICMSInterPart vICMSUFDest vICMSUFRemet].map { |tag| text(document, "//nfe:ICMSUFDest/nfe:#{tag}") })
+        .to eq(%w[7.00 100.00 36.00 0.00])
     end
 
     it "completes addresses from the IBGE table" do

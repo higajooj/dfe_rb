@@ -9,7 +9,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
 
   def calculate(imposto, prod = {}, with = context) = described_class.call(item(imposto, prod), with)["imposto"]
 
-  def decimal(value) = value&.to_s("F")
+  def decimal(value) = value.is_a?(String) ? value : value&.to_s("F")
 
   describe "ICMS" do
     it "multiplies base and rate, rounding half up" do
@@ -84,7 +84,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
       {}, interstate)["ICMSUFDest"]
 
     expect(%w[pICMSInter pICMSInterPart vFCPUFDest vICMSUFDest vICMSUFRemet].map { |tag| decimal(difal[tag]) })
-      .to eq(%w[7.0 100.0 2.0 13.5 0.0])
+      .to eq(%w[7.00 100.0 2.0 13.5 0.0])
   end
 
   it "computes the ad valorem selective tax" do

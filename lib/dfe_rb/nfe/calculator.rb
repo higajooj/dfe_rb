@@ -92,7 +92,8 @@ module DfeRb
       def destination_share(imposto, context)
         group = imposto["ICMSUFDest"] or return
         _, icms = (imposto["ICMS"] || {}).first
-        group["pICMSInter"] ||= Rates.interstate(context.origin_state, context.destination_state, icms&.dig("orig"))
+        # An enumeration in the schema ("4.00", "7.00", "12.00"): written with its two places.
+        group["pICMSInter"] ||= Rates.interstate(context.origin_state, context.destination_state, icms&.dig("orig"))&.then { |rate| format("%.2f", rate) }
         group["pICMSInterPart"] ||= context.year && Rates.partition(context.year)
 
         fill(group, "vFCPUFDest") { expected_destination_fcp(group) }

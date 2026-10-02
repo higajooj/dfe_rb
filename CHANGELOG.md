@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Write a derived `pICMSInter` as the schema's enumeration (`"12.00"`, not `"12"`); interstate DIFAL notes failed schema validation.
+- Live homologação checks for invoices built from derived values (internal sale and interstate DIFAL), verified against SEFAZ-MS.
+
 ## 0.4.0
 
 - Derive every field whose value is deterministic, keeping whatever is given explicitly:
