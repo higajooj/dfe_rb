@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Check every item's CFOP against the CFOP table before sending: unknown, out of force or not for NF-e (I08-04, rej. 770); a return or a credit note of type 03/06 without a devolução CFOP, accepting 1949/2949 and 5949/6949 for natural gas (I08-140 per NT 2026.009, rej. 327); a MEI's return outside its six CFOPs (I08-141, rej. 1179); an issuer without IE outside the `indExcIBSCBS` CFOPs (I08-191, rej. 159).
+- Require `icms_destination` (DIFAL) on an interstate sale to a non-contributor final consumer, with every NA01-20 exception (retorno and remessa CFOPs, 6552/6922/6929, `ICMSPart`, exempt or untaxed ICMS, Simples Nacional, delivery in the issuer's state, non-petroleum fuels, returns of pre-2016 notes...) (rej. 694).
+- Require the `comb` group on a fuel CFOP (LA01-20, rej. 660) and a transport CFOP in `retTransp` (X16-10, rej. 722).
+- CFOP messages name the CFOP's title: `6916 (Retorno de mercadoria ou bem recebido para conserto…)`.
 - Open RC2-40 `.pfx` files on precompiled Rubies (mise, rv...), whose bundled OpenSSL looks for the legacy provider in the build machine's path: the provider is retried from the system's OpenSSL 3 modules directory.
 - Derive `tpNF` 0 (entry) when every item has an entry CFOP (`1102`) or the note is a credit note, and `finNFe` 5/6 from `credit_note_type`/`debit_note_type` (RV I08-10, B25-110, B25.1-10, B25.2-10). Both used to default to an exit note of purpose 1, which SEFAZ rejects.
 - Flag a devolução CFOP (`indDevol`) on a note that isn't a return, a complement or a credit note of type 03/04/06 (RV I08-144, rej. 328), telling you to set `purpose :return`.

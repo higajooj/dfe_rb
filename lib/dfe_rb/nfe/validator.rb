@@ -17,6 +17,22 @@ module DfeRb
       MAX_STANDARD_SERIES = 889
       # Credit note types that may carry devolução CFOPs (tpNFCredito, RV I08-144).
       DEVOLUTION_CREDIT_NOTES = %w[03 04 06].freeze
+      # Credit note types that, like a return, must carry devolução CFOPs (RV I08-140, I08-141).
+      RETURN_CREDIT_NOTES = %w[03 06].freeze
+      # Accepted on a return besides the devolução CFOPs (RV I08-140, NT 2026.009): 1949/2949
+      # on any return, 5949/6949 on the symbolic return of natural gas (Ajuste SINIEF 22/21).
+      RETURN_OTHER_CFOPS = %w[1949 2949].freeze
+      NATURAL_GAS_RETURN_CFOPS = %w[5949 6949].freeze
+      NATURAL_GAS_NCM = "27112100"
+      # The only CFOPs a MEI (CRT 4) may use on a return (RV I08-141).
+      MEI_RETURN_CFOPS = %w[1202 1553 2202 2553 5202 6202].freeze
+      # RV NA01-20 exceptions: CFOPs that never need ICMSUFDest, the petroleum fuels (ANP
+      # codes) that do, and the ICMS CSTs/CSOSNs of exempt, immune or untaxed operations.
+      DIFAL_EXEMPT_CFOPS = %w[6552 6922 6929].freeze
+      DIFAL_FUEL_ANP_CODES = %w[820101001 820101010 810102001 810102004 810102002 810102003 810101002 810101001
+        810101003 220101003 220101004 220101002 220101001 220101005 220101006 560101001].freeze
+      DIFAL_EXEMPT_ICMS = %w[40 41 103 300 400].freeze
+      CFOP_TITLE_LENGTH = 60
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
@@ -35,6 +51,7 @@ module DfeRb
         check_payment
         check_billing
         check_ibs_cbs
+        check_transport_retention
         check_technical_contact
         @issues
       end
@@ -112,35 +129,161 @@ module DfeRb
           add "#{where}/prod/vDesc: the discount exceeds the item value (rej. 483)"
         end
 
-        check_cfop(where, prod["CFOP"])
-        check_devolution_cfop(where, prod["CFOP"])
+        check_item_cfop(where, item)
         check_gtin("#{where}/prod/cEAN", prod["cEAN"])
         check_gtin("#{where}/prod/cEANTrib", prod["cEANTrib"])
         check_icms(where, item)
         check_item_taxes(where, item)
       end
 
-      def check_cfop(where, cfop)
+      # The rules that consult the CFOP table (IT 2023.002). An unknown CFOP is reported
+      # once (I08-04), without the rules that would need its indicators.
+      def check_item_cfop(where, item)
+        cfop = item.dig("prod", "CFOP")
         return if cfop.nil?
 
-        expected = Resolver::CFOP_PREFIX.dig((@ide["tpNF"].to_s == "0") ? "0" : "1", @ide["idDest"].to_s)
-        return if expected.nil? || cfop.to_s.start_with?(expected)
+        row = check_cfop_exists(where, cfop) or return
+        check_cfop(where, row)
+        check_devolution_cfop(where, row)
+        check_return_note_cfop(where, item, row)
+        check_ibs_cbs_only_cfop(where, row)
+        check_destination_group(where, item, row)
+        check_fuel_group(where, item, row)
+      end
 
-        add "#{where}/prod/CFOP: #{cfop} does not fit the operation (idDest #{@ide["idDest"]}, " \
+      # RV I08-04: the CFOP is in the table, in force and usable in an NF-e (rej. 770).
+      def check_cfop_exists(where, cfop)
+        row = Tables.cfop(cfop)
+        if row.nil?
+          add "#{where}/prod/CFOP: #{cfop} is not in the CFOP table (IT 2023.002); look it up with " \
+            "DfeRb::Nfe::Tables.cfops(matching: \"...\") (rej. 770)"
+        elsif !row.nfe?
+          add "#{where}/prod/CFOP: #{cfop_label(row)} can't be used in an NF-e (rej. 770)"
+        elsif issued_at && !row.valid_on?(issued_at)
+          add "#{where}/prod/CFOP: #{cfop_label(row)} is not in force on the issue date (rej. 770)"
+        else
+          return row
+        end
+        nil
+      end
+
+      def check_cfop(where, row)
+        expected = Resolver::CFOP_PREFIX.dig((@ide["tpNF"].to_s == "0") ? "0" : "1", @ide["idDest"].to_s)
+        return if expected.nil? || row.code.start_with?(expected)
+
+        add "#{where}/prod/CFOP: #{cfop_label(row)} does not fit the operation (idDest #{@ide["idDest"]}, " \
           "#{(@ide["tpNF"].to_s == "0") ? "entry" : "exit"}): it must start with #{expected} (rej. 731-733)"
       end
 
       # RV I08-144: a devolução CFOP (indDevol) only on a return, a complement or a credit
       # note of type 03, 04 or 06.
-      def check_devolution_cfop(where, cfop)
-        return unless Tables.cfop(cfop)&.devolution?
+      def check_devolution_cfop(where, row)
+        return unless row.devolution?
 
         purpose = @ide["finNFe"].to_s
         return if %w[2 4].include?(purpose)
-        return if purpose == "5" && DEVOLUTION_CREDIT_NOTES.include?(@ide["tpNFCredito"].to_s.rjust(2, "0"))
+        return if purpose == "5" && DEVOLUTION_CREDIT_NOTES.include?(credit_note_type)
 
-        add "#{where}/prod/CFOP: #{cfop} is a devolução CFOP; a return note needs purpose :return (finNFe 4), " \
+        add "#{where}/prod/CFOP: #{cfop_label(row)} is a devolução CFOP; a return note needs purpose :return (finNFe 4), " \
           "or :complementary for a complement of one (rej. 328)"
+      end
+
+      # RV I08-140 (as NT 2026.009 left it) and, for a MEI, I08-141: a return, or a credit
+      # note of type 03 or 06, carries devolução CFOPs.
+      def check_return_note_cfop(where, item, row)
+        return unless return_note?
+
+        if @inf.dig("emit", "CRT").to_s == "4" && @ide["idDest"].to_s != "3"
+          return if MEI_RETURN_CFOPS.include?(row.code)
+
+          return add "#{where}/prod/CFOP: #{cfop_label(row)} can't be used on a return issued by a MEI; " \
+            "use #{MEI_RETURN_CFOPS.join(", ")} (rej. 1179)"
+        end
+        return if row.devolution?
+        return if @ide["finNFe"].to_s == "4" && RETURN_OTHER_CFOPS.include?(row.code)
+        return if NATURAL_GAS_RETURN_CFOPS.include?(row.code) && item.dig("prod", "NCM").to_s == NATURAL_GAS_NCM
+
+        add "#{where}/prod/CFOP: #{cfop_label(row)} is not a devolução CFOP, which a return carries " \
+          "(see DfeRb::Nfe::Tables.cfops.select(&:devolution?)) (rej. 327)"
+      end
+
+      # RV I08-191 (NT 2026.007, SVRS): an issuer without IE, taxed only by IBS/CBS, may only
+      # use the CFOPs marked indExcIBSCBS, except on a return or a credit note of type 03.
+      def check_ibs_cbs_only_cfop(where, row)
+        emit = @inf["emit"] or return
+        return unless emit["IE"].to_s.empty?
+        return if row.ibs_cbs_only?
+        return if @ide["finNFe"].to_s == "4" || credit_note_type == "03"
+
+        add "#{where}/prod/CFOP: #{cfop_label(row)} can't be used by an issuer without state registration " \
+          "(IBS/CBS only; see DfeRb::Nfe::Tables.cfops.select(&:ibs_cbs_only?)) (rej. 159)"
+      end
+
+      # RV NA01-20: an interstate sale to a final consumer who isn't an ICMS taxpayer carries
+      # the DIFAL group, with the rule's exceptions (NT 2025.002 v1.51).
+      def check_destination_group(where, item, row)
+        imposto = item["imposto"] || {}
+        return if imposto["ICMSUFDest"] || imposto["ISSQN"]
+        return unless @ide["idDest"].to_s == "2" && @ide["indFinal"].to_s == "1" && @ide["tpNF"].to_s != "0"
+        return unless @inf.dig("dest", "indIEDest").to_s == "9"
+        return if %w[1 4].include?(@inf.dig("emit", "CRT").to_s)
+        return if %w[2 3 5 6].include?(@ide["finNFe"].to_s) || @ide.dig("gCompraGov", "tpOperGov").to_s == "2"
+        return if @ide["finNFe"].to_s == "4" && references_before_2016?
+        return if row.goods_return? || row.remittance? || DIFAL_EXEMPT_CFOPS.include?(row.code)
+
+        name, values = Totals.icms_variant(item)
+        return if name == "ICMSPart"
+        return if values && DIFAL_EXEMPT_ICMS.include?((values["CST"] || values["CSOSN"]).to_s)
+
+        fuel = item.dig("prod", "comb")
+        return if fuel && !DIFAL_FUEL_ANP_CODES.include?(fuel["cProdANP"].to_s)
+
+        delivery = @inf.dig("entrega", "UF")
+        return if delivery && delivery == @inf.dig("emit", "enderEmit", "UF")
+
+        add "#{where}/imposto/ICMSUFDest: required on #{cfop_label(row)} to a final consumer in another state " \
+          "who isn't an ICMS taxpayer (DIFAL); give i.icms_destination with the destination state's rates (rej. 694)"
+      end
+
+      # RV LA01-20: a fuel CFOP (indComb 1 or 2) carries the fuel group (rej. 660).
+      def check_fuel_group(where, item, row)
+        return unless row.fuel? && item.dig("prod", "comb").nil?
+
+        add "#{where}/prod/comb: required on #{cfop_label(row)}, a fuel CFOP (rej. 660)"
+      end
+
+      # RV X16-10: the retained transport ICMS takes a transport CFOP (indTransp, rej. 722).
+      def check_transport_retention
+        cfop = @inf.dig("transp", "retTransp", "CFOP") or return
+        row = Tables.cfop(cfop)
+        return if row&.transport?
+
+        add "transp/retTransp/CFOP: #{row ? cfop_label(row) : cfop} is not a transport CFOP " \
+          "(see DfeRb::Nfe::Tables.cfops.select(&:transport?)) (rej. 722)"
+      end
+
+      def return_note?
+        @ide["finNFe"].to_s == "4" || (@ide["finNFe"].to_s == "5" && RETURN_CREDIT_NOTES.include?(credit_note_type))
+      end
+
+      def credit_note_type = @ide["tpNFCredito"].to_s.rjust(2, "0")
+
+      # Whether a referenced NF-e was issued before 2016 (the key's year digits, NA01-20).
+      def references_before_2016?
+        [@ide["NFref"]].flatten.compact.any? do |reference|
+          key = reference.is_a?(Hash) ? reference["refNFe"].to_s : ""
+          key.match?(/\A\d{4}/) && key[2, 2].to_i < 16
+        end
+      end
+
+      # "6916 (Retorno de mercadoria ou bem recebido para conserto ou…)"
+      def cfop_label(row)
+        title = row.title.to_s.delete_suffix(".")
+        if title.length > CFOP_TITLE_LENGTH
+          cut = title[0, CFOP_TITLE_LENGTH + 1].sub(/\s+\S*\z/, "").sub(/(?:[\s,;]+(?:ou|e|de|da|do|para|com|a|o|em))*[\s,;]*\z/, "")
+          title = "#{cut}…"
+        end
+        "#{row.code} (#{title})"
       end
 
       def check_gtin(path, value)

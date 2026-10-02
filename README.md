@@ -250,15 +250,26 @@ A CFOP's indicators, by their names in IT 2023.002:
 
 | Method | Indicator | True when the CFOP... |
 |---|---|---|
-| `nfe?` | `indNFe` | may be used on an NF-e (rej. 770 otherwise) |
+| `nfe?` | `indNFe` | may be used on an NF-e |
 | `communication?` | `indComunica` | is a communication service |
-| `transport?` | `indTransp` | is a transport service (allowed in `retTransp`) |
-| `devolution?` | `indDevol` | is a devolução (the only kind a `finNFe` 4 note takes, and flagged on a note that isn't a return) |
-| `goods_return?` | `indRetor` | is a retorno |
+| `transport?` | `indTransp` | is a transport service (the only kind `retTransp` takes) |
+| `devolution?` | `indDevol` | is a devolução (the kind a return takes) |
+| `goods_return?` | `indRetor` | is a retorno (no DIFAL group or interstate rates derived) |
 | `annulment?` | `indAnula` | is an anulação de valor |
-| `remittance?` | `indRemes` | is a remessa |
+| `remittance?` | `indRemes` | is a remessa (no DIFAL group required) |
 | `fuel?` / `fuel` | `indComb` | is a fuel operation: 1 requires the `comb` group, 2 also the carrier |
 | `ibs_cbs_only?` | `indExcIBSCBS` | may be used by an issuer with no IE (IBS/CBS only) |
+
+Before anything is sent, every item's CFOP is checked against the rules that consult the table. The messages name the CFOP's title (`6108 (Venda de mercadoria adquirida ou recebida de terceiros…)`):
+
+- it exists, is in force on the issue date and may be used on an NF-e (I08-04, rej. 770); its first digit fits the operation (rej. 731-733)
+- a return, or a credit note of type 03 or 06, carries devolução CFOPs, plus `1949`/`2949` on a return and `5949`/`6949` for natural gas (I08-140 as NT 2026.009 left it, rej. 327); a MEI's returns use only `1202`, `1553`, `2202`, `2553`, `5202` or `6202` (I08-141, rej. 1179); a devolução CFOP appears only on those notes (I08-144, rej. 328)
+- an interstate sale to a final consumer who isn't an ICMS taxpayer has `icms_destination` (DIFAL), with the rule's exceptions: retorno and remessa CFOPs, `6552`/`6922`/`6929`, `ICMSPart`, exempt or untaxed ICMS, Simples Nacional, delivery in the issuer's state... (NA01-20, rej. 694)
+- a fuel CFOP has the `comb` group (LA01-20, rej. 660; enforced at each state's discretion, but never wrong)
+- `retTransp` takes a transport CFOP (X16-10, rej. 722)
+- an issuer without IE uses only CFOPs marked `indExcIBSCBS`, except on returns (I08-191, rej. 159, NT 2026.007)
+
+The carrier required on fuel sales with `indComb` 2 (X04-10) is left to SEFAZ: it depends on a list of ANP product codes the gem doesn't ship.
 
 ## Advanced
 

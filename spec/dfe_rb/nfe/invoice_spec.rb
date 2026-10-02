@@ -258,7 +258,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
     it "keeps an exit note when the CFOPs are mixed or only 3-digit, and flags the entry one" do
       mixed = with_cfops("1102", "5102")
       expect(mixed.resolved["ide"]["tpNF"]).to eq(1)
-      expect(mixed.issues).to include(a_string_matching(/det\[1\]\/prod\/CFOP: 1102 does not fit the operation/))
+      expect(mixed.issues).to include(a_string_matching(/det\[1\]\/prod\/CFOP: 1102 \(Compra para comercialização\) does not fit the operation/))
 
       short = with_cfops("102").resolved
       expect(short["ide"]["tpNF"]).to eq(1)
@@ -280,7 +280,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
 
     it "flags a devolução CFOP on a note that isn't a return (RV I08-144)" do
       expect(with_cfops("5202").issues)
-        .to include(a_string_matching(/det\[1\]\/prod\/CFOP: 5202 is a devolução CFOP.*purpose :return.*rej\. 328/))
+        .to include(a_string_matching(/det\[1\]\/prod\/CFOP: 5202 \(Devolução de compra.*\) is a devolução CFOP.*purpose :return.*rej\. 328/))
       expect(with_cfops("5202") { |nfe| nfe.purpose :return }.issues).not_to include(a_string_matching(/rej\. 328/))
       expect(with_cfops("1202") { |nfe| nfe.credit_note_type "03" }.issues).not_to include(a_string_matching(/rej\. 328/))
     end
@@ -540,7 +540,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
         }
         nfe.payment :money, "21.00"
       })
-        .to include(a_string_matching(/det\[2\]\/prod\/CFOP: 5102 does not fit the operation.*must start with 6/))
+        .to include(a_string_matching(/det\[2\]\/prod\/CFOP: 5102 \(Venda de mercadoria.*\) does not fit the operation.*must start with 6/))
     end
 
     it "flags invalid CNPJs" do
@@ -731,6 +731,17 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(values).to eq("CFOP" => "6102", "pICMS" => "7.00", "vICMS" => "21.00", "vPIS" => "4.95", "vCOFINS" => "22.80",
         "CST" => "200", "vBC" => "251.25", "pAliqEfet" => "0.36", "vIBSUF" => "0.10", "vCBS" => "0.90", "vItem" => "300.00",
         "vNFTot" => "300.00", "vPag" => "300.00")
+    end
+
+    it "asks for the DIFAL group on an interstate sale to a consumer, naming the CFOP (NA01-20)" do
+      invoice = interstate(client, recipient: {cpf: "52998224725", name: "CONSUMIDOR"}) { |nfe|
+        bare_item(nfe)
+        nfe.payment :pix
+      }
+
+      expect(invoice.issues).to eq(["det[1]/imposto/ICMSUFDest: required on 6102 (Venda de mercadoria adquirida ou recebida de terceiros…) " \
+                                    "to a final consumer in another state who isn't an ICMS taxpayer (DIFAL); give i.icms_destination " \
+                                    "with the destination state's rates (rej. 694)"])
     end
 
     it "derives the DIFAL of an interstate sale to a final consumer within the schema's enumerations" do
