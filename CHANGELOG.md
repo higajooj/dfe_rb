@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Ship the TIPI's IPI rates (Decreto 11.158/2022 and its updates), looked up with `DfeRb::Nfe::Tables.ipi_rate(ncm, ex)` and listed with `Tables.ipi_rates`. `script/update_tables --tipi Tipi.xlsx` regenerates them from the Receita Federal's spreadsheet.
 - Derive `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when `IPITrib` has a base and no rate, on a normal operation (`finNFe` 1). An NT line, an NCM the TIPI lacks and a per-unit IPI get none.
