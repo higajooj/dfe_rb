@@ -432,11 +432,24 @@ module DfeRb
           return add "pag/detPag: at least one payment is required (use kind: :no_payment for none)"
         end
 
+        details.each_with_index { |detail, index| check_payment_kind("pag/detPag[#{index + 1}]/tPag", detail["tPag"].to_s) }
         deferred = details.select { |detail| DEFERRED_PAYMENT_KINDS.include?(detail["tPag"].to_s) }
         unless deferred.all? { |detail| Totals.number(detail["vPag"]).zero? }
           add "pag/detPag: with tPag 90 (no payment) or 91 (paid later) vPag must be 0.00 (rej. 904)"
         end
         check_payment_total(details) unless deferred.any?
+      end
+
+      # The tPag is in the payment methods table and accepted on the issue date (IT 2024.002).
+      def check_payment_kind(path, kind)
+        return if kind.empty?
+
+        method = Tables.payment_method(kind)
+        if method.nil?
+          add "#{path}: #{kind} is not a payment method (see DfeRb::Nfe::Tables.payment_methods)"
+        elsif issued_at && !method.valid_on?(issued_at)
+          add "#{path}: #{kind} (#{method.title}) is only accepted from #{Date.iso8601(method.valid_from).strftime("%d/%m/%Y")}"
+        end
       end
 
       # RV YA03-10 is only active for NFC-e ("implementação futura para modelo 55").

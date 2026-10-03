@@ -44,6 +44,20 @@ module DfeRb
       def ibs_cbs(year)
         (IBS_CBS[year] || {}).transform_values { |rate| rate && BigDecimal(rate) }
       end
+
+      # The ST margin (MVA, percent) adjusted for an interstate ICMS rate below the
+      # destination's internal one (Conv. ICMS 142/2018, cl. 11):
+      # [(1 + MVA) x (1 - interstate) / (1 - internal)] - 1, 2 places. The original MVA holds
+      # otherwise. The MVA and the internal rate are state law, so both are given.
+      def adjusted_mva(mva, interstate:, internal:)
+        mva, internal = [mva, internal].map { |value| BigDecimal(value.to_s) }
+        return mva if interstate.nil?
+
+        interstate = BigDecimal(interstate.to_s)
+        return mva if interstate >= internal
+
+        (((1 + mva / 100) * (1 - interstate / 100) / (1 - internal / 100) - 1) * 100).round(2, half: :up)
+      end
     end
   end
 end

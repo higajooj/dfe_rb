@@ -63,4 +63,32 @@ RSpec.describe DfeRb::Nfe::Tables do
     expect(described_class.cfops(matching: "combustiveis").map(&:code)).to include("5656", "6656")
     expect(described_class.cfops(matching: "nada parecido")).to eq([])
   end
+
+  it "gives the TIPI's IPI rate of an NCM and of its EX" do
+    beer = described_class.ipi_rate("2203.00.00")
+
+    expect([beer.ncm, beer.ex, beer.rate.to_s("F"), beer.non_taxed?]).to eq(["22030000", nil, "3.9", false])
+    expect(described_class.ipi_rate("03057100").rate).to eq(0)
+    expect(%w[1 01 001].map { |ex| described_class.ipi_rate("03057100", ex).rate.to_s("F") }).to eq(%w[3.25 3.25 3.25])
+    expect(described_class.ipi_rate("03057100", "99").ex).to be_nil   # an EX the TIPI lacks: the NCM's own line
+    expect(described_class.ipi_rate("02109100", 1)).to have_attributes(non_taxed?: true, rate: nil)
+    expect(described_class.ipi_rate("99999999")).to be_nil
+    expect(described_class.ipi_rates.size).to eq(11_107)
+  end
+
+  it "describes a payment method and the day it starts" do
+    automatic = described_class.payment_method(23)
+
+    expect([automatic.code, automatic.title, automatic.valid_from]).to eq(["23", "Pagamento Instantâneo (PIX) - Automático", "2026-05-04"])
+    expect([automatic.valid_on?("2026-05-03"), automatic.valid_on?(Date.new(2026, 5, 4))]).to eq([false, true])
+    expect(described_class.payment_method("01")).to have_attributes(valid_from: nil, deferred?: false, valid_on?: true)
+    expect(described_class.payment_methods.select(&:deferred?).map(&:code)).to eq(%w[90 91])
+    expect(described_class.payment_method("06")).to be_nil
+    expect(DfeRb::Nfe::Names::ENUMS["tPag"].values - described_class.payment_methods.map(&:code)).to eq([])
+  end
+
+  it "names the card brands" do
+    expect(described_class.card_brands.values_at("01", "06", "99")).to eq(%w[Visa Elo Outros])
+    expect(described_class.card_brands.size).to eq(28)
+  end
 end

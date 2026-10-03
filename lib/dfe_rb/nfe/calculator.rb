@@ -47,7 +47,7 @@ module DfeRb
         imposto = item["imposto"] or return item
         context = context.dup.tap { |copy| copy.cfop = item.dig("prod", "CFOP") }
 
-        ipi(imposto)
+        ipi(item, imposto, context)
         icms(item, imposto, context)
         %w[PIS COFINS].each { |name| contribution(imposto, name) }
         destination_share(imposto, context)
@@ -58,8 +58,14 @@ module DfeRb
 
       # --- ICMS, IPI, PIS/COFINS ---
 
-      def ipi(imposto)
+      # A taxed IPI's rate is the TIPI's for the item's NCM and EXTIPI, unless the IPI is per
+      # unit or the line is NT.
+      def ipi(item, imposto, context)
         group = imposto.dig("IPI", "IPITrib") or return
+        if context.law_rates? && group.key?("vBC") && %w[pIPI qUnid vUnid].all? { |tag| group[tag].nil? }
+          rate = Tables.ipi_rate(item.dig("prod", "NCM"), item.dig("prod", "EXTIPI"))&.rate
+          group["pIPI"] = rate if rate
+        end
         fill(group, "vIPI") { per_unit_or_percent(group, "vBC", "pIPI", "qUnid", "vUnid") }
       end
 

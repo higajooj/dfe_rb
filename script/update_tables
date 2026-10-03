@@ -4,12 +4,16 @@
 #   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table NF-e city codes follow
 #   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
 #   cfop.tsv             CFOP table of IT 2023.002, the .xlsx the Portal Nacional da NF-e publishes
+#   tipi.tsv             IPI rates of the TIPI, the Tipi.xlsx the Receita Federal publishes
 #
-# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx]
+# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]
 #
-# IBGE and SVRS are downloaded when not given. The CFOP table has no stable address, so
-# cfop.tsv is regenerated only from a given .xlsx (read with the unzip command).
+# IBGE and SVRS are downloaded when not given. The CFOP table and the TIPI have no stable
+# address, so cfop.tsv and tipi.tsv are regenerated only from a given .xlsx (read with the
+# unzip command). payment_methods.tsv and card_brands.tsv are edited by hand, from the tables
+# of the Portal Nacional da NF-e.
 
+require "bigdecimal"
 require "date"
 require "json"
 require "net/http"
@@ -32,10 +36,11 @@ EXCEL_EPOCH = Date.new(1899, 12, 30)
 
 options = {}
 OptionParser.new do |parser|
-  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx]"
+  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]"
   parser.on("--ibge FILE", "IBGE municipalities JSON (downloaded if not given)") { |file| options[:ibge] = file }
   parser.on("--svrs FILE", "SVRS cClassTrib page HTML (downloaded if not given)") { |file| options[:svrs] = file }
   parser.on("--cfop FILE", "IT 2023.002 CFOP table .xlsx (cfop.tsv is left alone if not given)") { |file| options[:cfop] = file }
+  parser.on("--tipi FILE", "TIPI .xlsx of the Receita Federal (tipi.tsv is left alone if not given)") { |file| options[:tipi] = file }
 end.parse!
 
 def source(path, url, redirects = 3)
@@ -108,6 +113,32 @@ def cfop_rows(path)
   end.sort
 end
 
+# The TIPI's lines that carry a rate (chapters and headings don't) as [NCM, EX, rate]: the
+# NCM in column A, the EX in B (a number, or "Ex 01"), the rate in D, "NT" when not taxed.
+# An EX line with a blank NCM belongs to the NCM above it.
+def tipi_rows(path)
+  ncm = nil
+  lines = xlsx_rows(path).each_with_object({}) do |row, found|
+    code = row[0].to_s.strip
+    ncm = code.delete(".") if code.match?(/\A\d{4}\.\d{2}\.\d{2}\z/)
+    rate = row[3].to_s.strip
+    next if rate.empty? || ncm.nil?
+    next unless rate == "NT" || rate.match?(/\A\d+(\.\d+)?(E-?\d+)?\z/i)
+
+    ex = row[1].to_s[/\d+/]&.to_i&.to_s
+    found[[ncm, ex]] = [ncm, ex.to_s, (rate == "NT") ? "NT" : tipi_rate(rate)]
+  end
+  raise "#{path}: no TIPI line found (NCM in column A, rate in column D)" if lines.empty?
+
+  lines.values.sort_by { |code, ex, _| [code, ex.empty? ? -1 : ex.to_i] }
+end
+
+# Two decimals, or as many as the rate has when it needs more (3.256).
+def tipi_rate(value)
+  text = BigDecimal(value).round(4).to_s("F")
+  text.match?(/\.\d\z/) ? "#{text}0" : text
+end
+
 municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
   .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
   .sort
@@ -130,5 +161,10 @@ if options[:cfop]
   cfops = cfop_rows(options[:cfop])
   write_tsv("cfop.tsv", [CFOP_COLUMNS.values] + cfops)
   summary += ", #{cfops.size} CFOPs"
+end
+if options[:tipi]
+  tipi = tipi_rows(options[:tipi])
+  write_tsv("tipi.tsv", [%w[NCM EX pIPI]] + tipi)
+  summary += ", #{tipi.size} TIPI lines"
 end
 puts summary

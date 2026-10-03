@@ -537,6 +537,17 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(exempt.at_xpath("nfe:IPI/nfe:cEnq", ns).text).to eq("301")
       expect(exempt.at_xpath("nfe:IPI/nfe:IPINT/nfe:CST", ns).text).to eq("53")
     end
+
+    it "takes the IPI rate from the TIPI when only the base is given" do
+      ipi = item_xml(tax: ->(i) {
+        i.icms csosn: "102", origin: 0
+        i.ipi cst: "50", base: "10.00"
+        i.pis cst: "07"
+        i.cofins cst: "07"
+      }).at_xpath("nfe:IPI/nfe:IPITrib", ns)
+
+      expect(%w[pIPI vIPI].map { |tag| ipi.at_xpath("nfe:#{tag}", ns).text }).to eq(%w[15.00 1.50])   # NCM 8471.30.12
+    end
   end
 
   describe "business rules" do

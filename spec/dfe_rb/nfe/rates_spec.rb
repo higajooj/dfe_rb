@@ -28,4 +28,17 @@ RSpec.describe DfeRb::Nfe::Rates do
     expect(described_class.ibs_cbs(2027)[:cbs]).to be_nil
     expect(described_class.ibs_cbs(2030)).to eq({})
   end
+
+  describe ".adjusted_mva" do
+    it "adjusts the margin for an interstate rate below the internal one (Conv. ICMS 142/2018)" do
+      adjusted = [4, 7, 12].map { |rate| described_class.adjusted_mva("50.00", interstate: rate, internal: "17.00").to_s("F") }
+
+      expect(adjusted).to eq(%w[73.49 68.07 59.04])
+    end
+
+    it "keeps the original margin without an interstate rate or when it isn't below the internal one" do
+      expect(described_class.adjusted_mva(50, interstate: nil, internal: 17)).to eq(50)
+      expect(described_class.adjusted_mva(50, interstate: 12, internal: 12)).to eq(50)
+    end
+  end
 end

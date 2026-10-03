@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Ship the TIPI's IPI rates (Decreto 11.158/2022 and its updates), looked up with `DfeRb::Nfe::Tables.ipi_rate(ncm, ex)` and listed with `Tables.ipi_rates`. `script/update_tables --tipi Tipi.xlsx` regenerates them from the Receita Federal's spreadsheet.
+- Derive `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when `IPITrib` has a base and no rate, on a normal operation (`finNFe` 1). An NT line, an NCM the TIPI lacks and a per-unit IPI get none.
+- Ship the payment methods (`tPag`, IT 2024.002 v1.11, with the day each code starts) and the card brands (`tBand`): `Tables.payment_method`, `Tables.payment_methods`, `Tables.card_brands`.
+- Flag a `tPag` that isn't in the table or isn't accepted yet on the issue date.
+- `kind: :automatic_pix` (23) and `:book_transfer` (24).
+- `DfeRb::Nfe::Rates.adjusted_mva(mva, interstate:, internal:)`: the ST margin adjusted for the interstate rate (Conv. ICMS 142/2018). `vBCST` is still yours to give.
+
 ## 0.5.0
 
 - Check every item's CFOP against the CFOP table before sending: unknown, out of force or not for NF-e (I08-04, rej. 770); a return or a credit note of type 03/06 without a devolução CFOP, accepting 1949/2949 on any of them and 5949/6949 for natural gas (I08-140 per NT 2026.009, rej. 327); a MEI's return outside its six CFOPs (I08-141, rej. 1179); an issuer without IE outside the `indExcIBSCBS` CFOPs (I08-191, rej. 159).

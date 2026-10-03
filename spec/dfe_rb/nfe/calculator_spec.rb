@@ -213,4 +213,24 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(ibs_cbs({"cClassTrib" => "000001"}, later)["gIBSCBS"]["gCBS"]).not_to have_key("pCBS")
     end
   end
+
+  describe "the IPI rate" do
+    def ipi(group, prod = {"NCM" => "22030000"}, with = context) = calculate({"IPI" => {"IPITrib" => group}}, prod, with)["IPI"]["IPITrib"]
+
+    it "comes from the TIPI line of the item's NCM and EXTIPI" do
+      expect(ipi({"vBC" => "100.00"}).transform_values { |value| decimal(value) }).to eq("vBC" => "100.00", "pIPI" => "3.9", "vIPI" => "3.9")
+      expect(decimal(ipi({"vBC" => "100.00"}, {"NCM" => "03057100", "EXTIPI" => "01"})["pIPI"])).to eq("3.25")
+    end
+
+    it "is kept when given" do
+      expect(ipi({"vBC" => "100.00", "pIPI" => "10.00"})).to include("pIPI" => "10.00", "vIPI" => BigDecimal(10))
+    end
+
+    it "is left out for an NT line, an NCM the TIPI lacks, a per-unit IPI and a note that isn't normal" do
+      expect(ipi({"vBC" => "100.00"}, {"NCM" => "02109100", "EXTIPI" => "1"})).to eq("vBC" => "100.00")
+      expect(ipi({"vBC" => "100.00"}, {"NCM" => "99999999"})).to eq("vBC" => "100.00")
+      expect(ipi({"qUnid" => "3.0000", "vUnid" => "1.5000"})).not_to have_key("pIPI")
+      expect(ipi({"vBC" => "100.00"}, {"NCM" => "22030000"}, context.dup.tap { |copy| copy.purpose = 4 })).to eq("vBC" => "100.00")
+    end
+  end
 end

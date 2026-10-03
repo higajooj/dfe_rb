@@ -1,0 +1,24 @@
+tPag	dIniVig	xPag
+01		Dinheiro
+02		Cheque
+03		Cartão de Crédito
+04		Cartão de Débito
+05	2024-07-01	Cartão da Loja (Private Label), Crediário Digital, Outros Crediários
+10		Vale Alimentação
+11		Vale Refeição
+12		Vale Presente
+13		Vale Combustível
+14		Duplicata Mercantil
+15		Boleto Bancário
+16		Depósito Bancário
+17	2024-07-01	Pagamento Instantâneo (PIX) - Dinâmico
+18		TED (Transferência Eletrônica Disponível)
+19		Programa de fidelidade, Cashback, Crédito Virtual
+20	2024-07-01	Pagamento Instantâneo (PIX) - Estático
+21	2024-07-01	Crédito em Loja
+22	2024-07-01	Pagamento Eletrônico não Informado - falha de hardware do sistema emissor
+23	2026-05-04	Pagamento Instantâneo (PIX) - Automático
+24	2026-05-04	TEF - "Book Transfer"
+90		Sem Pagamento
+91	2025-11-03	Pagamento Posterior
+99		Outros

@@ -67,13 +67,13 @@ You provide the facts of the operation: parties, items, the bases and rates of e
 The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
 
 - **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from your `vBCST` (the ST base is state law, so you give it), `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
-- **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, and the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give). A return, complement or adjustment carries the rates of the operation it refers to, so you give them; so does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
-- **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE), and each CFOP's indicators (IT 2023.002, through `DfeRb::Nfe::Tables.cfop("6916")`). The CFOP table is the `.xlsx` the Portal Nacional da NF-e publishes: `script/update_tables --cfop <file.xlsx>` regenerates it.
+- **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give), and `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when you give `i.ipi` a base without a rate (an NT line and a per-unit IPI get none). A return, complement or adjustment carries the rates of the operation it refers to, so you give them; so does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
+- **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE), and each CFOP's indicators (IT 2023.002, through `DfeRb::Nfe::Tables.cfop("6916")`). The CFOP table is the `.xlsx` the Portal Nacional da NF-e publishes: `script/update_tables --cfop <file.xlsx>` regenerates it, as `--tipi <Tipi.xlsx>` does the TIPI from the Receita Federal's.
 - **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries). `finNFe` is 5 with a `credit_note_type` (`tpNFCredito`), 6 with a `debit_note_type`, otherwise 1; `tpNF` is 0 (entry) on a credit note or when every item has an entry CFOP (`1102`), otherwise 1. A devolução CFOP (`5202`) on a note that isn't a return is flagged (rej. 328): give `purpose :return` yourself, since a complement of a return (`:complementary`) takes the same CFOPs.
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
 - **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
 
-**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`) and benefit codes (`cBenef`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin and base (`pMVAST`, `vBCST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized.
+**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`) and benefit codes (`cBenef`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin and base (`pMVAST`, `vBCST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized. The gem ships no state table either (internal and FCP rates, cBenef x CST): those are your application's to keep.
 
 Anything you set yourself is kept, and checked where SEFAZ checks it. `cNF` and the issue time are generated once per invoice, so building the XML twice gives the same document.
 
@@ -244,7 +244,22 @@ DfeRb::Nfe::Tables.cfops.select(&:goods_return?)
 DfeRb::Nfe::Tables.classification("200034")     # cClassTrib: cst, ibs_reduction, cbs_reduction, deferral?...
 DfeRb::Nfe::Tables.city_name("5002704")         # => "Campo Grande"
 DfeRb::Nfe::Tables.city_code("sao paulo", "SP") # => "3550308"
+
+ipi = DfeRb::Nfe::Tables.ipi_rate("2203.00.00")         # TIPI: also "22030000"; nil if the TIPI lacks the NCM
+ipi.rate, ipi.non_taxed?                                # => 3.9 (a BigDecimal, nil on an NT line), false
+DfeRb::Nfe::Tables.ipi_rate("03057100", "01")           # the line of an EX (EXTIPI), else the NCM's own
+DfeRb::Nfe::Tables.ipi_rates                            # all 11,107 lines, by NCM and EX
+
+pix = DfeRb::Nfe::Tables.payment_method("23")           # tPag: title, valid_from, deferred? (90 and 91)
+pix.valid_on?(Date.new(2026, 5, 3))                     # => false: accepted from 04/05/2026
+DfeRb::Nfe::Tables.payment_methods.select(&:valid_on?)  # the codes in force today
+DfeRb::Nfe::Tables.card_brands                          # tBand: {"01" => "Visa", ...}
+
+# ST margin adjusted for the interstate rate (Conv. ICMS 142/2018); the MVA and the internal rate are yours
+DfeRb::Nfe::Rates.adjusted_mva("50.00", interstate: 12, internal: "17.00")   # => 59.04
 ```
+
+A payment's `tPag` is checked against its table too: it must exist and be accepted on the issue date.
 
 A CFOP's indicators, by their names in IT 2023.002:
 

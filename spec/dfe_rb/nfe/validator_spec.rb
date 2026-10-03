@@ -149,4 +149,15 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(cfop_issues("5102", inf: {"transp" => {"retTransp" => {"CFOP" => "5352"}}})).to eq([])
     end
   end
+
+  it "requires a payment method of the table, in force on the issue date" do
+    issues = ->(kind, issued = "2026-09-29T10:00:00-03:00") {
+      described_class.new({"ide" => {"dhEmi" => issued}, "pag" => {"detPag" => [{"tPag" => kind, "vPag" => "0.00"}]}}).issues.grep(%r{\Apag/})
+    }
+
+    expect(issues.call("06")).to eq(["pag/detPag[1]/tPag: 06 is not a payment method (see DfeRb::Nfe::Tables.payment_methods)"])
+    expect(issues.call("23", "2026-05-03T23:00:00-03:00"))
+      .to eq(["pag/detPag[1]/tPag: 23 (Pagamento Instantâneo (PIX) - Automático) is only accepted from 04/05/2026"])
+    expect(issues.call("23") + issues.call("01") + issues.call("90")).to eq([])
+  end
 end

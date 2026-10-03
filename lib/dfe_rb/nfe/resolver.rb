@@ -17,7 +17,7 @@ module DfeRb
         "1" => {"1" => "5", "2" => "6", "3" => "7"}
       }.freeze
       # tPag 90 (sem pagamento) and 91 (pagamento posterior) carry vPag 0.00 (RV YA03-30).
-      DEFERRED_PAYMENT_KINDS = %w[90 91].freeze
+      DEFERRED_PAYMENT_KINDS = Tables::DEFERRED_PAYMENTS
 
       # Values that must stay the same across resolves of one invoice (a retry must never
       # produce another cNF or emission time). Held by the Invoice.
