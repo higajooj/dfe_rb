@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `tPag` 05 and 17 are accepted from the table's start, not from 01/07/2024: IT 2024.002 only renamed them (Cartão da Loja, PIX Dinâmico), and a note issued before that day with either was flagged.
+
 ## 0.6.0
 
 - Ship the TIPI's IPI rates (Decreto 11.158/2022 and its updates), looked up with `DfeRb::Nfe::Tables.ipi_rate(ncm, ex)` and listed with `Tables.ipi_rates`. `script/update_tables --tipi Tipi.xlsx` regenerates them from the Receita Federal's spreadsheet.

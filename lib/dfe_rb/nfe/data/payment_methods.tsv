@@ -3,7 +3,7 @@ tPag	dIniVig	xPag
 02		Cheque
 03		Cartão de Crédito
 04		Cartão de Débito
-05	2024-07-01	Cartão da Loja (Private Label), Crediário Digital, Outros Crediários
+05		Cartão da Loja (Private Label), Crediário Digital, Outros Crediários
 10		Vale Alimentação
 11		Vale Refeição
 12		Vale Presente
@@ -11,7 +11,7 @@ tPag	dIniVig	xPag
 14		Duplicata Mercantil
 15		Boleto Bancário
 16		Depósito Bancário
-17	2024-07-01	Pagamento Instantâneo (PIX) - Dinâmico
+17		Pagamento Instantâneo (PIX) - Dinâmico
 18		TED (Transferência Eletrônica Disponível)
 19		Programa de fidelidade, Cashback, Crédito Virtual
 20	2024-07-01	Pagamento Instantâneo (PIX) - Estático

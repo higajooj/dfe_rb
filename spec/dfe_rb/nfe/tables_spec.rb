@@ -82,6 +82,9 @@ RSpec.describe DfeRb::Nfe::Tables do
     expect([automatic.code, automatic.title, automatic.valid_from]).to eq(["23", "Pagamento Instantâneo (PIX) - Automático", "2026-05-04"])
     expect([automatic.valid_on?("2026-05-03"), automatic.valid_on?(Date.new(2026, 5, 4))]).to eq([false, true])
     expect(described_class.payment_method("01")).to have_attributes(valid_from: nil, deferred?: false, valid_on?: true)
+    # IT 2024.002 renamed 05 and 17, which the table already had.
+    expect(%w[05 17].map { |code| described_class.payment_method(code).valid_on?("2023-01-01") }).to eq([true, true])
+    expect(described_class.payment_method("20").valid_on?("2024-06-30")).to be(false)
     expect(described_class.payment_methods.select(&:deferred?).map(&:code)).to eq(%w[90 91])
     expect(described_class.payment_method("06")).to be_nil
     expect(DfeRb::Nfe::Names::ENUMS["tPag"].values - described_class.payment_methods.map(&:code)).to eq([])
