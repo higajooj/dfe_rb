@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
+- Derive the bases an item's own values fix, once the rate is given: ICMS `vBC` (the operation value, with the IPI for a final consumer, less `pRedBC`; `modBC` 3), `vBCFCP`, `vBCFCPST`, the DIFAL's `vBCUFDest` and `vBCFCPUFDest`, the IPI's `vBC`, PIS and COFINS `vBC` (without the item's own ICMS) and `vCredICMSSN` from `pCredSN`.
+- Derive `vBCST` from a given `pMVAST` (and `pRedBCST`): (operation value + IPI) x (1 + MVA), Conv. ICMS 142/2018, with `modBCST` 4. It used to be left to the issuer; a state that composes its base otherwise still gives `st_base`.
+- An interstate item with CST 00, 10, 20 or 70 takes the rate the law fixes without a base being given.
+- `nfe.freight`, `nfe.insurance`, `nfe.discount` and `nfe.other_expenses` spread an invoice-level amount over the items by value, to the cent, before the taxes are computed (`DfeRb::Nfe::Apportion`).
+- `DfeRb::Nfe::Rates.pis_cofins(regime)` and `Rates.simples_icms_credit(revenue_12m:, annex:)`, the `pCredSN` of LC 123/2006.
+- IBS/CBS is required in production since 03/08/2026 for regime normal and since 04/01/2027 for the Simples Nacional and the MEI (NT 2025.002 v1.51, RV UB12-10). Production used to be treated as not started, so a note SEFAZ rejects with 1115 passed local validation.
 - `tPag` 05 and 17 are accepted from the table's start, not from 01/07/2024: IT 2024.002 only renamed them (Cartão da Loja, PIX Dinâmico), and a note issued before that day with either was flagged.
 
 ## 0.6.0

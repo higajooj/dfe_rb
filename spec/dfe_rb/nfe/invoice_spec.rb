@@ -378,25 +378,70 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(invoice.issues).to contain_exactly(a_string_matching(%r{det\[1\]/imposto/IBSCBS: mandatory for regime normal}))
     end
 
-    it "does not require IBS/CBS in production yet (NT 2025.002 v1.51, RV UB12-10)" do
-      production = nfe_client(NfeHelpers::FakeTransport.new, environment: :production)
-      invoice = normal_regime(production) { |nfe|
-        nfe.item do |i|
-          i.code "A1"
-          i.description "Item"
-          i.ncm "84713012"
-          i.cfop "5102"
-          i.unit "UN"
-          i.quantity 1
-          i.unit_price "10.00"
-          i.icms cst: "00", origin: 0, base_mode: 3, base: "10.00", rate: "18.00", amount: "1.80"
-          i.pis cst: "07"
-          i.cofins cst: "07"
+    it "requires IBS/CBS in production from 03/08/2026 (NT 2025.002 v1.51, RV UB12-10)" do
+      build = lambda { |issued_at|
+        normal_regime(nfe_client(NfeHelpers::FakeTransport.new, environment: :production)) { |nfe|
+          nfe.issued_at issued_at
+          nfe.item do |i|
+            i.code "A1"
+            i.description "Item"
+            i.ncm "84713012"
+            i.cfop "5102"
+            i.unit "UN"
+            i.quantity 1
+            i.unit_price "10.00"
+            i.icms cst: "00", origin: 0, base_mode: 3, base: "10.00", rate: "18.00", amount: "1.80"
+            i.pis cst: "07"
+            i.cofins cst: "07"
+          end
+          nfe.payment :money, "10.00"
+        }
+      }
+
+      expect(build.call("2026-08-02T23:00:00-03:00").issues).to eq([])
+      expect(build.call("2026-08-03T00:00:00-03:00").issues).to contain_exactly(a_string_matching(/IBSCBS: mandatory for regime normal since 03\/08\/2026/))
+    end
+
+    it "requires IBS/CBS of the Simples Nacional from 04/01/2027" do
+      build = ->(issued_at) { simples_invoice(client) { |nfe| nfe.issued_at issued_at } }
+
+      expect(build.call("2027-01-03T23:00:00-03:00").issues).to eq([])
+      expect(build.call("2027-01-04T00:00:00-03:00").issues).to contain_exactly(a_string_matching(/IBSCBS: mandatory for the Simples Nacional since 04\/01\/2027/))
+    end
+
+    it "derives the bases from the item's values and spreads the invoice's freight and discount" do
+      invoice = normal_regime(client) { |nfe|
+        nfe.issued_at "2026-06-01T10:00:00-03:00"
+        nfe.freight "10.00"
+        nfe.discount "1.00"
+        [["A1", "100.00"], ["A2", "200.00"]].each do |code, price|
+          nfe.item do |i|
+            i.code code
+            i.description "Item"
+            i.ncm "84713012"
+            i.cfop "5102"
+            i.unit "UN"
+            i.quantity 1
+            i.unit_price price
+            i.icms cst: "00", origin: 0, rate: "17.00"
+            i.pis cst: "01", rate: "1.65"
+            i.cofins cst: "01", rate: "7.60"
+          end
         end
-        nfe.payment :money, "10.00"
+        nfe.payment :money
       }
 
       expect(invoice.issues).to eq([])
+      xml = doc(invoice)
+      expect(xml.xpath("//nfe:det/nfe:prod/nfe:vFrete", ns).map(&:text)).to eq(%w[3.33 6.67])
+      expect(xml.xpath("//nfe:det/nfe:prod/nfe:vDesc", ns).map(&:text)).to eq(%w[0.33 0.67])
+      # 100 + 3.33 - 0.33 = 103.00 at 17%; PIS on 103.00 - 17.51.
+      expect(xml.xpath("//nfe:det[1]//nfe:ICMS00/*", ns).to_h { |node| [node.name, node.text] })
+        .to include("modBC" => "3", "vBC" => "103.00", "vICMS" => "17.51")
+      expect(text(xml, "//nfe:det[1]//nfe:PISAliq/nfe:vBC")).to eq("85.49")
+      expect(text(xml, "//nfe:det[1]//nfe:PISAliq/nfe:vPIS")).to eq("1.41")
+      expect(text(xml, "//nfe:ICMSTot/nfe:vFrete")).to eq("10.00")
+      expect(text(xml, "//nfe:ICMSTot/nfe:vNF")).to eq("309.00")
     end
 
     it "keeps the same issue time and key however often it is rendered" do

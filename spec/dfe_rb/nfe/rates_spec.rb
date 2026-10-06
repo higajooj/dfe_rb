@@ -41,4 +41,27 @@ RSpec.describe DfeRb::Nfe::Rates do
       expect(described_class.adjusted_mva(50, interstate: 12, internal: 12)).to eq(50)
     end
   end
+
+  it "gives the PIS and COFINS rates of each regime" do
+    expect(described_class.pis_cofins(:cumulative).transform_values { |rate| rate.to_s("F") }).to eq(pis: "0.65", cofins: "3.0")
+    expect(described_class.pis_cofins("non_cumulative").transform_values { |rate| rate.to_s("F") }).to eq(pis: "1.65", cofins: "7.6")
+    expect { described_class.pis_cofins(:presumed) }.to raise_error(ArgumentError, /cumulative, non_cumulative/)
+  end
+
+  describe ".simples_icms_credit" do
+    it "is the effective rate of the bracket times the ICMS share (LC 123/2006, art. 23)" do
+      # 4% x 34%
+      expect(described_class.simples_icms_credit(revenue_12m: 180_000).to_s("F")).to eq("1.36")
+      # (1,000,000 x 10.7% - 22,500) / 1,000,000 = 8.45% x 33.5%
+      expect(described_class.simples_icms_credit(revenue_12m: "1000000.00").to_s("F")).to eq("2.83")
+      # (1,000,000 x 11.2% - 22,500) / 1,000,000 = 8.95% x 32%
+      expect(described_class.simples_icms_credit(revenue_12m: 1_000_000, annex: :industry).to_s("F")).to eq("2.86")
+    end
+
+    it "is nil without revenue and above the ICMS sublimit" do
+      expect(described_class.simples_icms_credit(revenue_12m: 0)).to be_nil
+      expect(described_class.simples_icms_credit(revenue_12m: 3_600_000.01)).to be_nil
+      expect(described_class.simples_icms_credit(revenue_12m: 5_000_000)).to be_nil
+    end
+  end
 end

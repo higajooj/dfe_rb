@@ -44,14 +44,58 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(%w[vICMSOp vICMSDif vICMS].map { |tag| decimal(icms[tag]) }).to eq(%w[18.0 6.0 12.0])
     end
 
-    it "deducts the own ICMS from the ST tax, leaving the ST base to the issuer" do
-      given = {"vBC" => "100.00", "pICMS" => "18.00", "modBCST" => "4", "pMVAST" => "40.00", "pICMSST" => "18.00"}
-      icms = calculate({"ICMS" => {"ICMS10" => given.merge("vBCST" => "154.00")}})["ICMS"]["ICMS10"]
+    it "deducts the own ICMS from the ST tax" do
+      given = {"vBC" => "100.00", "pICMS" => "18.00", "modBCST" => "4", "pMVAST" => "40.00", "pICMSST" => "18.00", "vBCST" => "154.00"}
+      icms = calculate({"ICMS" => {"ICMS10" => given}})["ICMS"]["ICMS10"]
 
       # 154 x 18% - 18 = 9.72
       expect(decimal(icms["vICMSST"])).to eq("9.72")
-      # The ST base composition (discounts, freight, MVA) is state law.
-      expect(calculate({"ICMS" => {"ICMS10" => given}})["ICMS"]["ICMS10"]).not_to have_key("vBCST")
+    end
+
+    it "takes the base from the item's values once the rate is given" do
+      prod = {"vFrete" => "10.00", "vSeg" => "2.00", "vOutro" => "3.00", "vDesc" => "5.00"}
+      icms = calculate({"ICMS" => {"ICMS00" => {"pICMS" => "18.00"}}}, prod)["ICMS"]["ICMS00"]
+
+      expect([icms["modBC"], decimal(icms["vBC"]), decimal(icms["vICMS"])]).to eq([3, "110.0", "19.8"])
+      expect(calculate({"ICMS" => {"ICMS00" => {}}})["ICMS"]["ICMS00"]).to eq({})
+      expect(calculate({"ICMS" => {"ICMS40" => {"pICMS" => "18.00"}}})["ICMS"]["ICMS40"]).not_to have_key("vBC")
+    end
+
+    it "reduces the base and gives the FCP the same one" do
+      icms = calculate({"ICMS" => {"ICMS20" => {"pRedBC" => "33.33", "pICMS" => "18.00", "pFCP" => "2.00"}}})["ICMS"]["ICMS20"]
+
+      expect(%w[vBC vICMS vBCFCP vFCP].map { |tag| decimal(icms[tag]) }).to eq(%w[66.67 12.0 66.67 1.33])
+    end
+
+    it "adds the IPI to the base of a final consumer only" do
+      imposto = -> { {"IPI" => {"IPITrib" => {"pIPI" => "10.00"}}, "ICMS" => {"ICMS00" => {"pICMS" => "18.00"}}} }
+      consumer = context.dup.tap { |copy| copy.final_consumer = 1 }
+
+      expect(decimal(calculate(imposto.call)["ICMS"]["ICMS00"]["vBC"])).to eq("100.0")
+      expect(decimal(calculate(imposto.call, {}, consumer)["ICMS"]["ICMS00"]["vBC"])).to eq("110.0")
+    end
+
+    it "takes the interstate rate and the base of a taxed CST given neither" do
+      interstate = described_class::Context.new(origin_state: "MS", destination_state: "SP", destination: 2, year: 2026, purpose: 1)
+      icms = calculate({"ICMS" => {"ICMS00" => {"orig" => "0"}}}, {}, interstate)["ICMS"]["ICMS00"]
+
+      expect([decimal(icms["pICMS"]), decimal(icms["vBC"]), decimal(icms["vICMS"])]).to eq(%w[12.0 100.0 12.0])
+    end
+
+    it "builds the ST base from a given margin (Conv. ICMS 142/2018)" do
+      given = {"pICMS" => "18.00", "pMVAST" => "40.00", "pRedBCST" => "10.00", "pICMSST" => "18.00", "pFCPST" => "2.00"}
+      imposto = {"IPI" => {"IPITrib" => {"pIPI" => "10.00"}}, "ICMS" => {"ICMS10" => given}}
+      icms = calculate(imposto)["ICMS"]["ICMS10"]
+
+      # (100 + 10) x 1.4 x 0.9 = 138.60; 138.60 x 18% - 18 = 6.95
+      expect([icms["modBCST"], decimal(icms["vBCST"]), decimal(icms["vICMSST"]), decimal(icms["vBCFCPST"]), decimal(icms["vFCPST"])])
+        .to eq([4, "138.6", "6.95", "138.6", "2.77"])
+    end
+
+    it "computes the Simples Nacional credit on the operation value" do
+      icms = calculate({"ICMS" => {"ICMSSN101" => {"pCredSN" => "2.56"}}}, {"vDesc" => "10.00"})["ICMS"]["ICMSSN101"]
+
+      expect(decimal(icms["vCredICMSSN"])).to eq("2.3")
     end
 
     it "computes from the operands as the XML writes them" do
@@ -88,6 +132,41 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(imposto["ICMS"]["ICMS00"]).not_to have_key("pICMS")
       expect(imposto["ICMSUFDest"].keys).not_to include("pICMSInter", "pICMSInterPart")
       expect(imposto["IBSCBS"]["gIBSCBS"]["gCBS"]).not_to have_key("pCBS")
+    end
+  end
+
+  describe "bases outside the ICMS group" do
+    it "gives the DIFAL the operation value with the IPI, and its FCP the same base" do
+      interstate = described_class::Context.new(origin_state: "MS", destination_state: "SP", destination: 2, year: 2026, purpose: 1,
+        final_consumer: 1)
+      imposto = calculate({"IPI" => {"IPITrib" => {"pIPI" => "10.00"}}, "ICMS" => {"ICMS00" => {"orig" => "0"}},
+                           "ICMSUFDest" => {"pICMSUFDest" => "18.00", "pFCPUFDest" => "2.00"}}, {}, interstate)
+
+      expect(decimal(imposto["ICMS"]["ICMS00"]["vBC"])).to eq("110.0")
+      # 110 x (18% - 12%) = 6.60, all of it the destination's.
+      expect(%w[vBCUFDest vBCFCPUFDest vFCPUFDest vICMSUFDest vICMSUFRemet].map { |tag| decimal(imposto["ICMSUFDest"][tag]) })
+        .to eq(%w[110.0 110.0 2.2 6.6 0.0])
+    end
+
+    it "takes the item's own ICMS out of the PIS and COFINS bases" do
+      imposto = calculate({"ICMS" => {"ICMS00" => {"pICMS" => "18.00"}},
+                           "PIS" => {"PISAliq" => {"pPIS" => "1.65"}}, "COFINS" => {"COFINSAliq" => {"pCOFINS" => "7.60"}}})
+
+      expect([decimal(imposto["PIS"]["PISAliq"]["vBC"]), decimal(imposto["PIS"]["PISAliq"]["vPIS"])]).to eq(%w[82.0 1.35])
+      expect([decimal(imposto["COFINS"]["COFINSAliq"]["vBC"]), decimal(imposto["COFINS"]["COFINSAliq"]["vCOFINS"])]).to eq(%w[82.0 6.23])
+    end
+
+    it "leaves a per-unit contribution and an untaxed one without a base" do
+      imposto = calculate({"PIS" => {"PISQtde" => {"qBCProd" => "10", "vAliqProd" => "0.5"}}, "COFINS" => {"COFINSNT" => {"CST" => "07"}}})
+
+      expect(imposto["PIS"]["PISQtde"]).not_to have_key("vBC")
+      expect(imposto["COFINS"]["COFINSNT"]).to eq("CST" => "07")
+    end
+
+    it "gives the IPI the operation value as its base" do
+      ipi = calculate({"IPI" => {"IPITrib" => {"pIPI" => "5.00"}}}, {"vFrete" => "20.00"})["IPI"]["IPITrib"]
+
+      expect([decimal(ipi["vBC"]), decimal(ipi["vIPI"])]).to eq(%w[120.0 6.0])
     end
   end
 

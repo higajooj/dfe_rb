@@ -10,9 +10,12 @@ module DfeRb
     # the NTs that amend them); rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      # IBSCBS mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by tpAmb: in
-      # homologação since 01/07/2026, in production not yet ("implementação futura").
-      IBS_CBS_MANDATORY_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => nil}.freeze
+      # IBSCBS mandatory (RV UB12-10, NT 2025.002 v1.51), by CRT and tpAmb: regime normal in
+      # homologação since 01/07/2026 and in production since 03/08/2026; the Simples Nacional
+      # and the MEI since 04/01/2027.
+      IBS_CBS_NORMAL_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 8, 3, 0, 0, 0, "-03:00")}.freeze
+      IBS_CBS_SIMPLES_SINCE = Time.new(2027, 1, 4, 0, 0, 0, "-03:00")
+      NORMAL_REGIME = "3"
       # RV NA01-20 exception 2: in production, the DIFAL group isn't required before this.
       DIFAL_REQUIRED_SINCE = Time.new(2016, 7, 1, 0, 0, 0, "-03:00")
       DEFERRED_PAYMENT_KINDS = Resolver::DEFERRED_PAYMENT_KINDS
@@ -473,20 +476,20 @@ module DfeRb
         check_amount("cobr/dup", Totals.sum(installments) { |dup| dup["vDup"] }, net, "the invoice net amount (fat/vLiq)")
       end
 
-      # Regime normal must carry IBS/CBS where the RTC is in force (RV UB12-10). Devolução
-      # (finNFe 4) is exempt; so is a complementar note referencing one issued before 2027,
-      # which can't be told from here, so finNFe 2 is left to SEFAZ.
+      # Every item carries IBS/CBS once the RTC is in force for the issuer's regime (RV
+      # UB12-10). Devolução (finNFe 4) is exempt; so is a complementar note referencing one
+      # issued before 2027, which can't be told from here, so finNFe 2 is left to SEFAZ.
       def check_ibs_cbs
-        return unless @inf.dig("emit", "CRT").to_s == "3"
         return if %w[2 4].include?(@ide["finNFe"].to_s)
 
-        since = IBS_CBS_MANDATORY_SINCE[@ide["tpAmb"].to_s]
+        normal = @inf.dig("emit", "CRT").to_s == NORMAL_REGIME
+        since = normal ? IBS_CBS_NORMAL_SINCE[@ide["tpAmb"].to_s] : IBS_CBS_SIMPLES_SINCE
         return unless since && issued_at && issued_at >= since
 
         Array(@inf["det"]).each_with_index do |item, index|
           next if item.dig("imposto", "IBSCBS") || item.dig("prod", "comb")
 
-          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for regime normal in homologacao since " \
+          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for #{normal ? "regime normal" : "the Simples Nacional"} since " \
             "#{since.strftime("%d/%m/%Y")} (rej. 1115)"
         end
       end

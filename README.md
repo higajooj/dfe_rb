@@ -10,7 +10,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 Not covered yet: NFC-e (modelo 65), contingency (SVC, EPEC, offline), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.6.0"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.7.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.
@@ -62,18 +62,27 @@ end
 
 ## What you provide, what the gem derives
 
-You provide the facts of the operation: parties, items, the bases and rates of each tax (or the tax classification), payments, the number and series. The gem does not choose a tax treatment and does not store numbering.
+You provide the facts of the operation: parties, items, the tax treatment (CST) and the rates state law sets, payments, the number and series. The gem does not choose a tax treatment and does not store numbering.
 
 The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procEmi`, `verProc`, the issue time (in the issuer's UTC offset), the random `cNF`, the check digit, the `Id`/chave de acesso, `idDest`, `indIEDest` (`"ISENTO"` is understood), `indFinal`, `cEAN`/`cEANTrib` (`SEM GTIN`), `uTrib`/`qTrib`/`vUnTrib`, `vProd`, every total (`ICMSTot`, `IBSCBSTot`, `ISTot`, `vNF`, `vNFTot`), `vItem`, `vTroco`, `modFrete`, plus:
 
-- **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from your `vBCST` (the ST base is state law, so you give it), `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
+- **Bases the item's own values fix**, once you give what makes the item taxed (the rate; a `base_reduction` or `st_margin` when there is one). The operation value is `vProd + vFrete + vSeg + vOutro - vDesc`:
+  - ICMS `vBC` (LC 87/1996, art. 13): the operation value, with the IPI when the recipient is a final consumer, less `pRedBC`; `modBC` 3. A CST that is always taxed (00, 10, 20, 70) on an interstate sale needs neither base nor rate.
+  - `vBCFCP` = `vBC`, and `vBCFCPST` = `vBCST`, when their FCP rate is given.
+  - `vBCST` from `st_margin` (`pMVAST`): (operation value + IPI) x (1 + MVA), less `pRedBCST` (Conv. ICMS 142/2018); `modBCST` 4. A state that composes its ST base otherwise gives `st_base`.
+  - DIFAL: `vBCUFDest` is the operation value with the IPI, and `vBCFCPUFDest` the same.
+  - IPI `vBC`: the operation value (not for a per-unit IPI).
+  - PIS and COFINS `vBC`, when a rate is given: the operation value less the item's own ICMS (STF Tema 69, Lei 14.592/2023).
+  - `vCredICMSSN` = operation value x `pCredSN` (CSOSN 101, 201, 900).
+- **Invoice-level amounts spread over the items**: `nfe.freight`, `nfe.insurance`, `nfe.discount` and `nfe.other_expenses` are split in proportion to each item's `vProd`, to the cent (the shares always add up), before any tax is computed. An item that sets its own takes no share.
+- **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from `vBCST`, `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
 - **Rates fixed by law**, on a normal operation (`finNFe` 1): the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give), and `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when you give `i.ipi` a base without a rate (an NT line and a per-unit IPI get none). A return, complement or adjustment carries the rates of the operation it refers to, so you give them; so does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
 - **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`): the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`, and an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE), and each CFOP's indicators (IT 2023.002, through `DfeRb::Nfe::Tables.cfop("6916")`). The CFOP table is the `.xlsx` the Portal Nacional da NF-e publishes: `script/update_tables --cfop <file.xlsx>` regenerates it, as `--tipi <Tipi.xlsx>` does the TIPI from the Receita Federal's.
 - **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries). `finNFe` is 5 with a `credit_note_type` (`tpNFCredito`), 6 with a `debit_note_type`, otherwise 1; `tpNF` is 0 (entry) on a credit note or when every item has an entry CFOP (`1102`), otherwise 1. A devolução CFOP (`5202`) on a note that isn't a return is flagged (rej. 328): give `purpose :return` yourself, since a complement of a return (`:complementary`) takes the same CFOPs.
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
 - **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
 
-**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`) and benefit codes (`cBenef`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin and base (`pMVAST`, `vBCST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized. The gem ships no state table either (internal and FCP rates, cBenef x CST): those are your application's to keep.
+**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`) and benefit codes (`cBenef`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin (`pMVAST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized. The gem ships no state table either (internal and FCP rates, cBenef x CST): those are your application's to keep.
 
 Anything you set yourself is kept, and checked where SEFAZ checks it. `cNF` and the issue time are generated once per invoice, so building the XML twice gives the same document.
 
@@ -99,9 +108,27 @@ i.ibs_cbs cst: "000", class_code: "000001", base: "300.00",
 i.icms  cst: "00", origin: 0, base_mode: 3, base: "300.00", rate: "18.00"
 i.pis   cst: "01", base: "300.00", rate: "1.65"
 i.ibs_cbs class_code: "200034"   # CST 200, 60% rate reduction, 2026 rates, base and amounts
+
+# Bases derived too: give the treatment and what state law sets
+nfe.freight "50.00"                                       # spread over the items by value
+i.icms  cst: "00", origin: 0, rate: "17.00"               # vBC = operation value, modBC 3
+i.icms  cst: "20", origin: 0, rate: "17.00", base_reduction: "41.18", fcp_rate: "2.00"
+i.icms  cst: "00", origin: 0                              # interstate: 4, 7 or 12% and the base
+i.icms  csosn: "101", origin: 0, credit_rate: "2.83"      # vCredICMSSN
+i.pis   cst: "01", rate: "1.65"                           # vBC without the item's ICMS
+i.icms_destination destination_rate: "18.00"              # DIFAL: bases, interstate rate, partition, amounts
 ```
 
-The XML group comes from the CST/CSOSN. Regime normal (`tax_regime: :normal`) must carry IBS/CBS on every note except returns (RV UB12-10): in homologação since 01/07/2026, and not yet in production (NT 2025.002 v1.51 moved it to a future date). The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
+`DfeRb::Nfe::Rates` has the federal rates you may need to pass along:
+
+```ruby
+DfeRb::Nfe::Rates.pis_cofins(:non_cumulative)                                  # => {pis: 1.65, cofins: 7.6}; :cumulative is 0.65 and 3.0
+DfeRb::Nfe::Rates.simples_icms_credit(revenue_12m: "1000000.00")               # => 2.83, the pCredSN of LC 123/2006 (Anexo I)
+DfeRb::Nfe::Rates.simples_icms_credit(revenue_12m: 1_000_000, annex: :industry) # => 2.86 (Anexo II); nil above the ICMS sublimit
+DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
+```
+
+The XML group comes from the CST/CSOSN. Every note except returns must carry IBS/CBS (RV UB12-10, NT 2025.002 v1.51): regime normal (`tax_regime: :normal`) in homologação since 01/07/2026 and in production since 03/08/2026, the Simples Nacional and the MEI since 04/01/2027. The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 

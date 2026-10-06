@@ -207,6 +207,15 @@ module DfeRb
         end
       end
 
+      # `freight "50.00"` (and insurance, discount, other_expenses) on the invoice: an amount
+      # spread over the items when the invoice is resolved (Apportion).
+      Apportion::TAGS.each do |name, tag|
+        register("infNFe", name) do |_scope, data, args, _kwargs, _block|
+          (data[Apportion::KEY] ||= {})[tag] = args.first
+          nil
+        end
+      end
+
       # `authorized_downloader "12345678000195"` appends <autXML>.
       register("infNFe", "authorized_downloader") do |_scope, data, args, _kwargs, _block|
         Array(args.first).each do |value|

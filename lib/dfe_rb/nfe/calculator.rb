@@ -4,19 +4,26 @@ module DfeRb
   module Nfe
     # The per-item tax values whose result the validation rules fix: products of a base and
     # a rate (vICMS, vFCP, vPIS, vIBSUF...), the DIFAL split, the IBS/CBS base and effective
-    # rates. `call` fills whatever an item leaves out; the `expected_*` functions give the
-    # value SEFAZ recomputes, for the Validator to compare with what was given.
+    # rates; and the bases national law fixes from the item's own values (ICMS, FCP, DIFAL,
+    # ST from a given margin, IPI, PIS/COFINS, the Simples Nacional credit). `call` fills
+    # whatever an item leaves out; the `expected_*` functions give the value SEFAZ recomputes,
+    # for the Validator to compare with what was given.
     #
     # Inputs are never guessed: a value is derived only when everything it depends on is
     # present, and anything given explicitly is kept.
     module Calculator
       # What an item's taxes depend on beyond the item: the states of the operation, idDest,
       # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe,
-      # tpNF and the item's CFOP (set by `call`). Rates fixed by law are filled in only for a
+      # tpNF, indFinal and the item's CFOP (set by `call`). Rates fixed by law are filled in only for a
       # normal operation (finNFe 1): a return, adjustment or complement carries the rates of
       # the operation it refers to, which only the issuer knows.
-      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction, :cfop) do
+      Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction,
+        :final_consumer, :cfop) do
         def law_rates? = purpose.to_s == NORMAL
+
+        # The IPI is part of the ICMS base unless the goods go to a contributor for resale or
+        # industrialization (CF art. 155, par. 2, XI).
+        def final_consumer? = final_consumer.to_s == "1"
 
         # The interstate ICMS rates (RV N16-04, N16-20, NA09-30) bind a normal exit only. An
         # entry's goods don't leave the issuer's state, so the issuer gives the rate; a retorno
@@ -37,6 +44,16 @@ module DfeRb
       ICMS_FCP_ON_FCP_BASE = %w[ICMS10 ICMS20 ICMS51 ICMS70 ICMS90].freeze
       # Variants whose ST value is the ST tax less the operation's own ICMS, both in the group.
       ICMS_ST_LESS_OWN = %w[ICMS10 ICMS70 ICMSPart].freeze
+      # Variants always taxed on the operation: an interstate one takes the rate the law fixes
+      # even without a base.
+      ICMS_TAXED = %w[ICMS00 ICMS10 ICMS20 ICMS70].freeze
+      # Variants with an own-operation base.
+      ICMS_BASED = (ICMS_RATED + %w[ICMS51 ICMSSN900]).freeze
+      ICMS_ST_BASED = %w[ICMS10 ICMS30 ICMS70 ICMS90 ICMSSN201 ICMSSN202 ICMSSN900].freeze
+      ICMS_SIMPLES_CREDIT = %w[ICMSSN101 ICMSSN201 ICMSSN900].freeze
+      # modBC 3: valor da operação. modBCST 4: margem de valor agregado.
+      OPERATION_VALUE_MODE = 3
+      MARGIN_MODE = 4
       INTERSTATE = 2
       RATE_PLACES = 4
 
@@ -49,8 +66,8 @@ module DfeRb
 
         ipi(item, imposto, context)
         icms(item, imposto, context)
-        %w[PIS COFINS].each { |name| contribution(imposto, name) }
-        destination_share(imposto, context)
+        %w[PIS COFINS].each { |name| contribution(item, imposto, name) }
+        destination_share(item, imposto, context)
         selective(imposto)
         ibs_cbs(item, imposto, context)
         item
@@ -62,6 +79,7 @@ module DfeRb
       # unit or the line is NT.
       def ipi(item, imposto, context)
         group = imposto.dig("IPI", "IPITrib") or return
+        fill(group, "vBC") { operation_value(item) } if %w[qUnid vUnid].all? { |tag| group[tag].nil? }
         if context.law_rates? && group.key?("vBC") && %w[pIPI qUnid vUnid].all? { |tag| group[tag].nil? }
           rate = Tables.ipi_rate(item.dig("prod", "NCM"), item.dig("prod", "EXTIPI"))&.rate
           group["pIPI"] = rate if rate
@@ -73,9 +91,11 @@ module DfeRb
         name, group = (imposto["ICMS"] || {}).first
         return unless group
 
-        if context.interstate_rates? && context.destination.to_i == INTERSTATE && group.key?("vBC") && group["pICMS"].nil? && (ICMS_RATED + ["ICMS51"]).include?(name)
+        if context.interstate_rates? && context.destination.to_i == INTERSTATE && group["pICMS"].nil? &&
+            (ICMS_TAXED.include?(name) || (group.key?("vBC") && (ICMS_RATED + ["ICMS51"]).include?(name)))
           group["pICMS"] = Rates.interstate(context.origin_state, context.destination_state, group["orig"])
         end
+        icms_bases(item, name, group, context)
 
         if name == "ICMS51"
           fill(group, "vICMSOp") { percent(group["vBC"], group["pICMS"]) if present?(group, "vBC", "pICMS") }
@@ -88,22 +108,73 @@ module DfeRb
         fill(group, "vICMSST") { expected_icms_st(name, group) }
         fill(group, "vFCPST") { percent(group["vBCFCPST"], group["pFCPST"]) if present?(group, "vBCFCPST", "pFCPST") }
         fill(group, "vFCPSTRet") { percent(group["vBCFCPSTRet"], group["pFCPSTRet"]) if present?(group, "vBCFCPSTRet", "pFCPSTRet") }
+        fill(group, "vCredICMSSN") { percent(operation_value(item), group["pCredSN"]) if ICMS_SIMPLES_CREDIT.include?(name) && present?(group, "pCredSN") }
       end
 
-      def contribution(imposto, name)
+      # The bases the item's own values fix, once the issuer gives what state law decides
+      # (the rate, a base reduction, the ST margin).
+      def icms_bases(item, name, group, context)
+        if ICMS_BASED.include?(name) && group["vBC"].nil? && present?(group, "pICMS")
+          group["vBC"] = Totals.money(reduced(icms_base(item, context), group["pRedBC"]))
+          group["modBC"] = OPERATION_VALUE_MODE if group["modBC"].nil?
+        end
+        fill(group, "vBCFCP") { group["vBC"] if ICMS_FCP_ON_FCP_BASE.include?(name) && present?(group, "vBC", "pFCP") }
+
+        if ICMS_ST_BASED.include?(name) && group["vBCST"].nil? && present?(group, "pMVAST")
+          group["vBCST"] = Totals.money(reduced(expected_st_base(item, group), group["pRedBCST"]))
+          group["modBCST"] = MARGIN_MODE if group["modBCST"].nil?
+        end
+        fill(group, "vBCFCPST") { group["vBCST"] if ICMS_ST_BASED.include?(name) && present?(group, "vBCST", "pFCPST") }
+      end
+
+      # LC 87/1996, art. 13: the value of the operation with freight, insurance and other
+      # charges, less the unconditional discount; with the IPI when the goods aren't for the
+      # recipient's resale or industrialization.
+      def icms_base(item, context)
+        base = operation_value(item)
+        base += money(item.dig("imposto", "IPI", "IPITrib", "vIPI")) if context.final_consumer?
+        base
+      end
+
+      # Conv. ICMS 142/2018, cl. 11: (operation value + IPI) x (1 + MVA).
+      def expected_st_base(item, group)
+        (operation_value(item) + money(item.dig("imposto", "IPI", "IPITrib", "vIPI"))) * (1 + percentage(group["pMVAST"]) / HUNDRED)
+      end
+
+      def reduced(base, reduction) = reduction.nil? ? base : base * (1 - percentage(reduction) / HUNDRED)
+
+      # vProd + vFrete + vSeg + vOutro - vDesc.
+      def operation_value(item)
+        prod = item["prod"] || {}
+        money(prod["vProd"]) + money(prod["vFrete"]) + money(prod["vSeg"]) + money(prod["vOutro"]) - money(prod["vDesc"])
+      end
+
+      def contribution(item, imposto, name)
         rate = "p#{name}"
         amount = "v#{name}"
-        (imposto[name] || {}).each_value do |group|
-          fill(group, amount) { per_unit_or_percent(group, "vBC", rate, "qBCProd", "vAliqProd") } if group.is_a?(Hash)
+        groups = (imposto[name] || {}).values + [imposto["#{name}ST"]]
+        groups.each do |group|
+          next unless group.is_a?(Hash)
+
+          fill(group, "vBC") { contribution_base(item) if present?(group, rate) && group["qBCProd"].nil? }
+          fill(group, amount) { per_unit_or_percent(group, "vBC", rate, "qBCProd", "vAliqProd") }
         end
-        group = imposto["#{name}ST"] or return
-        fill(group, amount) { per_unit_or_percent(group, "vBC", rate, "qBCProd", "vAliqProd") }
+      end
+
+      # The operation value without the item's own ICMS (STF, Tema 69; Lei 14.592/2023).
+      def contribution_base(item)
+        _, icms = (item.dig("imposto", "ICMS") || {}).first
+        operation_value(item) - money(icms&.dig("vICMS"))
       end
 
       # ICMSUFDest (DIFAL, EC 87/2015).
-      def destination_share(imposto, context)
+      def destination_share(item, imposto, context)
         group = imposto["ICMSUFDest"] or return
         _, icms = (imposto["ICMS"] || {}).first
+        # LC 87/1996, art. 13, par. 7: one base, the value of the operation, IPI included
+        # (the recipient is a final consumer).
+        fill(group, "vBCUFDest") { operation_value(item) + money(imposto.dig("IPI", "IPITrib", "vIPI")) }
+        fill(group, "vBCFCPUFDest") { group["vBCUFDest"] }
         if context.interstate_rates?
           # An enumeration in the schema ("4.00", "7.00", "12.00"): written with its two places.
           group["pICMSInter"] ||= Rates.interstate(context.origin_state, context.destination_state, icms&.dig("orig"))&.then { |rate| format("%.2f", rate) }
@@ -199,12 +270,10 @@ module DfeRb
 
       # gIBSCBS/vBC (UB16-10): the operation value without the taxes "por dentro".
       def ibs_cbs_base(item)
-        prod = item["prod"] || {}
         imposto = item["imposto"] || {}
         _, icms = (imposto["ICMS"] || {}).first
         icms ||= {}
-        base = money(prod["vProd"]) + money(prod["vFrete"]) + money(prod["vSeg"]) + money(prod["vOutro"]) +
-          money(imposto.dig("II", "vII")) - money(prod["vDesc"])
+        base = operation_value(item) + money(imposto.dig("II", "vII"))
         base -= %w[PIS COFINS].sum(BigDecimal(0)) { |name| contribution_amount(imposto, name) }
         base -= money(icms["vICMS"]) + money(icms["vFCP"]) + money(icms["vICMSMono"])
         base -= money(imposto.dig("ICMSUFDest", "vICMSUFDest")) + money(imposto.dig("ICMSUFDest", "vFCPUFDest"))

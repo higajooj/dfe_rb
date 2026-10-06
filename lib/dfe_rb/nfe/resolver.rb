@@ -165,7 +165,7 @@ module DfeRb
         year = issued_time(ide["dhEmi"])&.year
         context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
           destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"),
-          purpose: ide["finNFe"], direction: ide["tpNF"])
+          purpose: ide["finNFe"], direction: ide["tpNF"], final_consumer: ide["indFinal"])
         # vItem is required with IBS/CBS (RV VB01-05).
         item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
 
@@ -180,6 +180,10 @@ module DfeRb
           prod["indTot"] ||= 1
           prod["vProd"] ||= Totals.money(Totals.number(prod["qCom"]) * Totals.number(prod["vUnCom"]))
           prod["CFOP"] = cfop(prod["CFOP"], ide) if prod["CFOP"]
+        end
+        # Before the taxes: freight, insurance, other expenses and the discount are part of their bases.
+        Apportion.apply(det, inf.delete(Apportion::KEY) || {})
+        det.each do |item|
           Calculator.call(item, context)
           item["vItem"] ||= Totals.item_amount(item, year) if item_amounts
         end

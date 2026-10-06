@@ -22,7 +22,54 @@ module DfeRb
         2028 => {uf: "0.05", municipal: "0.05", cbs: nil}
       }.freeze
 
+      # PIS and COFINS rates in percent: cumulative (Lei 9.718/1998, lucro presumido) and
+      # non-cumulative (Leis 10.637/2002 and 10.833/2003, lucro real).
+      PIS_COFINS = {
+        cumulative: {pis: "0.65", cofins: "3.00"},
+        non_cumulative: {pis: "1.65", cofins: "7.60"}
+      }.freeze
+
+      # Simples Nacional, LC 123/2006 as amended by LC 155/2016: per bracket of the gross
+      # revenue of the last 12 months (RBT12), [its ceiling, the nominal rate in percent, the
+      # amount to deduct, the ICMS share of the collection in percent]. Anexo I is commerce,
+      # Anexo II industry. The last bracket is above the ICMS sublimit: its ICMS is paid
+      # outside the Simples and gives no credit.
+      SIMPLES = {
+        commerce: [
+          [180_000, "4.00", 0, "34.00"], [360_000, "7.30", 5_940, "34.00"], [720_000, "9.50", 13_860, "33.50"],
+          [1_800_000, "10.70", 22_500, "33.50"], [3_600_000, "14.30", 87_300, "33.50"], [4_800_000, "19.00", 378_000, nil]
+        ],
+        industry: [
+          [180_000, "4.50", 0, "32.00"], [360_000, "7.80", 5_940, "32.00"], [720_000, "10.00", 13_860, "32.00"],
+          [1_800_000, "11.20", 22_500, "32.00"], [3_600_000, "14.70", 85_500, "32.00"], [4_800_000, "30.00", 720_000, nil]
+        ]
+      }.freeze
+
       module_function
+
+      # {pis:, cofins:} rates for a regime (:cumulative or :non_cumulative), as BigDecimals.
+      def pis_cofins(regime)
+        rates = PIS_COFINS[regime&.to_sym] or raise ArgumentError, "unknown PIS/COFINS regime #{regime.inspect} (use #{PIS_COFINS.keys.join(", ")})"
+        rates.transform_values { |rate| BigDecimal(rate) }
+      end
+
+      # pCredSN: the ICMS credit rate (percent, 2 places) a Simples Nacional company passes on
+      # with CSOSN 101, 201 or 900 (LC 123/2006, art. 23): the effective rate of its bracket,
+      # (RBT12 x nominal rate - deduction) / RBT12, times the ICMS share. `revenue_12m` is the
+      # RBT12 of the month before the operation; `annex` is :commerce (Anexo I) or :industry
+      # (Anexo II). Nil without revenue or above the sublimit. A state that reduces or exempts
+      # the ICMS of the Simples changes the credit: that is state law, and yours to apply.
+      def simples_icms_credit(revenue_12m:, annex: :commerce)
+        brackets = SIMPLES[annex&.to_sym] or raise ArgumentError, "unknown annex #{annex.inspect} (use #{SIMPLES.keys.join(", ")})"
+        revenue = BigDecimal(revenue_12m.to_s)
+        return unless revenue.positive?
+
+        _, nominal, deduction, share = brackets.find { |ceiling, *| revenue <= ceiling }
+        return unless share
+
+        effective = (revenue * BigDecimal(nominal) / 100 - deduction) / revenue * 100
+        (effective * BigDecimal(share) / 100).round(2, half: :up)
+      end
 
       # Interstate ICMS rate (percent) from `from` to `to` for goods of origin `origin`, or nil
       # for an operation within one state or abroad.
