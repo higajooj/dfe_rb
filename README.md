@@ -131,7 +131,7 @@ DfeRb::Nfe::Rates.simples_icms_credit(revenue_12m: 1_000_000, annex: :industry) 
 DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
 ```
 
-The XML group comes from the CST/CSOSN. Every note except returns must carry IBS/CBS (RV UB12-10, NT 2025.002 v1.51): regime normal (`tax_regime: :normal`) in homologação since 01/07/2026 and in production since 03/08/2026, the Simples Nacional and the MEI since 04/01/2027. The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
+The XML group comes from the CST/CSOSN. Every note except returns must carry IBS/CBS (RV UB12-10, NT 2025.002 v1.51): regime normal (`tax_regime: :normal`) in homologação since 01/07/2026, where a note without it is rejected, and in production since 01/01/2026 by law, the rejection there having no date yet. Nothing is asked of the Simples Nacional and the MEI, who fill it from 2027 under rules an NT is still to bring. The CST and `cClassTrib` codes come from the Portal Nacional tables (the gem checks their format, not their meaning).
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 
@@ -424,7 +424,7 @@ Edited by hand:
 | XSD packages | `lib/dfe_rb/xml/schemas` (copied unchanged; versions listed in its `README.md`) | Portal Nacional da NF-e, "Esquemas XML" | each schema package (`PL_010...`), usually with an NT |
 | English names of new fields | `lib/dfe_rb/nfe/names.rb` | the new schema package | with the XSDs |
 | Validation and derivation rules | `validator.rb`, `calculator.rb`, `totals.rb`, `resolver.rb` (each rule cites its RV and NT) | Anexo I of the MOC and the NTs | each NT; "Legislation" above names the last one applied |
-| Dates a rule starts | `Validator::IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE` | NT 2025.002 and its successors | an NT moves a date |
+| Dates a rule starts | `Validator::IBS_CBS_SINCE` | NT 2025.002 and its successors | an NT moves a date |
 | States barred from the EPEC | `States::EPEC_BARRED` | NT 2014.001 (RV 2P10-20) | an Ajuste SINIEF adds or removes a state |
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
 | IBS/CBS standard rates by year | `Rates::IBS_CBS` (2027 and 2028 have no CBS rate yet; nothing after 2028) | IT 2025.002 §05 and the laws that set each year's rates | yearly, before the first issue of the year |

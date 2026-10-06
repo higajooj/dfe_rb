@@ -10,11 +10,14 @@ module DfeRb
     # the NTs that amend them); rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      # IBSCBS mandatory (RV UB12-10, NT 2025.002 v1.51), by CRT and tpAmb: regime normal in
-      # homologação since 01/07/2026 and in production since 03/08/2026; the Simples Nacional
-      # and the MEI since 04/01/2027.
-      IBS_CBS_NORMAL_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 8, 3, 0, 0, 0, "-03:00")}.freeze
-      IBS_CBS_SIMPLES_SINCE = Time.new(2027, 1, 4, 0, 0, 0, "-03:00")
+      # IBSCBS mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by tpAmb.
+      # Homologação rejects a note without it (1115) since 01/07/2026. In production the rule
+      # has no date yet ("implementação futura"; v1.51 struck out 03/08/2026), but the group is
+      # mandatory by law since 01/01/2026 (the NT's schedule, LC 214/2025), so a note without
+      # it is flagged all the same. The Simples Nacional and the MEI fill it from 2027 (LC
+      # 214/2025, art. 348) under rules an NT is still to bring: nothing is asked of them.
+      IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
+      PRODUCTION = "1"
       NORMAL_REGIME = "3"
       # RV NA01-20 exception 2: in production, the DIFAL group isn't required before this.
       DIFAL_REQUIRED_SINCE = Time.new(2016, 7, 1, 0, 0, 0, "-03:00")
@@ -508,21 +511,22 @@ module DfeRb
         check_amount("cobr/dup", Totals.sum(installments) { |dup| dup["vDup"] }, net, "the invoice net amount (fat/vLiq)")
       end
 
-      # Every item carries IBS/CBS once the RTC is in force for the issuer's regime (RV
-      # UB12-10). Devolução (finNFe 4) is exempt; so is a complementar note referencing one
-      # issued before 2027, which can't be told from here, so finNFe 2 is left to SEFAZ.
+      # Every item of a regime normal issuer carries IBS/CBS (RV UB12-10): a rejection in
+      # homologação, the law alone in production. Devolução (finNFe 4) is exempt; so is a
+      # complementar note referencing one issued before 2027, which can't be told from here,
+      # so finNFe 2 is left to SEFAZ.
       def check_ibs_cbs
         return if %w[2 4].include?(@ide["finNFe"].to_s)
+        return unless @inf.dig("emit", "CRT").to_s == NORMAL_REGIME
 
-        normal = @inf.dig("emit", "CRT").to_s == NORMAL_REGIME
-        since = normal ? IBS_CBS_NORMAL_SINCE[@ide["tpAmb"].to_s] : IBS_CBS_SIMPLES_SINCE
+        since = IBS_CBS_SINCE[@ide["tpAmb"].to_s]
         return unless since && issued_at && issued_at >= since
 
+        ground = (@ide["tpAmb"].to_s == PRODUCTION) ? "LC 214/2025; not a rejection in production yet" : "rej. 1115"
         Array(@inf["det"]).each_with_index do |item, index|
           next if item.dig("imposto", "IBSCBS") || item.dig("prod", "comb")
 
-          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for #{normal ? "regime normal" : "the Simples Nacional"} since " \
-            "#{since.strftime("%d/%m/%Y")} (rej. 1115)"
+          add "det[#{index + 1}]/imposto/IBSCBS: mandatory for regime normal since #{since.strftime("%d/%m/%Y")} (#{ground})"
         end
       end
 

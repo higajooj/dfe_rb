@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.2
+
+- IBS/CBS follows the schedule NT 2025.002 v1.51 left: the dates of the production rejection (03/08/2026 for regime normal, 04/01/2027 for the Simples Nacional and the MEI) were struck out of RV UB12-10, which is now "implementação futura" there. A regime normal note without the group is still flagged in production, from 01/01/2026, as the law's requirement and no longer as rejection 1115; homologação keeps its rejection since 01/07/2026. Nothing is asked of the Simples Nacional and the MEI, whose rules an NT is still to bring. `Validator::IBS_CBS_SINCE` replaces `IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE`.
+
 ## 0.8.1
 
 - A lost authorization answer whose lookup by key fails too raises the first error, which says the note may have been processed. The lookup's own failure (such as a refused connection, "certainly not processed") used to replace it, and an application deciding from `maybe_processed?` whether a number can be reused would get the wrong answer.

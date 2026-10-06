@@ -378,7 +378,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(invoice.issues).to contain_exactly(a_string_matching(%r{det\[1\]/imposto/IBSCBS: mandatory for regime normal}))
     end
 
-    it "requires IBS/CBS in production from 03/08/2026 (NT 2025.002 v1.51, RV UB12-10)" do
+    it "requires IBS/CBS in production by law, from 2026, the rejection there having no date (NT 2025.002 v1.51, RV UB12-10)" do
       build = lambda { |issued_at|
         normal_regime(nfe_client(NfeHelpers::FakeTransport.new, environment: :production)) { |nfe|
           nfe.issued_at issued_at
@@ -398,15 +398,17 @@ RSpec.describe DfeRb::Nfe::Invoice do
         }
       }
 
-      expect(build.call("2026-08-02T23:00:00-03:00").issues).to eq([])
-      expect(build.call("2026-08-03T00:00:00-03:00").issues).to contain_exactly(a_string_matching(/IBSCBS: mandatory for regime normal since 03\/08\/2026/))
+      expect(build.call("2025-12-31T23:00:00-03:00").issues).to eq([])
+      expect(build.call("2026-01-01T00:00:00-03:00").issues).to contain_exactly(
+        "det[1]/imposto/IBSCBS: mandatory for regime normal since 01/01/2026 (LC 214/2025; not a rejection in production yet)"
+      )
     end
 
-    it "requires IBS/CBS of the Simples Nacional from 04/01/2027" do
+    it "asks no IBS/CBS of the Simples Nacional, whose rules an NT is still to bring" do
       build = ->(issued_at) { simples_invoice(client) { |nfe| nfe.issued_at issued_at } }
 
-      expect(build.call("2027-01-03T23:00:00-03:00").issues).to eq([])
-      expect(build.call("2027-01-04T00:00:00-03:00").issues).to contain_exactly(a_string_matching(/IBSCBS: mandatory for the Simples Nacional since 04\/01\/2027/))
+      expect(build.call("2026-10-06T10:00:00-03:00").issues).to eq([])
+      expect(build.call("2027-01-04T00:00:00-03:00").issues).to eq([])
     end
 
     it "derives the bases from the item's values and spreads the invoice's freight and discount" do
