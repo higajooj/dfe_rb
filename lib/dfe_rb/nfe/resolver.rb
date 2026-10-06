@@ -110,7 +110,9 @@ module DfeRb
         end
         ide["cMunFG"] ||= emit.dig("enderEmit", "cMun")
         ide["tpImp"] ||= 1
+        ide["tpEmis"] = States.contingency_emission_type(state) if ide["tpEmis"] == :svc && state
         ide["tpEmis"] ||= 1
+        ide["dhCont"] = ide["dhCont"].to_time if ide["dhCont"].is_a?(DateTime)
         ide["tpAmb"] ||= Environment.code(@environment)
         ide["indPres"] ||= 1
         ide["procEmi"] ||= 0

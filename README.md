@@ -7,7 +7,10 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Emit NF-e** (modelo 55, layout 4.00) in production and homologação: build, validate, sign, authorize, consult, cancel, correct (CC-e) and inutilize. IBS/CBS (Reforma Tributária) included.
 - **Distribution** (`NFeDistribuicaoDFe`) and all four **recipient manifestations** through `DfeRb::Nfe::Distribution::Client`: typed metadata, exact decoded XML, consumption guidance, and signed events ready to archive.
 
-Not covered yet: NFC-e (modelo 65), contingency (SVC, EPEC, offline), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
+- **Contingency**: the SEFAZ Virtuais de Contingência (SVC-AN, SVC-RS) and the EPEC.
+- **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
+
+Not covered yet: NFC-e (modelo 65), off-line and paper contingency (`tpEmis` 9, FS-DA), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.7.0"
@@ -167,6 +170,57 @@ client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por er
 event.proc_xml                                                   # procEventoNFe to archive, as event.filename ("<chave>_<tpEvento>_<seq>-procEventoNFe.xml")
 ```
 
+## Contingency
+
+When the issuer's SEFAZ is down, a note can't be authorized there. Anexo III gives two electronic ways out; both need a **new** note, since `tpEmis` is part of the chave de acesso.
+
+```ruby
+client.status.online?                      # the state's own authorizer
+svc = client.status(contingency: true)     # its SVC: online? only while the state has it activated
+svc.disabled?                              # 114: not activated; svc.deactivating? is 113
+
+invoice = client.build_invoice do |nfe|
+  # ... the same note, with a number that no transmitted note may have taken
+  nfe.contingency :svc, since: outage_started_at, reason: "SEFAZ de origem fora do ar"
+end
+result = client.authorize(client.sign(invoice))   # goes to the SVC-AN or SVC-RS of the issuer's state
+client.consult(result.key)                        # asked at the SVC, by the key's tpEmis
+client.cancel(result.key, protocol: result.protocol, reason: "Erro na digitação dos dados")   # at the SVC too
+```
+
+`contingency :svc` sets `dhCont`, `xJust` and the `tpEmis` of the issuer's SVC (6 for the SVC-AN, 7 for the SVC-RS; `DfeRb::Nfe::States.contingency("MS") # => "SVC-RS"`). A note authorized there needs nothing else: the SVC shares it with the state. Until it has, the state's own authorizer doesn't know the key, so a carta de correção, which the SVC doesn't take and therefore always goes home, is rejected for a while (494). `via: :home` or `via: :contingency` on `consult`, `cancel` and `correct` picks the authorizer yourself. The SVC has no inutilização.
+
+A note that was sent to the state before the outage and never answered must not be reissued under the same number (Anexo III 2.1.3.5): give the SVC note another number and, when the state is back, consult the old key, then cancel it if it was authorized or inutilize its number if not.
+
+When the SVC isn't active either, the **EPEC** registers a summary of the note at the Ambiente Nacional, which is enough to print the DANFE and ship:
+
+```ruby
+invoice = client.build_invoice { |nfe| ...; nfe.contingency :epec, since: outage_started_at, reason: "SEFAZ de origem fora do ar" }
+signed = client.sign(invoice)                 # tpEmis 4. Store signed.xml
+event = client.prepare_epec(signed)           # store event.xml too, then:
+registered = client.epec(event)               # => EventResult; registered? is cStat 136
+registered.proc_xml                           # procEventoNFe to archive
+
+client.authorize(signed)                      # later, the very same note, to the state's SEFAZ
+```
+
+The note must reach the state afterwards with the same key and the same data the EPEC carries (RV 2AB08), within the legal deadline; an EPEC can't be canceled. The state learns of the event from the Ambiente Nacional, so a note sent right after it can still be rejected with 468 for a while. Taxpayers of PR and PB can't register one (Ajuste SINIEF 25/2026): the gem refuses it before sending.
+
+## Consulta cadastro
+
+```ruby
+result = client.taxpayers(uf: "MS", cnpj: "24.647.331/0001-86")   # or cpf:, or ie:
+result.found?                      # cStat 111 (one registration) or 112 (several); 259 is "not a taxpayer here"
+taxpayer = result.taxpayers.first
+taxpayer.state_registration        # "282567143"
+taxpayer.active?                   # cSit 1
+taxpayer.nfe_accreditation         # indCredNFe: 0 no, 1 yes, 2/3 obliged, 4 not told
+taxpayer.name; taxpayer.trade_name; taxpayer.regime; taxpayer.cnae
+taxpayer.address                   # {street:, number:, district:, city_code:, city:, zip:}, what the state gives
+```
+
+`uf` is the state consulted, which answers for its own taxpayers to any NF-e issuer. AM, BA, GO, MG, MS, MT, PE, PR, SP have the service, and the SVRS answers for AC, ES, PB, RN, RS and SC; for the others `taxpayers` raises `DfeRb::Nfe::Unsupported` (`DfeRb::Nfe::Endpoints.registry?(uf)` tells beforehand). It is less available than the other services (MOC 5.6.3).
+
 ## Distribution and recipient manifestation
 
 ```ruby
@@ -317,7 +371,7 @@ The carrier required on fuel sales with `indComb` 2 (X04-10) is left to SEFAZ: i
 
 ```ruby
 DfeRb::Nfe::Client.new(certificate: cert, uf: "SP",
-  endpoints: {authorization: "https://proxy.internal/nfe"},       # override any URL
+  endpoints: {authorization: "https://proxy.internal/nfe"},       # override any URL; also registry:, epec: and contingency: {authorization: ...}
   timeouts: {open: 10, read: 90}, logger: Rails.logger,
   transport: MyTransport.new)                                     # anything with #post(endpoint, xml)
 client.sign(invoice, strict: false)                               # skip the business rules (schema and formats always apply)
@@ -340,7 +394,7 @@ They confirm the SOAP contract and every service with your certificate, includin
 
 ## Legislation
 
-Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
+Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
 
 ## Keeping up with official publications
 
@@ -370,11 +424,12 @@ Edited by hand:
 | XSD packages | `lib/dfe_rb/xml/schemas` (copied unchanged; versions listed in its `README.md`) | Portal Nacional da NF-e, "Esquemas XML" | each schema package (`PL_010...`), usually with an NT |
 | English names of new fields | `lib/dfe_rb/nfe/names.rb` | the new schema package | with the XSDs |
 | Validation and derivation rules | `validator.rb`, `calculator.rb`, `totals.rb`, `resolver.rb` (each rule cites its RV and NT) | Anexo I of the MOC and the NTs | each NT; "Legislation" above names the last one applied |
-| Dates a rule starts | `Validator::IBS_CBS_MANDATORY_SINCE` (production is still unset, "implementação futura") | NT 2025.002 and its successors | the NT sets the production date |
+| Dates a rule starts | `Validator::IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE` | NT 2025.002 and its successors | an NT moves a date |
+| States barred from the EPEC | `States::EPEC_BARRED` | NT 2014.001 (RV 2P10-20) | an Ajuste SINIEF adds or removes a state |
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
 | IBS/CBS standard rates by year | `Rates::IBS_CBS` (2027 and 2028 have no CBS rate yet; nothing after 2028) | IT 2025.002 §05 and the laws that set each year's rates | yearly, before the first issue of the year |
 | Interstate ICMS rates and the DIFAL partition | `Rates::SOUTH_SOUTHEAST`, `IMPORTED_ORIGINS`, `PARTITION` | Senate Resolutions 22/1989 and 13/2012, EC 87/2015 | a new resolution (rare) |
-| Web service addresses and each state's authorizer | `nfe/endpoints.rb` (`AUTHORIZERS`, `PATHS`), `States::OWN_AUTHORIZER` and `SVAN`, `nfe/distribution/endpoints.rb` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfe/Servicos` and the Portal Nacional) | a state moves to or from a SEFAZ Virtual, or an address changes |
+| Web service addresses, each state's authorizer and SVC, and who offers consulta cadastro | `nfe/endpoints.rb` (`AUTHORIZERS`, `PATHS`, `CONTINGENCY`, `REGISTRY_URLS`, `REGISTRY_SVRS`), `States::OWN_AUTHORIZER`, `SVAN` and `SVC_AN`, `nfe/distribution/endpoints.rb` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfe/Servicos` and the Portal Nacional) | a state moves to or from a SEFAZ Virtual, or an address changes |
 | Status codes the client acts on | `nfe/status_codes.rb` | Anexo I §4.4 and the NTs | an NT adds a `cStat` that changes the flow |
 | ICP-Brasil root CAs | `lib/dfe_rb/certs/icp-brasil.pem` (v5, v10, v11, v12; v5 expires 02/03/2029) | `acraiz.icpbrasil.gov.br/credenciadas/RAIZ` | ITI publishes a new root, or one expires |
 

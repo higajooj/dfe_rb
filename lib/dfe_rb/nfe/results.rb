@@ -3,6 +3,12 @@ module DfeRb
     # SEFAZ answered the status query. `online?` is cStat 107.
     StatusResult = Data.define(:code, :message, :state_code, :received_at, :average_seconds, :xml) do
       def online? = StatusCodes.service_up?(code)
+
+      # An SVC about to stop taking the state's notes (cStat 113); it still answers.
+      def deactivating? = code == StatusCodes::SVC_DEACTIVATING
+
+      # An SVC the state's SEFAZ hasn't activated (cStat 114).
+      def disabled? = code == StatusCodes::SVC_DISABLED
     end
 
     # The outcome of authorizing one NF-e. Rejections are results, not exceptions: check

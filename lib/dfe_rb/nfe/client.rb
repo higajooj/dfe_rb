@@ -40,9 +40,10 @@ module DfeRb
         Invoice.new(attributes, environment: environment, clock: @clock, technical_contact: @technical_contact, **fields, &block)
       end
 
-      # Is the authorizer up? (cStat 107)
-      def status(uf: self.uf)
-        response = Response.new(call(:status, Requests.status(state: uf, environment: environment), uf: uf))
+      # Is the authorizer up? (cStat 107) With `contingency`, the state's SVC is asked instead:
+      # it is online only while the state's SEFAZ has it activated (113 and 114 otherwise).
+      def status(uf: self.uf, contingency: false)
+        response = Response.new(call(:status, Requests.status(state: uf, environment: environment), uf: uf, contingency: contingency))
         StatusResult.new(code: response.code, message: response.message, state_code: response.text("cUF"),
           received_at: response.text("dhRecbto"), average_seconds: response.text("tMed")&.to_i, xml: response.xml)
       end
@@ -85,6 +86,9 @@ module DfeRb
       #
       # A lot whose processing couldn't be awaited (polling timed out or failed) comes back
       # as pending results carrying the receipt: finish it with #resume.
+      #
+      # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so does
+      # everything asked about them afterwards (#resume, #consult, #cancel).
       def authorize(input, lot_id: nil, recover: true, polling: {}, strict: true)
         many = input.is_a?(Array)
         signed = Array(input).map { |item| sign(item, strict: strict) }
@@ -124,10 +128,12 @@ module DfeRb
         outcome
       end
 
-      # Where a key stands at SEFAZ. Routed to the key's own state.
-      def consult(key)
+      # Where a key stands at SEFAZ. Routed to the key's own state, or to its SVC for a key
+      # issued there; `via: :home` or `:contingency` asks the other one.
+      def consult(key, via: nil)
         key = AccessKey.parse(key.to_s)
-        response = Response.new(call(:consult, Requests.consult(key: key, environment: environment), uf: key.state))
+        response = Response.new(call(:consult, Requests.consult(key: key, environment: environment), uf: key.state,
+          contingency: contingency?(key, via)))
         protocol_xml = response.fragment("protNFe")
         protocol = protocol_xml && Protocol.parse(protocol_xml)
 
@@ -139,24 +145,26 @@ module DfeRb
       end
 
       # Cancels an authorized note (evento 110111). `protocol` is the authorization protocol.
-      # Allowed for 24 hours after authorization unless the state allows longer.
-      def cancel(key, protocol:, reason:)
+      # Allowed for 24 hours after authorization unless the state allows longer. A note the
+      # SVC authorized is canceled there (Anexo III 2.1.3.4 c); `via:` overrides it.
+      def cancel(key, protocol:, reason:, via: nil)
         key = AccessKey.parse(key.to_s)
         protocol = protocol.to_s.strip
         raise ArgumentError, "protocol must have 15 or 17 digits" unless protocol.match?(/\A(\d{15}|\d{17})\z/)
 
         detail = Requests.cancellation_detail(protocol: protocol, reason: justification(reason, "reason", 15..255))
-        send_event(key, "110111", 1, detail)
+        send_event(key, "110111", 1, detail, contingency: contingency?(key, via))
       end
 
       # Corrects an authorized note (Carta de Correção, evento 110110). A new correction
-      # replaces the previous one; `sequence` counts them (1..20).
-      def correct(key, text:, sequence: 1)
+      # replaces the previous one; `sequence` counts them (1..20). Always registered at the
+      # state's own authorizer, since the SVC takes no CC-e, unless `via: :contingency`.
+      def correct(key, text:, sequence: 1, via: :home)
         key = AccessKey.parse(key.to_s)
         raise ArgumentError, "sequence must be between 1 and 20" unless (1..20).cover?(sequence)
 
         detail = Requests.correction_detail(text: justification(text, "text", 15..1000))
-        send_event(key, "110110", sequence, detail)
+        send_event(key, "110110", sequence, detail, contingency: contingency?(key, via))
       end
 
       # Declares a range of numbers as unused (inutilização).
@@ -176,18 +184,71 @@ module DfeRb
       # Sends `xml` to a service as is and returns the answer's XML: the escape hatch for
       # anything the client doesn't wrap. service: :status, :authorization,
       # :authorization_return, :consult, :inutilization or :event.
-      def raw(service, xml, uf: self.uf)
-        call(service, xml, uf: uf)
+      def raw(service, xml, uf: self.uf, contingency: false)
+        call(service, xml, uf: uf, contingency: contingency)
       end
 
-      def endpoint(service, uf: self.uf)
-        Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints)
+      def endpoint(service, uf: self.uf, contingency: false)
+        Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints, contingency: contingency)
+      end
+
+      # Registers the Evento Prévio de Emissão em Contingência (110140) of a note issued with
+      # `contingency :epec` (tpEmis 4), at the Ambiente Nacional: once registered, the DANFE
+      # can be printed and the note travels, and the same signed note must be sent with
+      # #authorize when the state's SEFAZ is back. Takes what #sign takes, or the event
+      # #prepare_epec returned.
+      def epec(input)
+        event = input.is_a?(SignedEpec) ? input : prepare_epec(input)
+        key = AccessKey.parse(event.key)
+        overrides = {manifestation: @endpoints[:epec]}.compact
+        endpoint = Distribution::Endpoints.resolve(service: :manifestation, environment: environment, overrides: overrides)
+        register_event(key, Epec::TYPE, 1, event.xml, endpoint)
+      end
+
+      # The signed EPEC of a note, to store before it is sent (an answer lost on the way is
+      # then resolved with the same event).
+      def prepare_epec(input)
+        note = sign(input)
+        unsigned = Epec.build(Document.new(note.xml), environment: environment, clock: @clock)
+        SignedEpec.new(xml: Signature.sign_event(unsigned, certificate), key: note.key)
+      end
+
+      # The registrations of a taxpayer in a state's ICMS cadastro (NfeConsultaCadastro), by
+      # CNPJ, CPF or IE. `uf` is the state consulted, which answers itself (RV K01) for any
+      # NF-e issuer; states without the service raise Unsupported.
+      def taxpayers(uf:, cnpj: nil, cpf: nil, ie: nil)
+        state = States.abbreviation(uf)
+        request = Requests.registry(state: state, cnpj: cnpj, cpf: cpf, ie: ie)
+        problems = Distribution::Schemas.issues(request, package: "cad_2.00", file: "consCad_v2.00.xsd")
+        raise ValidationError, problems unless problems.empty?
+
+        endpoint = Endpoints.registry(uf: state, environment: environment, overrides: @endpoints)
+        Registry.parse(transport.post(endpoint, request), request_xml: request)
       end
 
       private
 
-      def call(service, xml, uf: self.uf)
-        transport.post(endpoint(service, uf: uf), xml)
+      def call(service, xml, uf: self.uf, contingency: false)
+        transport.post(endpoint(service, uf: uf, contingency: contingency), xml)
+      end
+
+      # Whether what is asked about `key` goes to the SVC: by the key's own tpEmis (6 or 7),
+      # unless `via` says which authorizer.
+      def contingency?(key, via)
+        case via
+        when nil then States::SVC_EMISSION_TYPES.value?(AccessKey.parse(key.to_s).emission_type)
+        when :contingency then true
+        when :home then false
+        else raise ArgumentError, "via must be :home or :contingency (got #{via.inspect})"
+        end
+      end
+
+      # A lot goes to one authorizer: notes for the SVC can't share it with the others.
+      def contingency_lot?(signed)
+        kinds = signed.map { |note| contingency?(note.key, nil) }.uniq
+        raise ArgumentError, "a lot can't mix notes issued for the SVC (tpEmis 6 or 7) with others" if kinds.size > 1
+
+        kinds.first
       end
 
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
@@ -236,7 +297,8 @@ module DfeRb
       def transmit(signed, lot_id:, recover:, polling:)
         sync = signed.size == 1
         lot = begin
-          Response.new(call(:authorization, Requests.authorization(signed.map(&:xml), lot_id: lot_id, sync: sync)))
+          Response.new(call(:authorization, Requests.authorization(signed.map(&:xml), lot_id: lot_id, sync: sync),
+            contingency: contingency_lot?(signed)))
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
@@ -256,7 +318,7 @@ module DfeRb
       # unknown comes back pending, to be finished with #resume.
       def collect_lot(signed, receipt, polling, recover)
         answer = begin
-          wait_for_lot(receipt, polling)
+          wait_for_lot(receipt, polling, contingency_lot?(signed))
         rescue TransportError => e
           return signed.map { |note| (recover && recovered_quietly(note, e)) || pending(note, receipt, e) }
         end
@@ -277,11 +339,12 @@ module DfeRb
       end
 
       # Polls the lot until SEFAZ has processed it (cStat 104) or `max_wait` seconds passed.
-      def wait_for_lot(receipt, polling)
+      def wait_for_lot(receipt, polling, contingency)
         @sleeper.call(polling[:wait])
         waited = polling[:wait]
         loop do
-          answer = Response.new(call(:authorization_return, Requests.lot_return(receipt: receipt, environment: environment)))
+          answer = Response.new(call(:authorization_return, Requests.lot_return(receipt: receipt, environment: environment),
+            contingency: contingency))
           return answer unless answer.code == StatusCodes::BATCH_PROCESSING && waited < polling[:max_wait]
 
           @sleeper.call(polling[:interval])
@@ -341,11 +404,15 @@ module DfeRb
         end
       end
 
-      def send_event(key, type, sequence, detail)
+      def send_event(key, type, sequence, detail, contingency: false)
         unsigned = Requests.event(key: key, type: type, sequence: sequence, detail: detail, environment: environment,
           at: States.now(key.state, @clock))
         signed = Signature.sign_event(unsigned, certificate)
-        response = Response.new(call(:event, Requests.event_batch([signed], lot_id: new_lot_id), uf: key.state))
+        register_event(key, type, sequence, signed, endpoint(:event, uf: key.state, contingency: contingency))
+      end
+
+      def register_event(key, type, sequence, signed, endpoint)
+        response = Response.new(transport.post(endpoint, Requests.event_batch([signed], lot_id: new_lot_id)))
 
         registered = response.plain.xpath("//retEvento").first
         detail = registered && Response.new(registered.to_xml)

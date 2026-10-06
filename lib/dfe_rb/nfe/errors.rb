@@ -23,5 +23,9 @@ module DfeRb
     # The key already exists at SEFAZ with different content than what was sent (e.g. cNF or
     # data changed between attempts): the earlier note is authorized and this one is not.
     class Conflict < Error; end
+
+    # The state has no web service for what was asked (consulta cadastro is offered by some
+    # states only).
+    class Unsupported < Error; end
   end
 end

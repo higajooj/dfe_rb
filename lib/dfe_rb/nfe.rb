@@ -25,6 +25,8 @@ require_relative "nfe/errors"
 require_relative "nfe/responses"
 require_relative "nfe/results"
 require_relative "nfe/requests"
+require_relative "nfe/epec"
+require_relative "nfe/registry"
 require_relative "nfe/client"
 
 module DfeRb

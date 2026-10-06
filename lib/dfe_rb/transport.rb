@@ -31,7 +31,8 @@ module DfeRb
 
       body = perform(URI(endpoint.url), envelope, endpoint)
       log(:debug) { "response: #{DfeRb.filter_xml(body)}" }
-      self.class.extract_result(body, result_tag: result_tag)
+      answer = endpoint.respond_to?(:answer) ? endpoint.answer : nil
+      self.class.extract_result(body, result_tag: result_tag, answer: answer)
     end
 
     class << self
@@ -46,12 +47,22 @@ module DfeRb
 
       # The XML document inside the endpoint's result tag, or a TransportError for SOAP faults and
       # bodies that aren't a SEFAZ answer.
-      def extract_result(body, result_tag: "nfeResultMsg")
+      #
+      # With `answer`, the document is the one element of that name wherever it is: the
+      # states wrap the consulta cadastro answer each in its own way.
+      def extract_result(body, result_tag: "nfeResultMsg", answer: nil)
         doc = Nokogiri::XML(body) { |config| config.strict.nonet }
         raise TransportError.new("response contains a DTD", maybe_processed: true) if doc.internal_subset || doc.external_subset
         if (fault = doc.at_xpath("//*[local-name()='Fault']"))
           reason = fault.at_xpath(".//*[local-name()='Text' or local-name()='faultstring']")&.text
           raise TransportError.new("SOAP fault: #{reason || fault.text.strip}", maybe_processed: false)
+        end
+
+        if answer
+          found = doc.xpath("//*[local-name()='#{answer}']")
+          raise TransportError.new("response has no unambiguous <#{answer}>", maybe_processed: true) unless found.size == 1
+
+          return found.first.dup.to_xml(save_with: Nokogiri::XML::Node::SaveOptions::AS_XML)
         end
 
         results = doc.xpath("//*[local-name()='#{result_tag}']")

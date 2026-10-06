@@ -16,6 +16,12 @@ module DfeRb
 
       OWN_AUTHORIZER = %w[AM BA GO MG MS MT PE PR RS SP].freeze
       SVAN = %w[MA].freeze
+      # States whose contingency authorizer is the SVC-AN; the others use the SVC-RS (Portal
+      # Nacional da NF-e, "Autorizadores em contingência", which updates Anexo III 2.1.3.1).
+      SVC_AN = %w[AC AL AP CE DF ES MG PA PB PI RJ RN RO RR RS SC SE SP TO].freeze
+      SVC_EMISSION_TYPES = {"SVC-AN" => 6, "SVC-RS" => 7}.freeze
+      # States whose taxpayers can't register an EPEC (Ajuste SINIEF 25/2026, RV 2P10-20).
+      EPEC_BARRED = %w[PR PB].freeze
 
       module_function
 
@@ -46,6 +52,13 @@ module DfeRb
           "SVRS"
         end
       end
+
+      # The SEFAZ Virtual de Contingência that authorizes the state's NF-e while its own
+      # authorizer is down: "SVC-AN" or "SVC-RS".
+      def contingency(state) = SVC_AN.include?(abbreviation(state)) ? "SVC-AN" : "SVC-RS"
+
+      # tpEmis of a note sent to the state's SVC: 6 (SVC-AN) or 7 (SVC-RS).
+      def contingency_emission_type(state) = SVC_EMISSION_TYPES.fetch(contingency(state))
     end
   end
 end

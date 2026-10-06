@@ -36,11 +36,12 @@ module DfeRb
       end
 
       # An unsigned <evento> for the note `key`. `detail` is the inside of <detEvento>.
-      def event(key:, type:, sequence:, detail:, environment:, at:)
+      # `agency` is who registers it (cOrgao): the note's state, or 91 for the Ambiente Nacional.
+      def event(key:, type:, sequence:, detail:, environment:, at:, agency: key.state_code)
         issuer = key.tax_id.start_with?("000") ? key.tax_id[3..] : key.tax_id
         tax_tag = (issuer.length == 11) ? "CPF" : "CNPJ"
         id = "ID#{type}#{key}#{format("%02d", sequence)}"
-        %(<evento xmlns="#{NS}" versao="1.00"><infEvento Id="#{id}"><cOrgao>#{key.state_code}</cOrgao>) +
+        %(<evento xmlns="#{NS}" versao="1.00"><infEvento Id="#{id}"><cOrgao>#{agency}</cOrgao>) +
           %(<tpAmb>#{Environment.code(environment)}</tpAmb><#{tax_tag}>#{issuer}</#{tax_tag}><chNFe>#{key}</chNFe>) +
           %(<dhEvento>#{at.strftime("%Y-%m-%dT%H:%M:%S%:z")}</dhEvento><tpEvento>#{type}</tpEvento>) +
           %(<nSeqEvento>#{sequence}</nSeqEvento><verEvento>1.00</verEvento><detEvento versao="1.00">#{detail}</detEvento>) +
@@ -53,6 +54,17 @@ module DfeRb
 
       def correction_detail(text:)
         %(<descEvento>Carta de Correcao</descEvento><xCorrecao>#{escape(text)}</xCorrecao><xCondUso>#{CORRECTION_TERMS}</xCondUso>)
+      end
+
+      # <ConsCad> for one taxpayer of `state`, by exactly one of its identifiers.
+      def registry(state:, cnpj: nil, cpf: nil, ie: nil)
+        given = {"IE" => ie, "CNPJ" => cnpj, "CPF" => cpf}.reject { |_, value| value.to_s.strip.empty? }
+        raise ArgumentError, "give one of cnpj:, cpf: or ie: (got #{given.size})" unless given.size == 1
+
+        tag, value = given.first
+        value = (tag == "IE") ? value.to_s.gsub(/[.\-\/\s]/, "").upcase : TaxId.normalize(value)
+        %(<ConsCad xmlns="#{NS}" versao="2.00"><infCons><xServ>CONS-CAD</xServ><UF>#{States.abbreviation(state)}</UF>) +
+          %(<#{tag}>#{escape(value)}</#{tag}></infCons></ConsCad>)
       end
 
       def event_batch(signed_events, lot_id:)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- SVC contingency (Anexo III): `nfe.contingency :svc, since:, reason:` issues a note for the issuer's SEFAZ Virtual de Contingência (`tpEmis` 6 for the SVC-AN, 7 for the SVC-RS, from `States.contingency`), and `authorize`, `resume`, `consult` and `cancel` go to the SVC for such a note. `client.status(contingency: true)` tells whether the state has its SVC active (`online?`, `deactivating?`, `disabled?`). `via: :home` or `:contingency` picks the authorizer on `consult`, `cancel` and `correct`; a carta de correção goes to the state's own by default, as the SVC takes none.
+- EPEC (evento 110140, NT 2014.001 v1.41): `client.epec(signed)` registers at the Ambiente Nacional the summary of a note issued with `nfe.contingency :epec`; `client.prepare_epec` returns the signed event to store first. Refused locally for a note that isn't `tpEmis` 4 and for issuers of PR and PB (Ajuste SINIEF 25/2026).
+- Consulta cadastro (`NfeConsultaCadastro`, MOC 5.6): `client.taxpayers(uf:, cnpj:)` (or `cpf:`, `ie:`) returns the registrations of a taxpayer in a state's ICMS cadastro: IE, situation, NF-e accreditation, name, regime, CNAE, dates and address. `Endpoints.registry?(uf)` tells whether the state has the service; the others raise `DfeRb::Nfe::Unsupported`.
+- Flag locally what a note in contingency must and must not say: `dhCont` and `xJust` (RVs B28-10, B28-20), a contingency that starts after the note, the wrong SVC for the issuer's state (B22-60) and off-line contingency without the DANFE Simplificado Tipo 2 (B22-10).
+
 ## 0.7.0
 
 - Derive the bases an item's own values fix, once the rate is given: ICMS `vBC` (the operation value, with the IPI for a final consumer, less `pRedBC`; `modBC` 3), `vBCFCP`, `vBCFCPST`, the DIFAL's `vBCUFDest` and `vBCFCPUFDest`, the IPI's `vBC`, PIS and COFINS `vBC` (without the item's own ICMS) and `vCredICMSSN` from `pCredSN`.

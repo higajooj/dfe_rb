@@ -73,5 +73,10 @@ module DfeRb
     SignedInvoice = Data.define(:xml, :key, :digest_value) do
       def to_s = xml
     end
+
+    # The signed EPEC event of the note `key`: store `xml` before sending it.
+    SignedEpec = Data.define(:xml, :key) do
+      def to_s = xml
+    end
   end
 end

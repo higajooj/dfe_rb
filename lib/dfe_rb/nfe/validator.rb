@@ -39,6 +39,8 @@ module DfeRb
         810101003 220101003 220101004 220101002 220101001 220101005 220101006 560101001].freeze
       DIFAL_EXEMPT_ICMS = %w[40 41 103 300 400].freeze
       CFOP_TITLE_LENGTH = 60
+      # xJust of a note in contingency (B29).
+      CONTINGENCY_REASON_LENGTH = (15..256)
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
@@ -114,6 +116,7 @@ module DfeRb
         end
 
         check_purpose_direction
+        check_contingency
 
         presence = [2, 3, 4, 9].include?(@ide["indPres"].to_i)
         if presence && @ide["indIntermed"].nil?
@@ -121,6 +124,35 @@ module DfeRb
         elsif !presence && !@ide["indIntermed"].nil?
           add "ide/indIntermed: only allowed when indPres is 2, 3, 4 or 9 (rej. 435)"
         end
+      end
+
+      # The emission type and what a note in contingency must say (RVs B22 and B28): since
+      # when and why, and the SVC of its own state.
+      def check_contingency
+        emission = @ide["tpEmis"].to_s
+        since, reason = @ide["dhCont"], @ide["xJust"]
+        return if emission.empty?
+
+        if emission == "1"
+          add "ide/dhCont, ide/xJust: only for a note issued in contingency (rej. 556)" unless since.nil? && reason.nil?
+          return
+        end
+
+        add "ide/dhCont, ide/xJust: a note in contingency says since when and why (rej. 557)" if since.nil? || reason.to_s.strip.empty?
+        unless reason.nil? || CONTINGENCY_REASON_LENGTH.cover?(Formatter.sanitize(reason).length)
+          add "ide/xJust: the reason for the contingency has #{CONTINGENCY_REASON_LENGTH.min} to #{CONTINGENCY_REASON_LENGTH.max} characters"
+        end
+        started, issued = time_of(since), issued_at
+        add "ide/dhCont: the contingency can't start after the note is issued (dhEmi)" if started && issued && started > issued
+        if emission == "9" && @ide["tpImp"].to_s != "6"
+          add "ide/tpEmis: off-line contingency (9) is only for the DANFE Simplificado Tipo 2, tpImp 6 (rej. 711)"
+        end
+
+        state = @inf.dig("emit", "enderEmit", "UF")
+        return unless %w[6 7].include?(emission) && state && States::CODES.key?(state)
+
+        expected = States.contingency_emission_type(state)
+        add "ide/tpEmis: #{state} is served by the #{States.contingency(state)}, tpEmis #{expected} (rej. 713)" unless emission == expected.to_s
       end
 
       # RV B25-110, B25-120: a credit note is an entry, a debit note an exit.
@@ -504,8 +536,9 @@ module DfeRb
       end
 
       # dhEmi as a Time in its own offset, whose year is the issue year the Resolver used.
-      def issued_at
-        value = @ide["dhEmi"]
+      def issued_at = time_of(@ide["dhEmi"])
+
+      def time_of(value)
         return value.to_time if value.respond_to?(:to_time) && !value.is_a?(String)
 
         Time.iso8601(value.to_s) if value

@@ -46,6 +46,22 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       end
     end
 
+    it "finds every state's SVC answering, active or not" do
+      %w[SP MG RJ MS PR MA].each do |state|
+        status = DfeRb::Nfe::Client.new(certificate: certificate, uf: state).status(contingency: true)
+        expect([107, 113, 114]).to include(status.code), "#{state}: #{status.code} #{status.message}"
+      end
+    end
+
+    it "consults the cadastro of every state that offers one" do
+      states = DfeRb::Nfe::States::CODES.keys.select { |state| DfeRb::Nfe::Endpoints.registry?(state) }
+      states.each do |state|
+        result = client.taxpayers(uf: state, cnpj: certificate.cnpj)
+        # 259: the certificate's company isn't a taxpayer of that state.
+        expect([111, 112, 259]).to include(result.code), "#{state}: #{result.code} #{result.message}"
+      end
+    end
+
     it "understands a consult, answering that the key is unknown" do
       key = DfeRb::Nfe::AccessKey.build(state: uf, issued_at: Time.now, tax_id: certificate.cnpj, series: 1, number: 999_999, numeric_code: "87654321")
       result = client.consult(key.to_s)
@@ -152,6 +168,59 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
 
       unused = client.inutilize(series: 1, from: number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
       expect(unused).to be_approved, "#{unused.code} #{unused.message}"
+    end
+
+    # The SVC's homologação is always active (Anexo III 2.1.3.2). The state's own authorizer
+    # only learns of the note when the SVC shares it, so nothing is asked of it here.
+    it "authorizes, consults and cancels an NF-e at the state's SVC" do
+      number = Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]), 10) + 1
+      signed = client.sign(contingency_invoice(number, :svc))
+      expect(DfeRb::Nfe::AccessKey.parse(signed.key).emission_type).to eq(DfeRb::Nfe::States.contingency_emission_type(uf))
+
+      result = client.authorize!(signed)
+      expect(client.consult(signed.key)).to be_authorized
+      expect(client.consult(signed.key, via: :home).status).to eq(:not_found).or(eq(:authorized))
+
+      cancellation = client.cancel(signed.key, protocol: result.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
+      expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+    end
+
+    # The note itself isn't sent: the state takes a while to learn of the EPEC from the
+    # Ambiente Nacional and rejects it with 468 until then.
+    it "registers an EPEC at the Ambiente Nacional" do
+      number = Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]), 10) + 2
+      result = client.epec(client.sign(contingency_invoice(number, :epec)))
+
+      expect(result).to be_registered, "#{result.code} #{result.message}"
+      expect(result.proc_xml).to include("<tpEvento>110140</tpEvento>")
+    end
+
+    def contingency_invoice(number, kind)
+      address = {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: ENV.fetch("DFE_RB_LIVE_STREET_NUMBER", "100"),
+                 district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), zip: ENV.fetch("DFE_RB_LIVE_ZIP")}
+      client.build_invoice do |nfe|
+        nfe.series 1
+        nfe.number number
+        nfe.nature_of_operation "Venda de mercadoria"
+        nfe.issuer tax_id: certificate.cnpj, name: ENV.fetch("DFE_RB_LIVE_NAME", "EMPRESA DE TESTE LTDA"),
+          state_registration: ENV.fetch("DFE_RB_LIVE_IE"), tax_regime: :simples, address: address
+        nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", state_registration: ENV.fetch("DFE_RB_LIVE_IE"), address: address
+        nfe.item do |i|
+          i.code "1"
+          i.description "Produto"
+          i.ncm "84713012"
+          i.cfop "5102"
+          i.unit "UN"
+          i.quantity 1
+          i.unit_price "10.00"
+          i.icms csosn: "102", origin: :domestic
+          i.pis cst: "07"
+          i.cofins cst: "07"
+        end
+        nfe.payment :money, "10.00"
+        nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"
+        nfe.contingency kind, since: Time.now - 300, reason: "Teste de contingencia do ambiente de homologacao"
+      end
     end
 
     # Regime normal notes that give only bases, rates and the tax classification: every amount,

@@ -216,6 +216,28 @@ module DfeRb
         end
       end
 
+      # `contingency :svc, since: time, reason: "SEFAZ fora do ar"` makes the note one issued
+      # in contingency: dhCont, xJust and tpEmis, which for :svc is the issuer's SVC (6 or 7,
+      # set once its state is known) and for :epec is 4.
+      CONTINGENCIES = {svc: :svc, epec: 4}.freeze
+
+      register("infNFe", "contingency") do |_scope, data, args, kwargs, _block|
+        first = args.first
+        options = (first.is_a?(Hash) ? first.merge(kwargs) : kwargs).transform_keys(&:to_sym)
+        kind = first.is_a?(Hash) ? options.delete(:kind) : first
+        emission = CONTINGENCIES.fetch(kind&.to_sym) do
+          raise ArgumentError, "unknown contingency #{kind.inspect} (use #{CONTINGENCIES.keys.map(&:inspect).join(", ")})"
+        end
+        unknown = options.keys - %i[since reason]
+        raise ArgumentError, "contingency takes since: and reason: (got #{unknown.map(&:inspect).join(", ")})" unless unknown.empty?
+
+        ide = (data["ide"] ||= {})
+        ide["tpEmis"] = emission
+        ide["dhCont"] = options[:since] if options[:since]
+        ide["xJust"] = options[:reason] if options[:reason]
+        nil
+      end
+
       # `authorized_downloader "12345678000195"` appends <autXML>.
       register("infNFe", "authorized_downloader") do |_scope, data, args, _kwargs, _block|
         Array(args.first).each do |value|

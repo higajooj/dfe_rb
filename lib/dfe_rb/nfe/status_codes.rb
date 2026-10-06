@@ -6,6 +6,11 @@ module DfeRb
       SERVICE_RUNNING = 107
       SERVICE_PAUSED = 108
       SERVICE_DOWN = 109
+      # Answers of an SVC's status service (Anexo III 2.1.3.4 g).
+      SVC_DEACTIVATING = 113
+      SVC_DISABLED = 114
+      # Consulta cadastro: one registration found, or more than one.
+      TAXPAYER_FOUND = [111, 112].freeze
 
       BATCH_RECEIVED = 103
       BATCH_PROCESSED = 104
