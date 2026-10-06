@@ -302,7 +302,9 @@ module DfeRb
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
-          return signed.map { |note| recovered(note, cause: e) || raise(e) }
+          # A lookup that fails too leaves the first error standing: the note may have been
+          # processed, whatever the lookup's own failure says.
+          return signed.map { |note| recovered_quietly(note, e) || raise(e) }
         end
 
         receipt = lot.text("nRec")

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- A lost authorization answer whose lookup by key fails too raises the first error, which says the note may have been processed. The lookup's own failure (such as a refused connection, "certainly not processed") used to replace it, and an application deciding from `maybe_processed?` whether a number can be reused would get the wrong answer.
+
 ## 0.8.0
 
 - SVC contingency (Anexo III): `nfe.contingency :svc, since:, reason:` issues a note for the issuer's SEFAZ Virtual de Contingência (`tpEmis` 6 for the SVC-AN, 7 for the SVC-RS, from `States.contingency`), and `authorize`, `resume`, `consult` and `cancel` go to the SVC for such a note. `client.status(contingency: true)` tells whether the state has its SVC active (`online?`, `deactivating?`, `disabled?`). `via: :home` or `:contingency` picks the authorizer on `consult`, `cancel` and `correct`; a carta de correção goes to the state's own by default, as the SVC takes none.

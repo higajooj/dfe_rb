@@ -301,6 +301,13 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(result.proc_xml).to include(signed.xml)
     end
 
+    it "keeps saying the note may have been processed when the lookup fails too" do
+      transport.answer(:authorization, DfeRb::TransportError.new("ReadTimeout", maybe_processed: true))
+      transport.answer(:consult, DfeRb::TransportError.new("could not connect", maybe_processed: false))
+
+      expect { client.authorize(signed) }.to raise_error(DfeRb::TransportError, "ReadTimeout") { |error| expect(error).to be_maybe_processed }
+    end
+
     it "reports a note canceled since as canceled, never as authorized" do
       transport.answer(:authorization, timeout)
       transport.answer(:consult, ->(_xml) {
