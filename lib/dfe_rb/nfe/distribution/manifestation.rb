@@ -83,7 +83,7 @@ module DfeRb
             raise ArgumentError, "signature must reference this manifestation once"
           end
           transforms = reference.first.xpath("ds:Transforms/ds:Transform", Xml::NS)
-          expected_transforms = ["#{Signature::DS}enveloped-signature", "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"]
+          expected_transforms = ["#{Signature::DS}enveloped-signature", Signature::C14N]
           unless transforms.map { |node| node["Algorithm"] } == expected_transforms && transforms.all? { |node| node.element_children.empty? }
             raise ArgumentError, "unexpected signature transforms"
           end

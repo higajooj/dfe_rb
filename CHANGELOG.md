@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `DfeRb::Nfe::Signature` signs with Nokogiri and OpenSSL directly, and the vendored `signer` 1.9.0 (`DfeRb::Signer`) is removed. The signed XML is byte for byte what it was. Code that called `DfeRb::Signer` itself has to move to `Signature.sign_nfe`, `sign_event` or `sign_inutilization`.
+
 ## 0.8.2
 
 - IBS/CBS follows the schedule NT 2025.002 v1.51 left. The NT struck the dates of the production rejection (03/08/2026 for regime normal, 04/01/2027 for the Simples Nacional and the MEI) out of RV UB12-10, which is now "implementação futura" there. A regime normal note without the group is still flagged in production from 01/01/2026, as the law's requirement and no longer as rejection 1115. Homologação keeps its rejection since 01/07/2026. Nothing is asked of the Simples Nacional and the MEI, whose rules an NT has yet to bring. `Validator::IBS_CBS_SINCE` replaces `IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE`.

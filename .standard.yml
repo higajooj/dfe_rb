@@ -1,5 +1,1 @@
 ruby_version: 3.3
-ignore:
-  # Vendored fork of the signer gem; kept close to upstream.
-  - lib/dfe_rb/signer.rb
-  - lib/dfe_rb/signer/**/*
