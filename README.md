@@ -10,7 +10,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Contingency**: the SEFAZ Virtuais de Contingência (SVC-AN, SVC-RS) and the EPEC.
 - **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
 
-Not covered yet: NFC-e (modelo 65), off-line and paper contingency (`tpEmis` 9, FS-DA), DANFE printing, other DF-e (CT-e, MDF-e, NFS-e).
+Not covered yet: NFC-e (modelo 65), off-line and paper contingency (`tpEmis` 9, FS-DA), other DF-e (CT-e, MDF-e, NFS-e).
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.7.0"
@@ -169,6 +169,8 @@ client.correct(key, text: "Corrigir o endereço de entrega", sequence: 1)       
 client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por erro")
 event.proc_xml                                                   # procEventoNFe to archive, as event.filename ("<chave>_<tpEvento>_<seq>-procEventoNFe.xml")
 ```
+
+To print the DANFE from the authorized `procNFe` XML, [browser_danfe_gen](https://github.com/higajooj/browser_danfe_gen) can be used.
 
 ## Contingency
 
