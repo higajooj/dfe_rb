@@ -1,8 +1,9 @@
 module DfeRb
   module Nfe
     module Distribution
-      # Current generic events carry alphanumeric CNPJ/key/Id and 4-digit status codes.
-      # The manifestation detail schemas are unchanged; NT 2020.001 supplies sequence rules.
+      # The current generic event schemas carry alphanumeric CNPJ, key and Id and 4-digit
+      # status codes. The manifestation detail schemas are unchanged, and NT 2020.001 supplies
+      # the sequence rules.
       module Schemas
         DIRECTORY = File.expand_path("../../xml/schemas", __dir__)
         @compiled = {}

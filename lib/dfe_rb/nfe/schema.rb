@@ -64,7 +64,6 @@ module DfeRb
       Attribute = Data.define(:name, :type, :required, :fixed)
 
       class << self
-        # The <NFe> element.
         def nfe = (@nfe ||= new.root)
       end
 

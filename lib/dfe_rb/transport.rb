@@ -4,8 +4,8 @@ require "nokogiri"
 
 module DfeRb
   # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
-  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>. National distribution
-  # endpoints supply their operation wrapper/result tag. No WSDL is fetched.
+  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>. The national distribution
+  # endpoints supply their own operation wrapper and result tag. It fetches no WSDL.
   #
   # Anything responding to #post(endpoint, xml) can stand in for it (tests, proxies, retries).
   class Transport
@@ -45,11 +45,11 @@ module DfeRb
           %(#{message}</soap12:Body></soap12:Envelope>)
       end
 
-      # The XML document inside the endpoint's result tag, or a TransportError for SOAP faults and
-      # bodies that aren't a SEFAZ answer.
+      # Returns the XML document inside the endpoint's result tag. Raises TransportError for
+      # SOAP faults and for bodies that aren't a SEFAZ answer.
       #
-      # With `answer`, the document is the one element of that name wherever it is: the
-      # states wrap the consulta cadastro answer each in its own way.
+      # With `answer`, the document is the one element of that name, wherever it sits, because
+      # each state wraps the consulta cadastro answer in its own way.
       def extract_result(body, result_tag: "nfeResultMsg", answer: nil)
         doc = Nokogiri::XML(body) { |config| config.strict.nonet }
         raise TransportError.new("response contains a DTD", maybe_processed: true) if doc.internal_subset || doc.external_subset

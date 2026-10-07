@@ -53,8 +53,9 @@ module DfeRb
         def kind = :unknown
       end
 
-      # Select by the actual root, not by the untrusted schema attribute. Preserve bytes;
-      # metadata extraction never serializes or rewrites the archived XML.
+      # Picks the document type from the actual root element, not from the schema attribute,
+      # which comes from an untrusted response. Metadata extraction never serializes or
+      # rewrites the archived XML, so its bytes are preserved.
       module Documents
         module_function
 

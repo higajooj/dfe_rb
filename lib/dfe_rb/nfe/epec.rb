@@ -1,9 +1,9 @@
 module DfeRb
   module Nfe
-    # The Evento Prévio de Emissão em Contingência (110140, NT 2014.001): a summary of a note
-    # issued with tpEmis 4, registered at the Ambiente Nacional while the issuer can't reach
-    # its SEFAZ. Everything in it is read from the signed note, which SEFAZ later compares
-    # with it (RV 2AB08-30).
+    # The Evento Prévio de Emissão em Contingência (110140, NT 2014.001). It summarizes a note
+    # issued with tpEmis 4 and is registered at the Ambiente Nacional while the issuer can't
+    # reach its SEFAZ. Everything in it is read from the signed note, and SEFAZ later compares
+    # the note with it (RV 2AB08-30).
     module Epec
       TYPE = "110140"
       EMISSION_TYPE = "4"
@@ -45,9 +45,9 @@ module DfeRb
           %(<tpNF>#{ide["tpNF"]}</tpNF><IE>#{emit["IE"]}</IE>#{recipient(inf["dest"] || {}, totals)})
       end
 
-      # The recipient's state and identity (an empty idEstrangeiro stands, as in the note),
-      # then the note's totals: the event's schema keeps them inside <dest>, though the NT's
-      # table lists them beside it.
+      # The recipient's state and identity (an empty idEstrangeiro stays, as in the note),
+      # then the note's totals. The event's schema keeps the totals inside <dest>, though the
+      # NT's table lists them beside it.
       def recipient(dest, totals)
         tag = %w[CNPJ CPF idEstrangeiro].find { |name| dest.key?(name) }
         identity = tag ? "<#{tag}>#{Requests.escape(dest[tag])}</#{tag}>" : ""

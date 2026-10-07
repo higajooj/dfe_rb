@@ -95,7 +95,7 @@ module DfeRb
         Proc.event(event_xml, return_xml)
       end
 
-      # One file per event: each CC-e sequence is kept.
+      # One file per event, so every CC-e sequence is kept.
       def filename = "#{key}_#{type}_#{format("%02d", sequence)}-procEventoNFe.xml"
     end
 

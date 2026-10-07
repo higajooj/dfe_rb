@@ -2,31 +2,31 @@ require "bigdecimal"
 
 module DfeRb
   module Nfe
-    # The per-item tax values whose result the validation rules fix: products of a base and
-    # a rate (vICMS, vFCP, vPIS, vIBSUF...), the DIFAL split, the IBS/CBS base and effective
-    # rates; and the bases national law fixes from the item's own values (ICMS, FCP, DIFAL,
-    # ST from a given margin, IPI, PIS/COFINS, the Simples Nacional credit). `call` fills
-    # whatever an item leaves out; the `expected_*` functions give the value SEFAZ recomputes,
-    # for the Validator to compare with what was given.
+    # Computes the per-item tax values the validation rules fix: products of a base and a
+    # rate (vICMS, vFCP, vPIS, vIBSUF...), the DIFAL split, and the IBS/CBS base and effective
+    # rates. It also derives the bases national law fixes from the item's own values (ICMS,
+    # FCP, DIFAL, ST from a given margin, IPI, PIS/COFINS, the Simples Nacional credit).
+    # `call` fills whatever an item leaves out. The `expected_*` functions give the value
+    # SEFAZ recomputes, for the Validator to compare with what was given.
     #
-    # Inputs are never guessed: a value is derived only when everything it depends on is
-    # present, and anything given explicitly is kept.
+    # A value is derived only when everything it depends on is present, and anything given
+    # explicitly is kept.
     module Calculator
       # What an item's taxes depend on beyond the item: the states of the operation, idDest,
       # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe,
-      # tpNF, indFinal and the item's CFOP (set by `call`). Rates fixed by law are filled in only for a
-      # normal operation (finNFe 1): a return, adjustment or complement carries the rates of
-      # the operation it refers to, which only the issuer knows.
+      # tpNF, indFinal and the item's CFOP (set by `call`). Rates fixed by law are filled in
+      # only for a normal operation (finNFe 1). A return, adjustment or complement carries the
+      # rates of the operation it refers to, which only the issuer knows.
       Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction,
         :final_consumer, :cfop) do
         def law_rates? = purpose.to_s == NORMAL
 
-        # The IPI is part of the ICMS base unless the goods go to a contributor for resale or
-        # industrialization (CF art. 155, par. 2, XI).
+        # The IPI joins the ICMS base for a final consumer, but not for a contributor who buys
+        # for resale or industrialization (CF art. 155, par. 2, XI).
         def final_consumer? = final_consumer.to_s == "1"
 
         # The interstate ICMS rates (RV N16-04, N16-20, NA09-30) bind a normal exit only. An
-        # entry's goods don't leave the issuer's state, so the issuer gives the rate; a retorno
+        # entry's goods don't leave the issuer's state, so the issuer gives the rate. A retorno
         # or an anulação CFOP carries the rates of the operation it refers to.
         def interstate_rates? = law_rates? && direction.to_s != ENTRY && !cfop_row&.then { |row| row.goods_return? || row.annulment? }
 
@@ -72,8 +72,6 @@ module DfeRb
         ibs_cbs(item, imposto, context)
         item
       end
-
-      # --- ICMS, IPI, PIS/COFINS ---
 
       # A taxed IPI's rate is the TIPI's for the item's NCM and EXTIPI, unless the IPI is per
       # unit or the line is NT.
@@ -127,8 +125,8 @@ module DfeRb
         fill(group, "vBCFCPST") { group["vBCST"] if ICMS_ST_BASED.include?(name) && present?(group, "vBCST", "pFCPST") }
       end
 
-      # LC 87/1996, art. 13: the value of the operation with freight, insurance and other
-      # charges, less the unconditional discount; with the IPI when the goods aren't for the
+      # LC 87/1996, art. 13: the operation value (with freight, insurance and other charges,
+      # less the unconditional discount), plus the IPI unless the goods are for the
       # recipient's resale or industrialization.
       def icms_base(item, context)
         base = operation_value(item)
@@ -192,8 +190,6 @@ module DfeRb
         fill(group, "vIS") { expected_selective(group) }
       end
 
-      # --- IBS / CBS ---
-
       def ibs_cbs(item, imposto, context)
         ibscbs = imposto["IBSCBS"] or return
         klass = Tables.classification(ibscbs["cClassTrib"])
@@ -230,8 +226,8 @@ module DfeRb
         end
       end
 
-      # gRed when the classification reduces the rate, or on a government purchase (UB28-10);
-      # then the effective rate.
+      # Adds gRed when the classification reduces the rate or the purchase is governmental
+      # (UB28-10), then the effective rate.
       def reduce(sphere, rate_tag, klass, reduction, purchase)
         reduced = klass&.rate_reduction? && reduction&.positive?
         sphere["gRed"] ||= {"pRedAliq" => reduced ? reduction : BigDecimal(0)} if reduced || purchase
@@ -291,8 +287,6 @@ module DfeRb
         amount
       end
 
-      # --- Expected values (shared with the Validator) ---
-
       def expected_icms(name, group)
         percent(group["vBC"], group["pICMS"]) if ICMS_RATED.include?(name) && present?(group, "vBC", "pICMS")
       end
@@ -328,11 +322,9 @@ module DfeRb
         percent(group["vBCIS"], group["pIS"]) if group["adRemIS"].nil? && present?(group, "vBCIS", "pIS")
       end
 
-      # --- helpers ---
-      #
-      # Operands are taken as the XML writes them (amounts with 2 places; rates, quantities and
-      # unit values with 4), so a result always agrees with the values printed next to it.
-
+      # The helpers from here down take operands as the XML writes them (amounts with 2
+      # places; rates, quantities and unit values with 4), so a result always agrees with the
+      # values printed next to it.
       def per_unit_or_percent(group, base, rate, quantity, unit)
         if present?(group, base, rate)
           percent(group[base], group[rate])

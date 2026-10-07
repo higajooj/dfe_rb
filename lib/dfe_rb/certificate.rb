@@ -1,9 +1,9 @@
 require "openssl"
 
 module DfeRb
-  # An ICP-Brasil A1 certificate with its private key: what SEFAZ needs for mutual TLS and
-  # for XML signatures. Wraps OpenSSL objects, so an app that already holds them (e.g. from a
-  # stored PFX) can pass them straight in.
+  # An ICP-Brasil A1 certificate with its private key, which SEFAZ needs for mutual TLS and
+  # for XML signatures. It wraps OpenSSL objects, so an app that already holds them (from a
+  # stored PFX, say) can pass them straight in.
   class Certificate
     CNPJ_OID = "2.16.76.1.3.3"
     CPF_OID = "2.16.76.1.3.1"
@@ -46,8 +46,8 @@ module DfeRb
       # CNPJ/CPF of a public X509 certificate, without requiring its private key.
       def tax_id_of(certificate) = Identity.cnpj(certificate) || Identity.cpf(certificate)
 
-      # A PKCS#12 (.pfx / .p12) file's bytes and password. Many ICP-Brasil A1 files use
-      # RC2-40, which OpenSSL 3 only reads through its "legacy" provider; that provider is
+      # Takes a PKCS#12 (.pfx / .p12) file's bytes and its password. Many ICP-Brasil A1 files
+      # use RC2-40, which OpenSSL 3 only reads through its "legacy" provider. The provider is
       # loaded just long enough to open the file.
       def from_pkcs12(data, password = nil)
         pkcs12 = parse_pkcs12(data, password.to_s)
@@ -88,7 +88,8 @@ module DfeRb
 
       # Precompiled Rubies (mise, rv...) carry an OpenSSL that looks for its providers where
       # it was built, so the legacy provider is retried from the system's OpenSSL 3 modules
-      # directory. OPENSSL_MODULES is set only for that load, unless the user already set it.
+      # directory. OPENSSL_MODULES is set only for that load, and not at all if the user
+      # already set it.
       def load_legacy_provider
         OpenSSL::Provider.load("legacy")
       rescue OpenSSL::OpenSSLError

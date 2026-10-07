@@ -3,8 +3,8 @@ require "bigdecimal"
 module DfeRb
   module Nfe
     # Derives the invoice totals (<total>) from the items, following the sums the validation
-    # rules of Anexo I §W require. Tax values themselves are never computed: they come from
-    # the items.
+    # rules of Anexo I §W require. Tax values themselves are never computed here. They come
+    # from the items.
     #
     # Item values are rounded as the XML will show them before they are added, so a total
     # always matches the sum of what the recipient (and SEFAZ) reads.
@@ -108,8 +108,8 @@ module DfeRb
         total.transform_values { |value| money(value) }
       end
 
-      # vNF as RV W16-10 defines it (NT 2023.001 v1.60). IBS/CBS/IS are "por fora" and stay
-      # out in 2026.
+      # vNF as RV W16-10 defines it (NT 2023.001 v1.60). IBS, CBS and IS are "por fora" and
+      # stay out of it in 2026.
       def invoice_amount(total, items)
         amount = number(total["vProd"]) - number(total["vDesc"]) + number(total["vFrete"]) + number(total["vSeg"]) +
           number(total["vOutro"]) + number(total["vII"]) + number(total["vIPI"]) + number(total["vIPIDevol"])

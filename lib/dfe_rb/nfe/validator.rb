@@ -5,17 +5,18 @@ require "time"
 
 module DfeRb
   module Nfe
-    # Business rules SEFAZ enforces that the schema can't express, checked locally so a mistake
-    # costs nothing instead of a rejection. Only unambiguous rules are here (Anexo I RVs and
-    # the NTs that amend them); rules that depend on state tables stay with SEFAZ.
+    # Checks locally the business rules SEFAZ enforces and the schema can't express, so a
+    # mistake shows up before SEFAZ rejects the note. Only unambiguous rules are here (Anexo I
+    # RVs and the NTs that amend them). Rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      # IBSCBS mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by tpAmb.
-      # Homologação rejects a note without it (1115) since 01/07/2026. In production the rule
-      # has no date yet ("implementação futura"; v1.51 struck out 03/08/2026), but the group is
-      # mandatory by law since 01/01/2026 (the NT's schedule, LC 214/2025), so a note without
-      # it is flagged all the same. The Simples Nacional and the MEI fill it from 2027 (LC
-      # 214/2025, art. 348) under rules an NT is still to bring: nothing is asked of them.
+      # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by
+      # tpAmb. Homologação has rejected a note without it (1115) since 01/07/2026. In
+      # production the rule has no date yet ("implementação futura"; v1.51 struck out
+      # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
+      # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
+      # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
+      # yet to bring, so nothing is asked of them.
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
       PRODUCTION = "1"
       NORMAL_REGIME = "3"
@@ -42,7 +43,7 @@ module DfeRb
         810101003 220101003 220101004 220101002 220101001 220101005 220101006 560101001].freeze
       DIFAL_EXEMPT_ICMS = %w[40 41 103 300 400].freeze
       CFOP_TITLE_LENGTH = 60
-      # xJust of a note in contingency (B29).
+      # Length of the xJust of a note in contingency (B29).
       CONTINGENCY_REASON_LENGTH = (15..256)
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
@@ -129,8 +130,8 @@ module DfeRb
         end
       end
 
-      # The emission type and what a note in contingency must say (RVs B22 and B28): since
-      # when and why, and the SVC of its own state.
+      # Checks tpEmis and what a note in contingency must say (RVs B22 and B28): since when
+      # and why, and the SVC of its own state.
       def check_contingency
         emission = @ide["tpEmis"].to_s
         since, reason = @ide["dhCont"], @ide["xJust"]
@@ -391,9 +392,9 @@ module DfeRb
           "the sum of the values that make it up", 1105)
       end
 
-      # Per sphere: its tags and the rejections for the amount, the effective rate, the rate
-      # under regular taxation, and gDif missing where the CST requires it or given where it
-      # doesn't allow it.
+      # One row per sphere: its group, rate and amount tags, and the rejection codes for the
+      # amount, the effective rate, the rate under regular taxation, and gDif missing where
+      # the CST requires it or given where it doesn't allow it.
       IBS_CBS_SPHERES = [
         ["gIBSUF", "pIBSUF", "vIBSUF", {amount: 1041, effective: 1035, rate: 1026, deferral: 1030, no_deferral: 1029}],
         ["gIBSMun", "pIBSMun", "vIBSMun", {amount: 1052, effective: 1035, rate: 1036, deferral: 1044, no_deferral: 1083}],
@@ -511,10 +512,10 @@ module DfeRb
         check_amount("cobr/dup", Totals.sum(installments) { |dup| dup["vDup"] }, net, "the invoice net amount (fat/vLiq)")
       end
 
-      # Every item of a regime normal issuer carries IBS/CBS (RV UB12-10): a rejection in
-      # homologação, the law alone in production. Devolução (finNFe 4) is exempt; so is a
-      # complementar note referencing one issued before 2027, which can't be told from here,
-      # so finNFe 2 is left to SEFAZ.
+      # Every item of a regime normal issuer must carry IBS/CBS (RV UB12-10). It is a rejection
+      # in homologação and only the law's requirement in production. A devolução (finNFe 4) is
+      # exempt, and so is a complementar note that references a note issued before 2027. The
+      # gem can't tell that case apart, so it skips finNFe 2 and leaves it to SEFAZ.
       def check_ibs_cbs
         return if %w[2 4].include?(@ide["finNFe"].to_s)
         return unless @inf.dig("emit", "CRT").to_s == NORMAL_REGIME
@@ -550,8 +551,8 @@ module DfeRb
         nil
       end
 
-      # Compares a given amount with the expected one rounded as the XML would show it; with
-      # no expected value (one the gem can't compute) there is nothing to compare.
+      # Compares a given amount with the expected one, rounded as the XML would show it.
+      # Skips the check when there is no expected value (one the gem can't compute).
       def check_amount(path, given, expected, description, rejection = nil)
         return if given.nil? || expected.nil?
 

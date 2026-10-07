@@ -2,7 +2,7 @@ module DfeRb
   module Nfe
     # Writes a tree of values as compact NF-e XML (no whitespace between tags, as SEFAZ
     # requires), following the schema's element order. The tree is nested Hashes keyed by XML
-    # tag; repeatable elements hold Arrays; attributes are keys starting with "@".
+    # tag. Repeatable elements hold Arrays, and attributes are keys starting with "@".
     #
     # Problems with individual values (bad decimal, too long text...) are collected in #issues
     # instead of aborting, so a caller can report all of them at once.

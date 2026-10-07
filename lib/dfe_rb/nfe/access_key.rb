@@ -59,7 +59,7 @@ module DfeRb
 
       def state = States::CODES.key(state_code.to_i)
 
-      # First day of the emission month.
+      # Emission year and month, as the key's AAMM digits.
       def year_month = value[2, 4]
 
       def tax_id = value[6, 14]

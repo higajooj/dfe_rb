@@ -46,9 +46,10 @@ module DfeRb
         end
       end
 
-      # Portable signed event. Metadata is always derived from XML, never trusted from a
-      # caller-provided key/type. Restoration verifies structure; submission verifies identity
-      # and signature too. Persist xml before sending a request that may reach SEFAZ.
+      # A signed event that can be stored and restored. Its metadata is always read from the
+      # XML, never taken from a caller-provided key or type. Restoring it verifies the
+      # structure. Submitting it also verifies identity and signature. Persist `xml` before
+      # sending a request that may reach SEFAZ.
       class SignedManifestation
         attr_reader :xml, :key, :type, :sequence, :tax_id, :environment, :occurred_at, :id
 

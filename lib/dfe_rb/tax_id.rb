@@ -1,7 +1,7 @@
 module DfeRb
-  # CNPJ (numeric or alphanumeric, IN RFB 2229/24) and CPF: normalising and check digits.
-  # Alphanumeric characters count as their ASCII code minus 48 (A = 17 ... Z = 42), which is
-  # also how digits count, so one algorithm covers both kinds of CNPJ.
+  # Normalizes CNPJ (numeric or alphanumeric, IN RFB 2229/24) and CPF values and validates
+  # their check digits. Alphanumeric characters count as their ASCII code minus 48 (A = 17
+  # ... Z = 42), which is also how digits count, so one algorithm covers both kinds of CNPJ.
   module TaxId
     CNPJ_FORMAT = /\A[0-9A-Z]{12}[0-9]{2}\z/
     CPF_FORMAT = /\A[0-9]{11}\z/

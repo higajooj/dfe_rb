@@ -41,8 +41,9 @@ module DfeRb
 
       def denied?(code) = DENIED.include?(code.to_i)
 
-      # Codes meaning "this number/key was already used by an earlier request": the answer to
-      # a retry after a lost response. Resolved by asking SEFAZ about the key.
+      # Codes meaning "this number/key was already used by an earlier request", which is the
+      # answer to a retry after a lost response. The client resolves them by asking SEFAZ
+      # about the key.
       def duplicate?(code) = [DUPLICATE, DUPLICATE_DIFFERENT_KEY].include?(code.to_i)
 
       def consumption_blocked?(code) = code.to_i == CONSUMPTION_BLOCKED

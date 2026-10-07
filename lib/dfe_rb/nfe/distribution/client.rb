@@ -59,8 +59,9 @@ module DfeRb
           raise ValidationError, ["invalid manifestation XML: #{e.message}"]
         end
 
-        # Keys use the supplied type/details. Prepared events retain their exact signed XML;
-        # arrays may mix types using prepared events. An array always returns an array.
+        # Takes access keys or prepared events. A key is built with the given type and details.
+        # A prepared event keeps its exact signed XML. An array may mix types, but only through
+        # prepared events, and an array input always returns an array.
         def manifest(input, type: nil, sequence: nil, reason: nil, at: nil, lot_id: nil)
           check_identity!
           many = input.is_a?(Array)
@@ -94,7 +95,7 @@ module DfeRb
 
         def endpoint(service) = Endpoints.resolve(service: service, environment: environment, overrides: @endpoints)
 
-        # Escape hatch for callers who need to inspect the unparsed national-service answer.
+        # Sends `xml` to a national service as is and returns the unparsed answer.
         def raw(service, xml)
           check_identity!
           transport.post(endpoint(service), xml)
@@ -127,7 +128,7 @@ module DfeRb
         end
 
         def check_event!(event)
-          # Re-read stored bytes rather than trusting caller metadata or an earlier verification.
+          # Re-reads the stored bytes instead of trusting caller metadata or an earlier verification.
           checked = SignedManifestation.new(xml: event.xml)
           unless checked.tax_id == tax_id && checked.environment == environment
             raise ValidationError, ["manifestation author/environment differs from this client"]

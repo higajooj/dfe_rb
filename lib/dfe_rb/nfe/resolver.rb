@@ -6,7 +6,7 @@ require "time"
 
 module DfeRb
   module Nfe
-    # Completes an invoice: fills the defaults a developer shouldn't have to spell out and
+    # Completes an invoice. It fills the defaults a developer shouldn't have to spell out and
     # derives what follows from other fields (access key, destination indicator, totals...).
     # Anything the developer set explicitly is kept.
     class Resolver
@@ -19,8 +19,8 @@ module DfeRb
       # tPag 90 (sem pagamento) and 91 (pagamento posterior) carry vPag 0.00 (RV YA03-30).
       DEFERRED_PAYMENT_KINDS = Tables::DEFERRED_PAYMENTS
 
-      # Values that must stay the same across resolves of one invoice (a retry must never
-      # produce another cNF or emission time). Held by the Invoice.
+      # The cNF and emission time, which must stay the same across resolves of one invoice so
+      # that a retry never produces another. Held by the Invoice.
       Memo = Struct.new(:numeric_code, :issued_at)
 
       # Problems that stopped a field from being derived (the access key needs a valid
@@ -124,8 +124,8 @@ module DfeRb
         ide["cNF"] ||= (@memo.numeric_code ||= AccessKey.generate_numeric_code(number: ide["nNF"]))
       end
 
-      # Every item has a full CFOP of entry (1xxx, 2xxx, 3xxx). A 3-digit CFOP takes its
-      # first digit from tpNF, so it can't decide it.
+      # True when every item has a full entry CFOP (1xxx, 2xxx, 3xxx). A 3-digit CFOP takes
+      # its first digit from tpNF, so it can't decide tpNF.
       def entry_cfops?(det)
         det.any? && det.all? { |item| Tables.cfop(item.dig("prod", "CFOP").to_s[/\A\d{4}\z/])&.entry? }
       end
@@ -183,7 +183,8 @@ module DfeRb
           prod["vProd"] ||= Totals.money(Totals.number(prod["qCom"]) * Totals.number(prod["vUnCom"]))
           prod["CFOP"] = cfop(prod["CFOP"], ide) if prod["CFOP"]
         end
-        # Before the taxes: freight, insurance, other expenses and the discount are part of their bases.
+        # Spread before the taxes are computed, since freight, insurance, other expenses and the
+        # discount are part of their bases.
         Apportion.apply(det, inf.delete(Apportion::KEY) || {})
         det.each do |item|
           Calculator.call(item, context)
@@ -226,8 +227,9 @@ module DfeRb
         payment(inf)
       end
 
-      # fat/vOrig defaults to the invoice total and vLiq to vOrig less the discount; a single
-      # installment defaults to the net amount; installments are numbered 001, 002... in order.
+      # fat/vOrig defaults to the invoice total and vLiq to vOrig less the discount. A single
+      # installment defaults to the net amount, and installments are numbered 001, 002... in
+      # order.
       def billing(inf)
         cobr = inf["cobr"] or return
         fat = cobr["fat"]
@@ -265,7 +267,7 @@ module DfeRb
         inf["@versao"] = "4.00"
       end
 
-      # The key has fixed-width positions: values that don't fit are reported instead of
+      # The key has fixed-width positions, so values that don't fit are reported instead of
       # producing a malformed key.
       def key_parts_valid?(ide, issued_at)
         problems = []

@@ -43,8 +43,8 @@ module DfeRb
 
       def signed? = !@root.at_xpath("ds:Signature", Signature::NAMESPACES).nil?
 
-      # infNFe as the tag-keyed Hash the Validator reads, following the schema: repeatable
-      # elements become Arrays, attributes "@name" keys, values text.
+      # infNFe as the tag-keyed Hash the Validator reads, following the schema. Repeatable
+      # elements become Arrays, attributes become "@name" keys and values are text.
       def to_infnfe
         info ? read(info, Schema.nfe.find("infNFe")) : {}
       end

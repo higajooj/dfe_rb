@@ -29,11 +29,11 @@ module DfeRb
         non_cumulative: {pis: "1.65", cofins: "7.60"}
       }.freeze
 
-      # Simples Nacional, LC 123/2006 as amended by LC 155/2016: per bracket of the gross
-      # revenue of the last 12 months (RBT12), [its ceiling, the nominal rate in percent, the
-      # amount to deduct, the ICMS share of the collection in percent]. Anexo I is commerce,
-      # Anexo II industry. The last bracket is above the ICMS sublimit: its ICMS is paid
-      # outside the Simples and gives no credit.
+      # Simples Nacional brackets (LC 123/2006 as amended by LC 155/2016), by gross revenue of
+      # the last 12 months (RBT12). Each row is [ceiling, nominal rate in percent, amount to
+      # deduct, ICMS share of the collection in percent]. Anexo I is commerce, Anexo II
+      # industry. The last bracket is above the ICMS sublimit, so its ICMS is paid outside the
+      # Simples and gives no credit.
       SIMPLES = {
         commerce: [
           [180_000, "4.00", 0, "34.00"], [360_000, "7.30", 5_940, "34.00"], [720_000, "9.50", 13_860, "33.50"],
@@ -54,11 +54,12 @@ module DfeRb
       end
 
       # pCredSN: the ICMS credit rate (percent, 2 places) a Simples Nacional company passes on
-      # with CSOSN 101, 201 or 900 (LC 123/2006, art. 23): the effective rate of its bracket,
-      # (RBT12 x nominal rate - deduction) / RBT12, times the ICMS share. `revenue_12m` is the
-      # RBT12 of the month before the operation; `annex` is :commerce (Anexo I) or :industry
-      # (Anexo II). Nil without revenue or above the sublimit. A state that reduces or exempts
-      # the ICMS of the Simples changes the credit: that is state law, and yours to apply.
+      # with CSOSN 101, 201 or 900 (LC 123/2006, art. 23). It is the effective rate of the
+      # company's bracket, (RBT12 x nominal rate - deduction) / RBT12, times the ICMS share.
+      # `revenue_12m` is the RBT12 of the month before the operation; `annex` is :commerce
+      # (Anexo I) or :industry (Anexo II). Returns nil without revenue or above the sublimit.
+      # A state that reduces or exempts the ICMS of the Simples changes the credit. That is
+      # state law, and yours to apply.
       def simples_icms_credit(revenue_12m:, annex: :commerce)
         brackets = SIMPLES[annex&.to_sym] or raise ArgumentError, "unknown annex #{annex.inspect} (use #{SIMPLES.keys.join(", ")})"
         revenue = BigDecimal(revenue_12m.to_s)
@@ -92,10 +93,10 @@ module DfeRb
         (IBS_CBS[year] || {}).transform_values { |rate| rate && BigDecimal(rate) }
       end
 
-      # The ST margin (MVA, percent) adjusted for an interstate ICMS rate below the
+      # The ST margin (MVA, percent) adjusted when the interstate ICMS rate is below the
       # destination's internal one (Conv. ICMS 142/2018, cl. 11):
-      # [(1 + MVA) x (1 - interstate) / (1 - internal)] - 1, 2 places. The original MVA holds
-      # otherwise. The MVA and the internal rate are state law, so both are given.
+      # [(1 + MVA) x (1 - interstate) / (1 - internal)] - 1, to 2 places. Otherwise the
+      # original MVA stands. The MVA and the internal rate are state law, so you give both.
       def adjusted_mva(mva, interstate:, internal:)
         mva, internal = [mva, internal].map { |value| BigDecimal(value.to_s) }
         return mva if interstate.nil?

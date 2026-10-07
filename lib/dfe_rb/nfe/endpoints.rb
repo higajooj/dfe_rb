@@ -4,7 +4,7 @@ module DfeRb
     #
     # URLs come from the SEFAZ Virtual RS "Relação de Serviços Web" portal
     # (dfe-portal.svrs.rs.gov.br/Nfe/Servicos). Every URL can be overridden per client with
-    # `endpoints:`, so a moved URL never blocks anybody.
+    # `endpoints:`, so a moved URL doesn't block you.
     module Endpoints
       # request_wrapper: an element some services want around <nfeDadosMsg>. answer: the root
       # element of the answer, for services whose SOAP body isn't the usual <nfeResultMsg>.
@@ -87,7 +87,8 @@ module DfeRb
       CONTINGENCY_SERVICE_KEYS = (SERVICE_KEYS - [:inutilization]).freeze
 
       # Consulta cadastro (NfeConsultaCadastro, MOC 5.6) is offered by the consulted state, or
-      # by the SVRS for REGISTRY_SVRS; the other states offer none. [production, homologação]
+      # by the SVRS for the states in REGISTRY_SVRS. The others offer none. Each row is
+      # [production, homologação].
       REGISTRY = {name: "CadConsultaCadastro4", operation: "consultaCadastro"}.freeze
       REGISTRY_URLS = {
         "AM" => ["https://nfe.sefaz.am.gov.br/services2/services/CadConsultaCadastro4", "https://homnfe.sefaz.am.gov.br/services2/services/CadConsultaCadastro4"],

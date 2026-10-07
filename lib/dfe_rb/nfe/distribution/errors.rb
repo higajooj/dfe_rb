@@ -1,7 +1,7 @@
 module DfeRb
   module Nfe
     module Distribution
-      # An unusable answer, never an ordinary SEFAZ rejection. Keep the raw response so a
+      # An unusable answer, not an ordinary SEFAZ rejection. It keeps the raw response, so a
       # consumer can diagnose corruption without discarding it or advancing its cursor.
       class InvalidResponse < TransportError
         attr_reader :response_xml, :schema, :nsu

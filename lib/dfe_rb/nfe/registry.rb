@@ -25,7 +25,6 @@ module DfeRb
       def found? = StatusCodes::TAXPAYER_FOUND.include?(code)
     end
 
-    # Reads <retConsCad>.
     module Registry
       ADDRESS = {
         street: "xLgr", number: "nro", complement: "xCpl", district: "xBairro", city_code: "cMun", city: "xMun", zip: "CEP"

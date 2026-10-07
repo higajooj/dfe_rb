@@ -1,6 +1,6 @@
 module DfeRb
   module Nfe
-    # The XML each web service takes. Values are escaped; the signed documents (NFe, evento,
+    # The XML each web service takes. Values are escaped. The signed documents (NFe, evento,
     # inutNFe) are inserted untouched.
     module Requests
       NS = Signature::NFE
@@ -20,8 +20,8 @@ module DfeRb
           %(<cUF>#{States.code(state)}</cUF><xServ>STATUS</xServ></consStatServ>)
       end
 
-      # `signed` are signed <NFe> strings. A single-note lot is synchronous (mandatory since
-      # 13/10/2025); larger lots are processed asynchronously and return a receipt.
+      # `signed` holds the signed <NFe> strings. A single-note lot is synchronous (mandatory
+      # since 13/10/2025). Larger lots are processed asynchronously and return a receipt.
       def authorization(signed, lot_id:, sync:)
         %(<enviNFe xmlns="#{NS}" versao="4.00"><idLote>#{lot_id}</idLote><indSinc>#{sync ? 1 : 0}</indSinc>#{signed.join}</enviNFe>)
       end

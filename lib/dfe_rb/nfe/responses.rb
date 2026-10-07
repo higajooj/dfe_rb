@@ -17,7 +17,7 @@ module DfeRb
 
       def root_name = @plain.root&.name
 
-      # Text of the first element matching the CSS/XPath-free tag path, e.g. "infProt/cStat".
+      # Text of the first element at a tag path such as "infProt/cStat" (no CSS or XPath syntax).
       def text(path, from: @plain)
         from.at_xpath("//" + path.split("/").join("/"))&.text&.strip
       end
@@ -57,8 +57,9 @@ module DfeRb
       end
     end
 
-    # nfeProc, procEventoNFe and ProcInutNFe: the signed document plus SEFAZ's answer, the
-    # files to archive and send to the recipient. The signed document goes in untouched.
+    # Builds nfeProc, procEventoNFe and ProcInutNFe: the signed document plus SEFAZ's answer,
+    # which are the files to archive and send to the recipient. The signed document goes in
+    # untouched.
     module Proc
       DECLARATION = %(<?xml version="1.0" encoding="UTF-8"?>).freeze
 

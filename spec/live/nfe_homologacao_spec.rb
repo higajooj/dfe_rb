@@ -2,18 +2,21 @@
 #
 #   DFE_RB_LIVE=1 bundle exec rspec spec/live
 #
-# The certificate comes from DFE_RB_PFX / DFE_RB_PFX_PASSWORD (or _FILE), falling back to the
-# git-ignored notes/cert/cert.pfx + password.txt. Nothing here touches production.
+# The certificate comes from DFE_RB_PFX and DFE_RB_PFX_PASSWORD (or DFE_RB_PFX_PASSWORD_FILE),
+# falling back to the git-ignored notes/cert/cert.pfx and password.txt. Nothing here touches
+# production.
 #
-# The "protocol" examples only need a valid certificate: they check that SEFAZ understands what
-# the gem sends (SOAP contract, signatures, schema) by looking at the answers. The "lifecycle"
-# example needs an issuer registered at the state (DFE_RB_LIVE_UF, DFE_RB_LIVE_IE and an address
-# through DFE_RB_LIVE_CITY_CODE / _CITY / _ZIP / _STREET / _STREET_NUMBER / _DISTRICT); it is skipped otherwise.
-# DFE_RB_LIVE_REGIME=normal switches the item to ICMS 00 plus IBS/CBS (required in homologacao).
-# DFE_RB_LIVE_ICMS_RATE is the internal ICMS rate of the issuer's state (default 17.00, MS).
+# The "protocol" examples need only a valid certificate. They check from SEFAZ's answers that
+# it understands what the gem sends (SOAP contract, signatures, schema).
+#
+# The "lifecycle" example needs an issuer registered at the state, and is skipped without one:
+#   DFE_RB_LIVE_UF and DFE_RB_LIVE_IE
+#   DFE_RB_LIVE_CITY_CODE, _CITY, _ZIP, _STREET, _STREET_NUMBER and _DISTRICT for its address
+#   DFE_RB_LIVE_REGIME=normal switches the item to ICMS 00 plus IBS/CBS (required in homologacao)
+#   DFE_RB_LIVE_ICMS_RATE is the internal ICMS rate of the issuer's state (default 17.00, MS)
 #
 # These checks show that SEFAZ accepts what the gem sends and derives. They don't show that
-# the tax inputs are right for a product in a given state: that is state law, and SEFAZ
+# the tax inputs are right for a product in a given state. That is state law, and SEFAZ
 # authorizes a wrong internal rate all the same.
 RSpec.describe "NF-e against SEFAZ homologacao", live: true do
   def self.certificate

@@ -1,8 +1,9 @@
 module DfeRb
   module Nfe
     module Distribution
-      # Namespace-aware, strict readers shared by responses, documents and restored events.
-      # No entity expansion, DTDs, external resources or schema names from a response.
+      # Strict, namespace-aware readers shared by responses, documents and restored events.
+      # They never expand entities or read DTDs, external resources or schema names from a
+      # response.
       module Xml
         NS = Signature::NAMESPACES
 

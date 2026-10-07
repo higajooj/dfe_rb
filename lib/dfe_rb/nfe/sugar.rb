@@ -1,8 +1,8 @@
 module DfeRb
   module Nfe
-    # Builder conveniences that don't map 1:1 to a schema child: the tax helpers pick the right
+    # Builder conveniences that don't map 1:1 to a schema child. The tax helpers pick the right
     # XML group from the CST/CSOSN (`icms cst: "00"` becomes <ICMS00>), and `tax_id` picks
-    # CNPJ or CPF. Everything else about these groups stays reachable by name.
+    # CNPJ or CPF. Every other field of these groups stays reachable by name.
     module Sugar
       ICMS_BY_CST = {
         "00" => "ICMS00", "02" => "ICMS02", "10" => "ICMS10", "15" => "ICMS15", "20" => "ICMS20", "30" => "ICMS30",

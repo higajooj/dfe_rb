@@ -1,7 +1,7 @@
 module DfeRb
   module Nfe
     module Distribution
-      # All-or-nothing decoding. A malformed document must not look like a consumed batch.
+      # Decodes all or nothing, since a malformed document must not look like a consumed batch.
       class DistributionResponse
         def initialize(xml, max_document_bytes:)
           @xml = xml

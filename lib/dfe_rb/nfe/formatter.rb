@@ -7,7 +7,7 @@ module DfeRb
     # decimals with the right number of places, ISO dates with a whole-hour UTC offset,
     # digit codes with their leading zeros, text without characters SEFAZ rejects.
     module Formatter
-      # Raised for a value that cannot be written for its element; the writer collects these
+      # Raised for a value that cannot be written for its element. The writer collects these
       # as validation issues instead of failing on the first.
       class Invalid < StandardError; end
 
@@ -61,9 +61,9 @@ module DfeRb
       PUNCTUATION = /[.\-\/\s()]/
       CODE_PATTERN = /\A(?:\[[0-9A-Z,-]+\]|\{\d+(?:,\d+)?\}|[|()]|[A-Z]+)+\z/
 
-      # Accepts formatted codes ("11.222.333/0001-81", "01001-000", "8471.30.12"): when `value`
+      # Accepts formatted codes ("11.222.333/0001-81", "01001-000", "8471.30.12"). When `value`
       # doesn't fit the element's pattern but does once punctuation is gone (and letters are
-      # upcased), the cleaned value is used. Anything else is returned untouched.
+      # upcased), it returns the cleaned value. Anything else comes back untouched.
       def forgive(value, element)
         type = element.type
         return value unless value.is_a?(String) && type && !type.patterns.empty? && !decimal_type?(type) && code_like?(type)
@@ -73,8 +73,9 @@ module DfeRb
         [cleaned, cleaned.upcase].find { |candidate| regexes(type).any? { |regex| regex.match?(candidate) } } || value
       end
 
-      # NFC, control characters and line breaks to single spaces, no surrounding spaces:
-      # TString forbids leading/trailing spaces and any character below U+0020.
+      # Normalizes to NFC, turns control characters and line breaks into single spaces and
+      # strips surrounding spaces, since TString forbids leading and trailing spaces and any
+      # character below U+0020.
       def sanitize(value)
         text = value.to_s
         text = text.dup.force_encoding(Encoding::UTF_8) if text.encoding == Encoding::BINARY
@@ -128,7 +129,7 @@ module DfeRb
         end
       end
 
-      # Cached by pattern: inline types all carry their base type's name.
+      # Cached by pattern, since inline types all carry their base type's name.
       def regexes(type)
         @regexes ||= {}
         @regexes[type.patterns] ||= type.patterns.map { |pattern| Regexp.new("\\A(?:#{pattern})\\z") }

@@ -2,7 +2,7 @@
 
 ## 0.8.2
 
-- IBS/CBS follows the schedule NT 2025.002 v1.51 left: the dates of the production rejection (03/08/2026 for regime normal, 04/01/2027 for the Simples Nacional and the MEI) were struck out of RV UB12-10, which is now "implementação futura" there. A regime normal note without the group is still flagged in production, from 01/01/2026, as the law's requirement and no longer as rejection 1115; homologação keeps its rejection since 01/07/2026. Nothing is asked of the Simples Nacional and the MEI, whose rules an NT is still to bring. `Validator::IBS_CBS_SINCE` replaces `IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE`.
+- IBS/CBS follows the schedule NT 2025.002 v1.51 left. The NT struck the dates of the production rejection (03/08/2026 for regime normal, 04/01/2027 for the Simples Nacional and the MEI) out of RV UB12-10, which is now "implementação futura" there. A regime normal note without the group is still flagged in production from 01/01/2026, as the law's requirement and no longer as rejection 1115. Homologação keeps its rejection since 01/07/2026. Nothing is asked of the Simples Nacional and the MEI, whose rules an NT has yet to bring. `Validator::IBS_CBS_SINCE` replaces `IBS_CBS_NORMAL_SINCE` and `IBS_CBS_SIMPLES_SINCE`.
 
 ## 0.8.1
 
@@ -87,7 +87,7 @@
 ## 0.3.0
 
 - Replace the distribution/awareness PoC with `DfeRb::Nfe::Distribution::Client`: sequential distribution, targeted NSU/key queries, and all four explicit recipient manifestation types. Defaults to homologação and the certificate's identity; accepts CPF and numeric/alphanumeric CNPJ, branch identities, national endpoint overrides, and the shared injectable transport.
-- Immutable distribution results with cursor/cooldown guidance and typed document metadata. Exact decoded XML is preserved for summaries, complete invoices, arbitrary distributed events, historic layouts, and unknown document types. Strict, bounded Base64/Gzip/XML decoding raises contextual `InvalidResponse` rather than silently losing a document.
+- Immutable distribution results with cursor/cooldown guidance and typed document metadata. The exact decoded XML is kept for summaries, complete invoices, arbitrary distributed events, historic layouts, and unknown document types. Strict, bounded Base64/Gzip/XML decoding raises contextual `InvalidResponse` rather than silently losing a document.
 - Portable `SignedManifestation` objects with restoration, local validation and signature/author verification; batches of up to 20 events, matched responses in input order, sequence 2 for conclusive types, typed registration/duplicate/rejection results, and archival `procEventoNFe`.
 - Add the national distribution SOAP wrapper/result contract to `DfeRb::Transport`, bundle current distribution and generic event schemas, and add opt-in homologação contract checks.
 - **Breaking:** remove `DfeRb::Dfe`, `DfeRb::Manifest`, their sample SOAP templates, Savon and its logging configuration helpers. Applications own cursor persistence, scheduling, cross-process quota coordination, and explicit manifestation decisions; no automatic queries or manifestations are added.

@@ -32,7 +32,6 @@ module DfeRb
         yield scope if block_given?
       end
 
-      # The builder scope for the whole invoice.
       def scope = Scope.new(Schema.nfe.find("infNFe"), @infnfe)
 
       # The tag-keyed values with defaults and derived fields filled in.
@@ -45,9 +44,8 @@ module DfeRb
         AccessKey.parse(id.delete_prefix("NFe"))
       end
 
-      # The unsigned <NFe> XML. Raises ValidationError when the invoice has problems; with
-      # `strict: false` the business rules are skipped and only formatting and the schema are
-      # enforced.
+      # The unsigned <NFe> XML. Raises ValidationError when the invoice has problems.
+      # `strict: false` skips the business rules and enforces only formatting and the schema.
       def to_xml(strict: true)
         xml, found = render(strict: strict)
         raise ValidationError, found unless found.empty?

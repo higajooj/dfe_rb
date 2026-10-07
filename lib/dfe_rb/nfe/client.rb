@@ -40,8 +40,9 @@ module DfeRb
         Invoice.new(attributes, environment: environment, clock: @clock, technical_contact: @technical_contact, **fields, &block)
       end
 
-      # Is the authorizer up? (cStat 107) With `contingency`, the state's SVC is asked instead:
-      # it is online only while the state's SEFAZ has it activated (113 and 114 otherwise).
+      # Asks whether the authorizer is up (cStat 107). With `contingency: true` it asks the
+      # state's SVC, which is online only while the state's SEFAZ has it activated (113 and 114
+      # otherwise).
       def status(uf: self.uf, contingency: false)
         response = Response.new(call(:status, Requests.status(state: uf, environment: environment), uf: uf, contingency: contingency))
         StatusResult.new(code: response.code, message: response.message, state_code: response.text("cUF"),
@@ -49,16 +50,15 @@ module DfeRb
       end
 
       # Validates and signs an Invoice, or raw <NFe> XML (signed or not). Returns a
-      # SignedInvoice whose `xml` must be stored before it is sent, so a lost answer can be
-      # resolved later.
+      # SignedInvoice. Store its `xml` before sending, so a lost answer can be resolved later.
       #
-      # Raw XML goes through the same schema and business-rule checks as an Invoice. A
-      # SignedInvoice (or one restored from storage) is not validated again, but like any
-      # input it must be for this client's environment, belong to the certificate's company
-      # and carry a signature that verifies.
+      # Raw XML gets the same schema and business-rule checks as an Invoice. A SignedInvoice
+      # (or one restored from storage) isn't validated again, but like any input it must be
+      # for this client's environment, belong to the certificate's company and carry a
+      # signature that verifies.
       #
-      # With `strict: false` the local business-rule checks are skipped (the schema and value
-      # formats are always enforced).
+      # `strict: false` skips the business-rule checks. The schema and value formats are
+      # always enforced.
       def sign(input, strict: true)
         document = case input
         when Invoice then Document.new(input.to_xml(strict: strict))
@@ -76,19 +76,19 @@ module DfeRb
         (result == input) ? input : result
       end
 
-      # Sends one NF-e (synchronously) or up to 50 (as an asynchronous lot). Accepts Invoices,
+      # Sends one NF-e synchronously, or up to 50 as an asynchronous lot. Accepts Invoices,
       # SignedInvoices or raw XML. Returns an AuthorizationResult, or an Array of them when
       # given an Array.
       #
-      # If the answer is lost (timeout...) or SEFAZ reports the key as a duplicate, the key is
-      # looked up and, when the stored note is this same document, its protocol is returned
-      # (result.recovered? is true) instead of an error.
+      # When the answer is lost (a timeout, say) or SEFAZ reports the key as a duplicate, it
+      # looks the key up. If the stored note is this same document, it returns that note's
+      # protocol (`result.recovered?` is true) instead of raising.
       #
-      # A lot whose processing couldn't be awaited (polling timed out or failed) comes back
-      # as pending results carrying the receipt: finish it with #resume.
+      # If polling a lot times out or fails, the results come back pending and carry the
+      # receipt. Finish them with #resume.
       #
-      # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so does
-      # everything asked about them afterwards (#resume, #consult, #cancel).
+      # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so do
+      # #resume, #consult and #cancel for them.
       def authorize(input, lot_id: nil, recover: true, polling: {}, strict: true)
         many = input.is_a?(Array)
         signed = Array(input).map { |item| sign(item, strict: strict) }
@@ -99,8 +99,8 @@ module DfeRb
         many ? results : results.first
       end
 
-      # Collects the answer to an asynchronous lot SEFAZ already accepted (cStat 103), given
-      # its receipt and the notes sent in it: SignedInvoices, or the pending
+      # Collects the answer to an asynchronous lot SEFAZ already accepted (cStat 103). Takes
+      # the receipt and the notes sent in the lot, as SignedInvoices or as the pending
       # AuthorizationResults #authorize returned. Returns results as #authorize does.
       def resume(receipt, notes, recover: true, polling: {})
         many = notes.is_a?(Array)
@@ -128,8 +128,8 @@ module DfeRb
         outcome
       end
 
-      # Where a key stands at SEFAZ. Routed to the key's own state, or to its SVC for a key
-      # issued there; `via: :home` or `:contingency` asks the other one.
+      # Where a key stands at SEFAZ. Asks the key's own state, or its SVC for a key issued
+      # there. `via: :home` or `via: :contingency` picks the authorizer yourself.
       def consult(key, via: nil)
         key = AccessKey.parse(key.to_s)
         response = Response.new(call(:consult, Requests.consult(key: key, environment: environment), uf: key.state,
@@ -157,8 +157,8 @@ module DfeRb
       end
 
       # Corrects an authorized note (Carta de Correção, evento 110110). A new correction
-      # replaces the previous one; `sequence` counts them (1..20). Always registered at the
-      # state's own authorizer, since the SVC takes no CC-e, unless `via: :contingency`.
+      # replaces the previous one; `sequence` counts them (1..20). It goes to the state's own
+      # authorizer, since the SVC takes no CC-e, unless you pass `via: :contingency`.
       def correct(key, text:, sequence: 1, via: :home)
         key = AccessKey.parse(key.to_s)
         raise ArgumentError, "sequence must be between 1 and 20" unless (1..20).cover?(sequence)
@@ -181,9 +181,9 @@ module DfeRb
           request_xml: signed, return_xml: response.fragment("retInutNFe"), xml: response.xml)
       end
 
-      # Sends `xml` to a service as is and returns the answer's XML: the escape hatch for
-      # anything the client doesn't wrap. service: :status, :authorization,
-      # :authorization_return, :consult, :inutilization or :event.
+      # Sends `xml` to a service as is and returns the answer's XML. Use it for anything the
+      # client doesn't wrap. `service` is :status, :authorization, :authorization_return,
+      # :consult, :inutilization or :event.
       def raw(service, xml, uf: self.uf, contingency: false)
         call(service, xml, uf: uf, contingency: contingency)
       end
@@ -192,10 +192,10 @@ module DfeRb
         Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints, contingency: contingency)
       end
 
-      # Registers the Evento Prévio de Emissão em Contingência (110140) of a note issued with
-      # `contingency :epec` (tpEmis 4), at the Ambiente Nacional: once registered, the DANFE
-      # can be printed and the note travels, and the same signed note must be sent with
-      # #authorize when the state's SEFAZ is back. Takes what #sign takes, or the event
+      # Registers the Evento Prévio de Emissão em Contingência (110140) at the Ambiente
+      # Nacional, for a note issued with `contingency :epec` (tpEmis 4). Once it is registered,
+      # the DANFE can be printed and the note can travel. When the state's SEFAZ is back, send
+      # the same signed note with #authorize. Takes what #sign takes, or the event
       # #prepare_epec returned.
       def epec(input)
         event = input.is_a?(SignedEpec) ? input : prepare_epec(input)
@@ -205,8 +205,8 @@ module DfeRb
         register_event(key, Epec::TYPE, 1, event.xml, endpoint)
       end
 
-      # The signed EPEC of a note, to store before it is sent (an answer lost on the way is
-      # then resolved with the same event).
+      # The signed EPEC of a note. Store it before sending it, so an answer lost on the way
+      # can be resolved with the same event.
       def prepare_epec(input)
         note = sign(input)
         unsigned = Epec.build(Document.new(note.xml), environment: environment, clock: @clock)
@@ -214,8 +214,8 @@ module DfeRb
       end
 
       # The registrations of a taxpayer in a state's ICMS cadastro (NfeConsultaCadastro), by
-      # CNPJ, CPF or IE. `uf` is the state consulted, which answers itself (RV K01) for any
-      # NF-e issuer; states without the service raise Unsupported.
+      # CNPJ, CPF or IE. `uf` is the state consulted. It answers for its own taxpayers to any
+      # NF-e issuer (RV K01). States without the service raise Unsupported.
       def taxpayers(uf:, cnpj: nil, cpf: nil, ie: nil)
         state = States.abbreviation(uf)
         request = Requests.registry(state: state, cnpj: cnpj, cpf: cpf, ie: ie)
@@ -232,8 +232,8 @@ module DfeRb
         transport.post(endpoint(service, uf: uf, contingency: contingency), xml)
       end
 
-      # Whether what is asked about `key` goes to the SVC: by the key's own tpEmis (6 or 7),
-      # unless `via` says which authorizer.
+      # Whether a request about `key` goes to the SVC. It follows the key's tpEmis (6 or 7)
+      # unless `via` names the authorizer.
       def contingency?(key, via)
         case via
         when nil then States::SVC_EMISSION_TYPES.value?(AccessKey.parse(key.to_s).emission_type)
@@ -243,7 +243,7 @@ module DfeRb
         end
       end
 
-      # A lot goes to one authorizer: notes for the SVC can't share it with the others.
+      # A lot goes to one authorizer, so notes for the SVC can't share a lot with the others.
       def contingency_lot?(signed)
         kinds = signed.map { |note| contingency?(note.key, nil) }.uniq
         raise ArgumentError, "a lot can't mix notes issued for the SVC (tpEmis 6 or 7) with others" if kinds.size > 1
@@ -253,8 +253,8 @@ module DfeRb
 
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
 
-      # Schema and (unless strict: false) business rules for XML that didn't come from an
-      # Invoice.
+      # Checks the schema, and the business rules unless `strict: false`, for XML that didn't
+      # come from an Invoice.
       def validated(document, strict:)
         problems = Schemas.nfe_issues(document.xml)
         problems += Validator.new(document.to_infnfe).issues if strict && problems.empty?
@@ -302,8 +302,8 @@ module DfeRb
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
-          # A lookup that fails too leaves the first error standing: the note may have been
-          # processed, whatever the lookup's own failure says.
+          # If the lookup fails too, the first error stands. The note may have been processed,
+          # whatever the lookup's own failure says.
           return signed.map { |note| recovered_quietly(note, e) || raise(e) }
         end
 
@@ -315,9 +315,9 @@ module DfeRb
         signed.map { |note| result_for(note, lot, protocols, receipt, recover) }
       end
 
-      # Polls an accepted lot and maps its protocols to the notes. When polling fails the
-      # receipt is kept: each note is looked up by key (with `recover`) and whatever is still
-      # unknown comes back pending, to be finished with #resume.
+      # Polls an accepted lot and matches its protocols to the notes. If polling fails, each
+      # note is looked up by key (with `recover`) and the ones still unknown come back pending
+      # with the receipt, to finish with #resume.
       def collect_lot(signed, receipt, polling, recover)
         answer = begin
           wait_for_lot(receipt, polling, contingency_lot?(signed))
@@ -333,14 +333,14 @@ module DfeRb
         build_result(note, StatusCodes::BATCH_RECEIVED, "Lote recebido; resultado pendente (#{cause.message})", nil, receipt, nil)
       end
 
-      # #recovered, but a lookup that fails too just leaves the note pending.
+      # Like #recovered, but returns nil when the lookup fails too, which leaves the note pending.
       def recovered_quietly(note, cause)
         recovered(note, cause: cause)
       rescue TransportError
         nil
       end
 
-      # Polls the lot until SEFAZ has processed it (cStat 104) or `max_wait` seconds passed.
+      # Polls the lot until SEFAZ has processed it (cStat 104) or `max_wait` seconds have passed.
       def wait_for_lot(receipt, polling, contingency)
         @sleeper.call(polling[:wait])
         waited = polling[:wait]

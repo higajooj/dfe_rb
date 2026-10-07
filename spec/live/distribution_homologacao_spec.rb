@@ -1,5 +1,6 @@
-# Opt-in national-service checks. Run with DFE_RB_LIVE=1 and the certificate variables
-# documented in README. No production requests, polling, or automatic retries.
+# Opt-in checks against the national distribution service. Run them with DFE_RB_LIVE=1 and
+# the certificate variables the README documents. They send no production requests and never
+# poll or retry.
 RSpec.describe "NF-e distribution against SEFAZ homologacao", live: true do
   let(:certificate) do
     pfx = ENV["DFE_RB_PFX"] || File.expand_path("../../notes/cert/cert.pfx", __dir__)

@@ -41,8 +41,8 @@ module DfeRb
         def exit? = !entry?
         def scope = CFOP_SCOPES[code.to_i / 1000 % 4]
 
-        # Whether the code is in force on `date` (a Date, a Time or "yyyy-mm-dd"): from its
-        # start up to, not including, its end, the first day it is no longer accepted (IT 2023.002).
+        # Whether the code is in force on `date` (a Date, a Time or "yyyy-mm-dd"). The end date
+        # is the first day it is no longer accepted, so it is excluded (IT 2023.002).
         def valid_on?(date = Date.today)
           day = date.respond_to?(:strftime) ? date.strftime("%F") : date.to_s[0, 10]
           valid_from <= day && (valid_until.nil? || day < valid_until)
@@ -59,8 +59,8 @@ module DfeRb
       # One payment method (tPag): its title and the first day it is accepted, nil for the
       # codes the table started with.
       PaymentMethod = Struct.new(:code, :title, :valid_from) do
-        # Not paid at the issue, so its vPag is 0.00: 90 sem pagamento, 91 pagamento
-        # posterior (RV YA03-30).
+        # True for 90 (sem pagamento) and 91 (pagamento posterior), which aren't paid at issue,
+        # so their vPag is 0.00 (RV YA03-30).
         def deferred? = DEFERRED_PAYMENTS.include?(code)
 
         # Whether the code is accepted on `date` (a Date, a Time or "yyyy-mm-dd").
@@ -112,13 +112,11 @@ module DfeRb
         (ipi_index[[ncm, ex]] unless ex.empty?) || ipi_index[[ncm, nil]]
       end
 
-      # Every IpiRate, by NCM and EX.
       def ipi_rates = ipi_index.values
 
       # The PaymentMethod for a tPag ("17" or 17), or nil.
       def payment_method(code) = payment_index[code.to_s.rjust(2, "0")]
 
-      # Every PaymentMethod, by code.
       def payment_methods = payment_index.values
 
       # Card brand names by tBand: {"01" => "Visa", ...}.

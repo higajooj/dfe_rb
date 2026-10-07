@@ -3,7 +3,7 @@ require "did_you_mean"
 module DfeRb
   module Nfe
     # Maps the names a developer can use for the children of a schema element (English name,
-    # official tag, snake_case tag) to the child, following "flatten" links so the invoice
+    # official tag, snake_case tag) to the child. It follows "flatten" links, so the invoice
     # can be filled without spelling out every level (`number` lives in infNFe/ide).
     class NameIndex
       # Levels whose fields are reachable straight from their parent's scope.

@@ -18,10 +18,8 @@ module DfeRb
       # declaration, not reformatted, so its bytes are what the digest covers).
       def sign_nfe(xml, certificate) = sign(xml, certificate, container: "/nfe:NFe", signed: "infNFe")
 
-      # <inutNFe> signed on infInut.
       def sign_inutilization(xml, certificate) = sign(xml, certificate, container: "/nfe:inutNFe", signed: "infInut")
 
-      # A single <evento> signed on infEvento.
       def sign_event(xml, certificate) = sign(xml, certificate, container: "/nfe:evento", signed: "infEvento")
 
       def sign(xml, certificate, container:, signed:)
@@ -62,19 +60,18 @@ module DfeRb
         certificate.public_key.verify(OpenSSL::Digest.new("SHA1"), value, signed_info) ? true : "signature value mismatch"
       end
 
-      # The DigestValue of the signature in `xml`.
       def digest_value(xml)
         Nokogiri::XML(xml).at_xpath("//ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestValue", NAMESPACES)&.text&.strip
       end
     end
 
-    # A signed NF-e ready to send: keep `xml` (its exact bytes are what SEFAZ authorizes and
-    # what goes into the nfeProc) and store it before transmitting.
+    # A signed NF-e ready to send. Store `xml` before transmitting: its exact bytes are what
+    # SEFAZ authorizes and what goes into the nfeProc.
     SignedInvoice = Data.define(:xml, :key, :digest_value) do
       def to_s = xml
     end
 
-    # The signed EPEC event of the note `key`: store `xml` before sending it.
+    # The signed EPEC event of the note `key`. Store `xml` before sending it.
     SignedEpec = Data.define(:xml, :key) do
       def to_s = xml
     end
