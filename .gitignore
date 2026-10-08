@@ -9,3 +9,5 @@ Gemfile.lock
 /notes/
 *.pfx
 *.p12
+
+AGENTS.local.md
