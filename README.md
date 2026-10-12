@@ -8,8 +8,9 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Distribution** (`NFeDistribuicaoDFe`) and all four **recipient manifestations** through `DfeRb::Nfe::Distribution::Client`: typed metadata, exact decoded XML, cooldown advice and signed events ready to archive.
 - **Contingency**: the SEFAZ Virtuais de Contingência (SVC-AN, SVC-RS) and the EPEC.
 - **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
+- **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
 
-Not covered yet: NFC-e (modelo 65), off-line and paper contingency (`tpEmis` 9, FS-DA), other DF-e (CT-e, MDF-e, NFS-e).
+Not covered yet: NFC-e (modelo 65), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.7.0"
@@ -314,6 +315,111 @@ Manifestation results distinguish `:registered` (135, `linked?`), `:registered_u
 
 A transport failure keeps `maybe_processed?`. A lost manifestation answer may already have registered the event, so keep the signed XML and reconcile the outcome before resubmitting. The gem doesn't retry or look up the event itself, and a distribution query whose answer was lost may still have counted against SEFAZ's consumption controls.
 
+## MDF-e
+
+```ruby
+client = DfeRb::Mdfe::Client.new(certificate: certificate, uf: "SP")   # homologação unless told otherwise
+
+manifest = client.build_manifest do |mdfe|
+  mdfe.series 1
+  mdfe.number 10
+  mdfe.issuer_type :own_cargo            # or :carrier, :globalized_cte
+  mdfe.issuer tax_id: "12.345.678/0001-95", name: "ACME LTDA", state_registration: "111111111111",
+    address: {street: "Rua A", number: "100", district: "Centro", city_code: "3550308", zip: "01001-000"}
+
+  mdfe.load_at "Sao Paulo", "SP"         # or its IBGE code: load_at "3550308"
+  mdfe.route "MG"                        # the states crossed in between, in order
+  mdfe.unload_at "Goiania", "GO", nfe: ["3526...", "3526..."]
+
+  mdfe.road do |road|
+    road.vehicle plate: "ABC-1D23", tare: 9000, wheels: :truck, body: :closed, state: "SP" do |vehicle|
+      vehicle.driver "Fulano de Tal", "123.456.789-09"
+    end
+    road.trailer plate: "XYZ1234", tare: 7000, capacity_kg: 30_000, body: :open
+  end
+
+  mdfe.cargo value: "15000.00", weight: "1200.5"     # kg, or unit: :ton
+end
+
+manifest.issues                         # every problem found locally, as messages
+signed = client.sign(manifest)          # store signed.xml before sending
+result = client.authorize(signed)
+
+if result.authorized?
+  File.write(result.filename, result.proc_xml)       # <key>-procMDFe.xml
+  manifest.qr_code                                   # the URL for the DAMDFE's QR code
+end
+```
+
+There is one authorizer for every state (the SVRS), reception is synchronous and takes one manifest per call. `authorize` returns a result whatever SEFAZ says; `authorize!` raises `DfeRb::Mdfe::Rejected`, `Unclosed` (a manifest left open stops this one) or `ConsumptionBlocked` (cStat 678). When the answer is lost or SEFAZ reports a duplicate, the client consults the key and returns the stored protocol if it is this same document (`result.recovered?`), or raises `Conflict` if it isn't.
+
+The gem derives the access key, `cUF`, the modal and its version, `UFIni` and `UFFim` from the first loading and unloading cities, city names from the IBGE table, the document counts (`qCTe`, `qNFe`, `qMDFe`), `tpTransp` and the contractor from the traction vehicle's owner, the numbering of freight installments and the QR code. Whatever you set yourself is kept.
+
+A carrier's manifest takes the ANTT groups by name:
+
+```ruby
+mdfe.issuer_type :carrier
+mdfe.unload_at "Goiania", "GO", cte: ["3526..."]
+mdfe.road do |road|
+  road.rntrc "12345678"
+  road.ciot "123456789012", tax_id: "12.345.678/0001-95"
+  road.toll_voucher supplier: "11.222.333/0001-81", payer: "12.345.678/0001-95", amount: "50.00", kind: :tag
+  road.vehicle_category "06"
+  road.freight_payment tax_id: "11.222.333/0001-81", total: "1000.00", terms: :installments, advance: "200.00" do |payment|
+    payment.component :freight, "1000.00"
+    payment.installment Date.new(2026, 11, 10), "800.00"
+    payment.bank pix: "chave@pix.com"
+  end
+  road.vehicle plate: "ABC1D23", tare: 9000, wheels: :tractor, body: :none do |vehicle|
+    vehicle.driver "Fulano de Tal", "123.456.789-09"
+    vehicle.owner tax_id: "123.456.789-09", name: "Fulano de Tal", rntrc: "87654321", kind: :tac_independent
+  end
+end
+mdfe.insurance responsible: :issuer, insurer: {name: "SEGURADORA SA", cnpj: "11.222.333/0001-81"}, policy: "123", endorsement: "456"
+mdfe.main_product "Soja", kind: :bulk_solid, ncm: "12019000", full_load: {loading: {zip: "01001000"}, unloading: {zip: "74000000"}}
+```
+
+The road modal has English names throughout. The air, water and rail modals are written and validated against their schemas too, filled by official tag or its snake_case form: `mdfe.air nac: "PRAB", matr: "PRABCD", n_voo: "AB1234", c_aer_emb: "GRU", c_aer_des: "SDU", d_voo: Date.today`, `mdfe.water ...`, `mdfe.rail { |rail| rail.trem(...); rail.vag(...) }`.
+
+Local validation covers the layout, each modal's own schema and the rules of MOC 3.00b Anexo I that need no SEFAZ database (cities and states, issuer type against documents, keys, totals, the road and ANTT groups, the route's borders, the QR code), up to NT 2026.001's CIOT requirement. Each message names the rule and the rejection, such as `(F51, rej. 667)`. `strict: false` on `to_xml`, `issues`, `sign` and `authorize` keeps only the layout checks.
+
+### After authorization
+
+```ruby
+client.consult(key).status                # :authorized, :canceled, :closed, :not_found or :rejected
+client.unclosed.manifests                 # the issuer's manifests still open: key and protocol
+
+client.cancel(key, protocol: result.protocol, reason: "Erro na emissao do manifesto")
+client.close(key, protocol: result.protocol, city: "Goiania", state: "GO")   # or city: "5208707", or :exterior
+client.add_driver(key, name: "Beltrano de Tal", cpf: "529.982.247-25", sequence: 1)
+```
+
+Each event returns an `EventResult` with `registered?`, `protocol`, `proc_xml` (the `procEventoMDFe` to archive) and `filename`. A manifest must be closed when its trip ends: one left open stops the next for the same vehicle, and any after 30 days.
+
+A manifest issued with `mdfe.later_loading true` lists one city and no documents, and takes the NF-e as they are loaded:
+
+```ruby
+client.add_documents(key, protocol: result.protocol, load_at: "3550308",
+  documents: [{nfe: "3526...", unload_at: ["Campinas", "SP"]}])
+```
+
+### Contingency
+
+When the authorizer can't be reached, `mdfe.contingency` issues the manifest off-line (`tpEmis` 2): sign it, print the DAMDFE from it and let the cargo go. Its QR code carries the key signed with the certificate, which `client.build_manifest` supplies. Send the same signed manifest with `client.authorize` within 168 hours; the key doesn't change.
+
+### Distribution
+
+```ruby
+distribution = DfeRb::Mdfe::Distribution::Client.new(certificate: certificate, environment: :production)
+
+batch = distribution.distribute(after: last_nsu)    # one request, at most 50 documents
+batch.documents.each { |document| File.binwrite(document.filename, document.xml) }
+batch.last_nsu; batch.more?; batch.retry_at
+distribution.fetch_nsu("42")                        # one specific document
+```
+
+It returns MDF-e (`ManifestDocument`) and their events (`EventDocument`) of interest to the certificate's holder that someone else issued, such as those naming it in `autXML`, with the same results, cursor rules and failure handling as the NF-e's distribution. A consumption block is cStat 678 here.
+
 ## Official tables
 
 The tables the gem derives from are yours to use too, loaded on first use and always matching the gem's release:
@@ -386,7 +492,7 @@ DfeRb::Nfe::Endpoints.resolve(uf: "MA", environment: :production, service: :stat
 DfeRb.logger = Logger.new($stdout)                                 # SOAP traffic; certificates and signatures are filtered out
 ```
 
-What isn't particular to the NF-e sits at the top level, for the other DF-e to build on: `DfeRb::States` (IBGE codes and UTC offsets), `DfeRb::AccessKey` (the key of any model: `AccessKey.build(model: 58, ...)`), `DfeRb::Signature.sign(xml, certificate, namespace:, container:, signed:)`, `DfeRb::Schema` and `DfeRb::XmlWriter` (a layout read from its XSD and written in its namespace), `DfeRb::Formatter` and `DfeRb::Transport`, which sends the payload in the element the endpoint names with `request_tag`. Their `DfeRb::Nfe` namesakes are the same things with the NF-e's defaults.
+What isn't particular to the NF-e sits at the top level, for the other DF-e to build on: `DfeRb::States` (IBGE codes and UTC offsets), `DfeRb::AccessKey` (the key of any model: `AccessKey.build(model: 58, ...)`), `DfeRb::Signature.sign(xml, certificate, namespace:, container:, signed:)`, `DfeRb::Schema` and `DfeRb::XmlWriter` (a layout read from its XSD and written in its namespace), `DfeRb::Formatter` and `DfeRb::Transport`, which sends the payload in the element the endpoint names with `request_tag`. So do the builder (`DfeRb::Scope`, given a document's vocabulary of names), `DfeRb::Document`, `DfeRb::Response`, `DfeRb::Cities` (the IBGE table), `DfeRb::Xsd` (validation against a bundled package) and `DfeRb::Distribution`. Their `DfeRb::Nfe` and `DfeRb::Mdfe` namesakes are the same things with each document's defaults.
 
 The gem takes A1 certificates only, from a `.pfx` (`DfeRb::Certificate.from_pkcs12`), PEM, or OpenSSL objects you already hold (`DfeRb::Certificate.new(certificate:, private_key:, chain: [])`). Files encrypted with RC2-40 (common in ICP-Brasil A1) are opened through the OpenSSL legacy provider, which is loaded only while parsing. A precompiled Ruby (mise, rv...) whose OpenSSL can't find that provider gets it from the system's OpenSSL 3 (`openssl version -m`); set `OPENSSL_MODULES` to point elsewhere.
 
@@ -398,17 +504,19 @@ The gem takes A1 certificates only, from a `.pfx` (`DfeRb::Certificate.from_pkcs
 DFE_RB_LIVE=1 DFE_RB_PFX=empresa.pfx DFE_RB_PFX_PASSWORD=... bundle exec rspec spec/live
 ```
 
-They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`.
+They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`. `spec/live/mdfe_homologacao_spec.rb` does the same for the MDF-e; its lifecycle (authorize, consult, add a driver, close, cancel) needs an issuer accredited for the MDF-e and an NF-e to carry, as its header says.
 
 ## Legislation
 
 Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
 
+The MDF-e is built from the MOC MDF-e 3.00b (with its Anexo I) and the NTs up to NT 2026.001, with the layout read from the `PL_MDFe_300b_NT012025_1.05` schema package; its distribution follows NT 2015.002 and `PL_MDFeDistDFe_100`. Its web service addresses are the SVRS portal's "Relação de Serviços Web".
+
 ## Keeping up with official publications
 
 Everything below is a copy of something the government publishes, so it goes stale. Each change ships in a release of the gem.
 
-Tables regenerated by `script/update_tables` (into `lib/dfe_rb/nfe/data`):
+Tables regenerated by `script/update_tables` (into `lib/dfe_rb/nfe/data`; `municipalities.tsv`, which the MDF-e uses too, into `lib/dfe_rb/data`):
 
 | File | Source | How | When |
 |---|---|---|---|

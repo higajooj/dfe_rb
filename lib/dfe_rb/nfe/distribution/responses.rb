@@ -1,62 +1,11 @@
 module DfeRb
   module Nfe
     module Distribution
-      # Decodes all or nothing, since a malformed document must not look like a consumed batch.
-      class DistributionResponse
+      # Reads <retDistDFeInt> into a DistributionResult with NF-e documents
+      # (DfeRb::Distribution::Response).
+      class DistributionResponse < DfeRb::Distribution::Response
         def initialize(xml, max_document_bytes:)
-          @xml = xml
-          @max_document_bytes = max_document_bytes
-        end
-
-        def result(query:, request_xml:, environment:, received_at:)
-          root = Xml.parse(@xml, root: "retDistDFeInt").root
-          code = Xml.integer(root, "cStat", required: true)
-          declared = Environment.normalize(Xml.text(root, "tpAmb", required: true))
-          raise ArgumentError, "response environment differs" unless declared == environment
-          last_nsu = optional_nsu(root, "ultNSU")
-          max_nsu = optional_nsu(root, "maxNSU")
-          zips = root.xpath("nfe:loteDistDFeInt/nfe:docZip", Xml::NS)
-          raise ArgumentError, "distribution returned more than 50 documents" if zips.size > 50
-          raise ArgumentError, "138 without documents" if code == 138 && zips.empty?
-          raise ArgumentError, "documents in a non-138 response" if code != 138 && zips.any?
-          documents = zips.map { |zip| decode(zip) }.freeze
-          exhausted = query == :dist_nsu && (code == 137 || (code == 138 && last_nsu && max_nsu && last_nsu == max_nsu))
-          DistributionResult.new(**Xml.freeze_values(
-            query: query, code: code, message: Xml.text(root, "xMotivo", required: true), environment: declared,
-            application_version: Xml.text(root, "verAplic", required: true), responded_at: Xml.time(root, "dhResp", required: true),
-            last_nsu: last_nsu, max_nsu: max_nsu, documents: documents, request_xml: request_xml, response_xml: @xml,
-            retry_at: (code == 656 || exhausted) ? received_at + 3600 : nil
-          ))
-        rescue Nokogiri::XML::SyntaxError, ArgumentError => e
-          raise InvalidResponse.new("invalid distribution response: #{e.message}", response_xml: @xml)
-        end
-
-        private
-
-        def optional_nsu(root, tag)
-          value = Xml.text(root, tag)
-          value && Xml.nsu(value)
-        end
-
-        def decode(zip)
-          schema = zip["schema"]
-          nsu = zip["NSU"]
-          raise ArgumentError, "docZip has no schema" if schema.nil? || schema.empty?
-          raise ArgumentError, "docZip must contain only Base64 text" unless zip.element_children.empty?
-          nsu = Xml.nsu(nsu) if nsu
-          compressed = Base64.strict_decode64(zip.text.delete(" \t\r\n"))
-          xml = Zlib::GzipReader.wrap(StringIO.new(compressed)) do |gzip|
-            output = +""
-            while (chunk = gzip.read([16_384, @max_document_bytes + 1 - output.bytesize].min)) && !chunk.empty?
-              output << chunk
-              raise ArgumentError, "document exceeds #{@max_document_bytes} decompressed bytes" if output.bytesize > @max_document_bytes
-            end
-            raise ArgumentError, "trailing data after gzip document" unless gzip.unused.nil? || gzip.unused.empty?
-            output.force_encoding(Encoding::UTF_8)
-          end
-          Documents.parse(xml, schema: schema, nsu: nsu)
-        rescue Nokogiri::XML::SyntaxError, ArgumentError, Zlib::Error, EOFError => e
-          raise InvalidResponse.new("invalid docZip: #{e.message}", response_xml: @xml, schema: schema, nsu: nsu)
+          super(xml, reader: Xml::READER, documents: Documents, max_document_bytes: max_document_bytes)
         end
       end
 

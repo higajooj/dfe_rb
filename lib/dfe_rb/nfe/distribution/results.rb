@@ -1,25 +1,8 @@
 module DfeRb
   module Nfe
     module Distribution
-      DistributionResult = Data.define(:query, :code, :message, :environment, :application_version,
-        :responded_at, :last_nsu, :max_nsu, :documents, :request_xml, :response_xml, :retry_at) do
-        def status
-          case code
-          when 138 then :documents
-          when 137 then :empty
-          when 656 then :blocked
-          when 108, 109 then :unavailable
-          else :rejected
-          end
-        end
-
-        def success? = [137, 138].include?(code)
-        def empty? = status == :empty
-        def blocked? = status == :blocked
-        def unavailable? = status == :unavailable
-        def rejected? = !success?
-        def more? = query == :dist_nsu && code == 138 && !last_nsu.nil? && !max_nsu.nil? && last_nsu < max_nsu
-      end
+      # The answer to a distribution request (DfeRb::Distribution::Result).
+      DistributionResult = DfeRb::Distribution::Result
 
       ManifestationResult = Data.define(:key, :type, :sequence, :code, :message, :protocol, :registered_at,
         :event_xml, :return_xml, :request_xml, :response_xml) do

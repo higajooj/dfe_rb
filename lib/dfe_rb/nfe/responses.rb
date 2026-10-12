@@ -2,43 +2,10 @@ require "nokogiri"
 
 module DfeRb
   module Nfe
-    # Reads SEFAZ answers. Element lookups ignore namespaces; fragments that must be kept
-    # (protNFe, retEvento...) are copied with their namespace declarations intact.
-    class Response
-      NS = {"nfe" => Signature::NFE}.freeze
-
-      attr_reader :xml, :plain
-
-      def initialize(xml)
-        @xml = xml
-        @namespaced = Nokogiri::XML(xml)
-        @plain = Nokogiri::XML(xml).tap(&:remove_namespaces!)
-      end
-
-      def root_name = @plain.root&.name
-
-      # Text of the first element at a tag path such as "infProt/cStat" (no CSS or XPath syntax).
-      def text(path, from: @plain)
-        from.at_xpath("//" + path.split("/").join("/"))&.text&.strip
-      end
-
-      def code = text("cStat")&.to_i
-
-      def message = text("xMotivo")
-
-      # A copy of the first `tag` element, namespaces preserved, as XML.
-      def fragment(tag, from: @namespaced)
-        node = from.at_xpath("//nfe:#{tag}", NS) or return
-        node.dup.to_xml(save_with: Nokogiri::XML::Node::SaveOptions::AS_XML)
-      end
-
-      def fragments(tag)
-        @namespaced.xpath("//nfe:#{tag}", NS).map do |node|
-          node.dup.to_xml(save_with: Nokogiri::XML::Node::SaveOptions::AS_XML)
-        end
-      end
-
-      def nodes(tag) = @plain.xpath("//#{tag}")
+    # A SEFAZ answer about an NF-e (DfeRb::Response).
+    class Response < DfeRb::Response
+      NAMESPACE = Signature::NFE
+      NS = {"nfe" => NAMESPACE}.freeze
     end
 
     # One NF-e's outcome from an authorization request: the protocol SEFAZ returned for it, or

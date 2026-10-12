@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
-# Regenerates the official tables under lib/dfe_rb/nfe/data/ from their public sources:
+# Regenerates the official tables under lib/dfe_rb/nfe/data/ (municipalities.tsv, shared by every DF-e, under lib/dfe_rb/data/) from their public sources:
 #
-#   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table NF-e city codes follow
+#   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table DF-e city codes follow
 #   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
 #   cfop.tsv             CFOP table of IT 2023.002, the .xlsx the Portal Nacional da NF-e publishes
 #   tipi.tsv             IPI rates of the TIPI, the Tipi.xlsx the Receita Federal publishes
@@ -142,7 +142,7 @@ end
 municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
   .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
   .sort
-write_tsv("municipalities.tsv", municipalities)
+write_tsv("../../data/municipalities.tsv", municipalities)
 
 page = source(options[:svrs], SVRS_URL)
 json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"

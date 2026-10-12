@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- MDF-e (modelo 58, layout 3.00, MOC 3.00b and NTs up to 2026.001): `DfeRb::Mdfe::Client` builds, validates, signs and authorizes a manifest (`build_manifest`, `sign`, `authorize`, `authorize!`), consults it (`consult`), lists the issuer's manifests still open (`unclosed`) and registers its events: `cancel` (110111), `close` (110112), `add_driver` (110114) and `add_documents` (110115). A lost answer or a duplicate report is resolved by looking the key up, as for the NF-e.
+- `DfeRb::Mdfe::Manifest` is filled like an invoice. The road modal has English names (`road`, `vehicle`, `trailer`, `driver`, `owner`, `rntrc`, `ciot`, `toll_voucher`, `contractor`, `freight_payment`); the air, water and rail modals are filled by tag and validated against their own schemas. `load_at`, `unload_at` and `route` take cities by IBGE code or by name and state. The key, the modal, `UFIni`/`UFFim`, the document counts, `tpTransp`, the contractor and the QR code are derived.
+- Local MDF-e rules of MOC Anexo I §2.2, each naming its rule and rejection: cities, issuer type against documents, document keys, totals, carregamento posterior, the road and ANTT groups, the route's borders (F90), insurance, full load, the QR code, and the CIOT of NT 2026.001 from 21/09/2026 in homologação and 23/11/2026 in production.
+- Off-line contingency: `mdfe.contingency` issues with `tpEmis` 2 and a QR code signed with the certificate (MOC 9.2.2); the same signed manifest is authorized later.
+- `DfeRb::Mdfe::Distribution::Client` (`MDFeDistribuicaoDFe`, NT 2015.002): `distribute(after:)` and `fetch_nsu`, with typed `ManifestDocument` and `EventDocument`.
+- More of what isn't particular to the NF-e moves to the top level: `DfeRb::Scope` and `DfeRb::NameIndex` (given a document's vocabulary), `DfeRb::Document`, `DfeRb::Response`, `DfeRb::Cities`, `DfeRb::Xsd` and `DfeRb::Distribution` (`Reader`, `Response`, `Result`, `InvalidResponse`). Their `DfeRb::Nfe` namesakes stay and the NF-e XML is byte for byte what it was. `NameIndex.for` and `DfeRb::Scope.new` take the vocabulary; `lib/dfe_rb/nfe/data/municipalities.tsv` is now `lib/dfe_rb/data/municipalities.tsv`.
+- `DfeRb::Schema.new` reads a root declared as a global element (`element:`), under a `path:` of its own.
+
 ## 0.9.0
 
 - What isn't particular to the NF-e moves to the top level, so another DF-e can use it: `DfeRb::States`, `DfeRb::AccessKey`, `DfeRb::Signature`, `DfeRb::Schema`, `DfeRb::XmlWriter` and `DfeRb::Formatter`. Their `DfeRb::Nfe` namesakes stay, with the NF-e's defaults, and the XML written and signed is byte for byte what it was.

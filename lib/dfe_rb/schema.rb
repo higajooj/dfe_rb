@@ -66,11 +66,14 @@ module DfeRb
 
     # directory: where the XSD files are. files: the ones that define the document's types.
     # type: the named complex type of the document's root element, and tag: that element.
-    def initialize(directory:, files:, type:, tag:)
+    # A root declared as a global element with its type inline (the MDF-e modals) is named
+    # with element: instead. path: is what the root's path starts with, when the document is
+    # a part of another.
+    def initialize(directory:, files:, type: nil, tag: nil, element: nil, path: nil)
       @documents = files.map { |file| Nokogiri::XML(File.read(File.join(directory, file))) }
       @complex_types = index("complexType")
       @simple_types = index("simpleType")
-      @root = build_root(type, tag)
+      @root = element ? build_global(element, path) : build_root(type, tag)
     end
 
     private
@@ -85,6 +88,13 @@ module DfeRb
       complex = @complex_types.fetch(type)
       Element.new(tag: tag, min: 1, max: 1, type: nil, children: parse_complex(complex, tag),
         attributes: [], doc: nil, path: tag)
+    end
+
+    def build_global(name, prefix)
+      node = @documents.filter_map { |document| document.at_xpath("/xs:schema/xs:element[@name='#{name}']", "xs" => XS) }.first
+      raise KeyError, "no global element #{name}" unless node
+
+      parse_element(node, prefix)
     end
 
     def parse_complex(complex, path)
@@ -116,7 +126,7 @@ module DfeRb
       end
 
       tag = node["name"]
-      path = "#{parent_path}/#{tag}"
+      path = [parent_path, tag].compact.join("/")
       type = nil
       children = []
       attributes = []
