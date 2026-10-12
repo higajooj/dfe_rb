@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.3
 
+- Flag locally an item with `indEscala` N and no `CNPJFab` (RV I05e-10, rej. 879) and a `CNPJFab` with wrong check digits (RV I05e-20, rej. 489).
 - `DfeRb::Nfe::Signature` signs with Nokogiri and OpenSSL directly, and the vendored `signer` 1.9.0 (`DfeRb::Signer`) is removed. The signed XML is byte for byte what it was. Code that called `DfeRb::Signer` itself has to move to `Signature.sign_nfe`, `sign_event` or `sign_inutilization`.
 
 ## 0.8.2

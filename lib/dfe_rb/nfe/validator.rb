@@ -187,6 +187,7 @@ module DfeRb
         check_item_cfop(where, item)
         check_gtin("#{where}/prod/cEAN", prod["cEAN"])
         check_gtin("#{where}/prod/cEANTrib", prod["cEANTrib"])
+        check_manufacturer(where, prod)
         check_icms(where, item)
         check_item_taxes(where, item)
       end
@@ -354,6 +355,17 @@ module DfeRb
 
         body = digits[0...-1].reverse.each_with_index.sum { |digit, index| digit * (index.even? ? 3 : 1) }
         add "#{path}: #{code} has a wrong GTIN check digit (rej. 611)" unless digits.last == (10 - body % 10) % 10
+      end
+
+      # RV I05e-10: goods not produced on a relevant scale name their manufacturer (rej. 879).
+      # RV I05e-20: whose CNPJ has valid check digits (rej. 489).
+      def check_manufacturer(where, prod)
+        cnpj = prod["CNPJFab"].to_s
+        if cnpj.empty?
+          add "#{where}/prod/CNPJFab: required when indEscala is N, not produced on a relevant scale (rej. 879)" if prod["indEscala"].to_s == "N"
+        elsif !TaxId.valid_cnpj?(cnpj)
+          add "#{where}/prod/CNPJFab: #{cnpj} is not a valid CNPJ (check digits, rej. 489)"
+        end
       end
 
       def check_icms(where, item)

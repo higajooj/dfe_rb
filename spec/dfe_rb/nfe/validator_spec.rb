@@ -1,7 +1,7 @@
 RSpec.describe DfeRb::Nfe::Validator do
   # Issues about the first item of a note with only `ide` and that item.
-  def item_issues(imposto, ide: {}, extra: {})
-    prod = {"qCom" => "1", "vUnCom" => "100.00", "qTrib" => "1", "vUnTrib" => "100.00", "vProd" => "100.00"}
+  def item_issues(imposto, ide: {}, extra: {}, prod: {})
+    prod = {"qCom" => "1", "vUnCom" => "100.00", "qTrib" => "1", "vUnTrib" => "100.00", "vProd" => "100.00"}.merge(prod)
     tree = {"ide" => {"finNFe" => "1", "dhEmi" => "2026-09-29T10:00:00-03:00"}.merge(ide),
             "det" => [{"prod" => prod, "imposto" => imposto}.merge(extra)]}
     described_class.new(tree).issues.grep(%r{\Adet\[1\]})
@@ -40,6 +40,14 @@ RSpec.describe DfeRb::Nfe::Validator do
 
     expect(deferred).to eq(["det[1]/imposto/IBSCBS/gIBSCBS/gCBS/gDif: required for CST 510 (rej. 1061)"])
     expect(regular).to eq(["det[1]/imposto/IBSCBS/gIBSCBS/gCBS/gDif: not allowed for CST 000 (rej. 1090)"])
+  end
+
+  it "requires the manufacturer of goods not produced on a relevant scale, with a valid CNPJ (I05e-10, I05e-20)" do
+    expect(item_issues({}, prod: {"indEscala" => "N"}))
+      .to eq(["det[1]/prod/CNPJFab: required when indEscala is N, not produced on a relevant scale (rej. 879)"])
+    expect(item_issues({}, prod: {"indEscala" => "N", "CNPJFab" => "11222333000182"}))
+      .to eq(["det[1]/prod/CNPJFab: 11222333000182 is not a valid CNPJ (check digits, rej. 489)"])
+    expect(item_issues({}, prod: {"indEscala" => "N", "CNPJFab" => "11222333000181"}) + item_issues({}, prod: {"indEscala" => "S"})).to eq([])
   end
 
   it "requires a credit note to be an entry and a debit note an exit (B25-110, B25-120)" do
