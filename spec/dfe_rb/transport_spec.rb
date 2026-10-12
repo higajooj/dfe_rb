@@ -57,6 +57,18 @@ RSpec.describe DfeRb::Transport do
     described_class.new(certificate: chained).post(endpoint, request_xml)
   end
 
+  it "sends the payload in the element the endpoint names" do
+    mdfe = Struct.new(:url, :namespace, :operation, :request_tag, :result_tag)
+      .new("https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeStatusServico/MDFeStatusServico.asmx",
+        "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeStatusServico", "mdfeStatusServicoMDF", "mdfeDadosMsg", "mdfeStatusServicoMDFResult")
+    stub = stub_request(:post, mdfe.url)
+      .with { |request| Nokogiri::XML(request.body).at_xpath("//*[local-name()='Body']/*").then { |payload| payload.name == "mdfeDadosMsg" && payload.namespace.href == mdfe.namespace } }
+      .to_return(status: 200, body: soap_response.gsub("nfeResultMsg", "mdfeStatusServicoMDFResult"))
+
+    expect(transport.post(mdfe, request_xml)).to include("<cStat>107</cStat>")
+    expect(stub).to have_been_requested.once
+  end
+
   it "raises on a SOAP fault" do
     fault = <<~XML
       <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"><soap:Body><soap:Fault>

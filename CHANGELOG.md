@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- What isn't particular to the NF-e moves to the top level, so another DF-e can use it: `DfeRb::States`, `DfeRb::AccessKey`, `DfeRb::Signature`, `DfeRb::Schema`, `DfeRb::XmlWriter` and `DfeRb::Formatter`. Their `DfeRb::Nfe` namesakes stay, with the NF-e's defaults, and the XML written and signed is byte for byte what it was.
+- `DfeRb::AccessKey.build` takes the `model:` (58 for an MDF-e) and `#id` gives the Id of that model's signed element (`MDFe...`); `DfeRb::Nfe::AccessKey` still defaults to 55.
+- `DfeRb::Signature.sign(xml, certificate, namespace:, container:, signed:)` signs a document of any namespace. `DfeRb::Nfe::Signature.sign`, which took the container as an XPath, is gone: use `sign_nfe`, `sign_event`, `sign_inutilization` or the top-level `sign`.
+- `DfeRb::Schema.new(directory:, files:, type:, tag:)` reads any layout, and `DfeRb::XmlWriter.new(schema, namespace:)` writes it.
+- An endpoint may name the element its payload goes in with `request_tag` (`nfeDadosMsg` otherwise), and `Transport.envelope` takes it as `tag:`.
+
 ## 0.8.3
 
 - Flag locally an item with `indEscala` N and no `CNPJFab` (RV I05e-10, rej. 879) and a `CNPJFab` with wrong check digits (RV I05e-20, rej. 489).

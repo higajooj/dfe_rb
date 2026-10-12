@@ -4,13 +4,15 @@ require "nokogiri"
 
 module DfeRb
   # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
-  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>. The national distribution
-  # endpoints supply their own operation wrapper and result tag. It fetches no WSDL.
+  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>, unless the endpoint names its
+  # own request and result tags (the national distribution, the other DF-e). It fetches no WSDL.
   #
   # Anything responding to #post(endpoint, xml) can stand in for it (tests, proxies, retries).
   class Transport
     DEFAULT_TIMEOUTS = {open: 10, write: 30, read: 60}.freeze
     SOAP_ENVELOPE_NAMESPACE = "http://www.w3.org/2003/05/soap-envelope"
+    # The element the payload goes in, for an endpoint that names none.
+    REQUEST_TAG = "nfeDadosMsg"
 
     attr_reader :certificate, :timeouts
 
@@ -21,11 +23,13 @@ module DfeRb
       @ssl_options = ssl_options
     end
 
-    # endpoint: anything with #url, #namespace and #operation (see Nfe::Endpoints).
+    # endpoint: anything with #url, #namespace and #operation (see Nfe::Endpoints), and
+    # optionally #request_tag, #request_wrapper, #result_tag and #answer.
     def post(endpoint, xml)
       wrapper = endpoint.respond_to?(:request_wrapper) ? endpoint.request_wrapper : nil
       result_tag = endpoint.respond_to?(:result_tag) ? endpoint.result_tag : "nfeResultMsg"
-      envelope = self.class.envelope(endpoint.namespace, xml, wrapper: wrapper)
+      request_tag = endpoint.respond_to?(:request_tag) ? endpoint.request_tag : REQUEST_TAG
+      envelope = self.class.envelope(endpoint.namespace, xml, wrapper: wrapper, tag: request_tag)
       log(:info) { "SEFAZ #{endpoint.operation} #{endpoint.url}" }
       log(:debug) { "request: #{DfeRb.filter_xml(envelope)}" }
 
@@ -36,9 +40,9 @@ module DfeRb
     end
 
     class << self
-      def envelope(namespace, xml, wrapper: nil)
+      def envelope(namespace, xml, wrapper: nil, tag: REQUEST_TAG)
         payload = xml.sub(/\A\s*<\?xml[^>]*\?>\s*/, "")
-        message = %(<nfeDadosMsg xmlns="#{namespace}">#{payload}</nfeDadosMsg>)
+        message = %(<#{tag} xmlns="#{namespace}">#{payload}</#{tag}>)
         message = %(<#{wrapper} xmlns="#{namespace}">#{message}</#{wrapper}>) if wrapper
         %(<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ) +
           %(xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="#{SOAP_ENVELOPE_NAMESPACE}"><soap12:Body>) +

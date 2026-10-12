@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://example.test/manifest" targetNamespace="http://example.test/manifest" elementFormDefault="qualified">
+	<xs:complexType name="TManifest">
+		<xs:sequence>
+			<xs:element name="infManifest">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="serie" type="TSerie"/>
+						<xs:element name="vCarga" type="TDec_1302"/>
+						<xs:element name="doc" type="xs:string" minOccurs="0" maxOccurs="3"/>
+					</xs:sequence>
+					<xs:attribute name="Id" type="xs:ID" use="required"/>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>
