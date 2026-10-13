@@ -48,8 +48,8 @@ module DfeRb
       # An unsigned <eventoMDFe> for the manifest `key`. `detail` is the event's own element
       # (evCancMDFe...), which goes inside <detEvento>. The author is the key's issuer.
       def event(key:, type:, sequence:, detail:, environment:, at:)
-        issuer = key.tax_id.start_with?("000") ? key.tax_id[3..] : key.tax_id
-        tax_tag = (issuer.length == 11) ? "CPF" : "CNPJ"
+        issuer = key.issuer_id
+        tax_tag = key.person? ? "CPF" : "CNPJ"
         id = "ID#{type}#{key}#{format("%02d", sequence)}"
         %(<eventoMDFe xmlns="#{NS}" versao="#{VERSION}"><infEvento Id="#{id}"><cOrgao>#{key.state_code}</cOrgao>) +
           %(<tpAmb>#{Environment.code(environment)}</tpAmb><#{tax_tag}>#{issuer}</#{tax_tag}><chMDFe>#{key}</chMDFe>) +

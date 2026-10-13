@@ -81,6 +81,13 @@ RSpec.describe DfeRb::Nfe::Client do
       expect { other.sign(indented) }.to raise_error(DfeRb::ValidationError, /CNPJ root 11222333 but the issuer is 11444777000161/)
     end
 
+    it "refuses a person's certificate for a company's invoice" do
+      cert, key = icp_certificate(oid: "2.16.76.1.3.1", value: "0101198052998224725#{"0" * 24}")
+      person = nfe_client(transport).tap { |c| c.instance_variable_set(:@certificate, DfeRb::Certificate.new(certificate: cert, private_key: key)) }
+
+      expect { person.sign(signed.xml) }.to raise_error(DfeRb::ValidationError, /belongs to CPF 52998224725 but the issuer is 11444777000161 \(rej. 213\)/)
+    end
+
     it "drops the XML declaration of signed input so lots and nfeProc stay well-formed" do
       declared = client.sign(%(<?xml version="1.0" encoding="UTF-8"?>\n#{signed.xml}))
       expect(declared.xml).to eq(signed.xml)
@@ -391,6 +398,7 @@ RSpec.describe DfeRb::Nfe::Client do
       expect(result.events.map(&:type)).to eq(["110111"])
       expect(result.events.first.code).to eq(135)
       expect(result.events.first.protocol).to eq("135260000000999")
+      expect(result.events.first.xml).to eq(event)
       expect(transport.calls.first.url).to include("homologacao.nfe.fazenda.sp.gov.br")
     end
 

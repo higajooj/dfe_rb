@@ -279,10 +279,11 @@ module DfeRb
 
         issuer = document.issuer_cnpj
         issuer_cpf = document.issuer_cpf
-        if issuer && certificate.cnpj_root && issuer[0, 8] != certificate.cnpj_root
-          problems << "the certificate belongs to CNPJ root #{certificate.cnpj_root} but the issuer is #{issuer} (rej. 213)"
-        elsif issuer_cpf && certificate.cpf && issuer_cpf != certificate.cpf
-          problems << "the certificate belongs to CPF #{certificate.cpf} but the issuer is #{issuer_cpf} (rej. 227)"
+        holder = certificate.cnpj ? "CNPJ root #{certificate.cnpj_root}" : ("CPF #{certificate.cpf}" if certificate.cpf)
+        if issuer && holder && issuer[0, 8] != certificate.cnpj_root
+          problems << "the certificate belongs to #{holder} but the issuer is #{issuer} (rej. 213)"
+        elsif issuer_cpf && holder && issuer_cpf != certificate.cpf
+          problems << "the certificate belongs to #{holder} but the issuer is #{issuer_cpf} (rej. 227)"
         end
         raise ValidationError, problems unless problems.empty?
       end
@@ -396,12 +397,12 @@ module DfeRb
       end
 
       def consult_events(response)
-        response.plain.xpath("//procEventoNFe").map do |node|
-          fragment = Response.new(node.to_xml)
+        response.fragments("procEventoNFe").map do |xml|
+          fragment = Response.new(xml)
           EventSummary.new(
             type: fragment.text("tpEvento"), sequence: fragment.text("nSeqEvento")&.to_i,
             code: fragment.text("retEvento/infEvento/cStat")&.to_i, message: fragment.text("retEvento/infEvento/xMotivo"),
-            protocol: fragment.text("retEvento/infEvento/nProt"), description: fragment.text("descEvento"), xml: node.to_xml
+            protocol: fragment.text("retEvento/infEvento/nProt"), description: fragment.text("descEvento"), xml: xml
           )
         end
       end

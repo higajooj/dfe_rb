@@ -16,14 +16,14 @@ RSpec.describe DfeRb::Mdfe::Client, "over SOAP" do
         message.name == "mdfeDadosMsg" && message.namespace.href == "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeRecepcaoSinc" &&
           message.element_children.empty?
       }
-      .to_return(status: 200, body: soap("mdfeRecepcao", "MDFeRecepcaoSinc", ret_mdfe(prot_mdfe(signed.key))))
+      .to_return(status: 200, body: soap("mdfeRecepcao", "MDFeRecepcaoSinc", ret_mdfe(prot_mdfe(signed.key, digest: signed.digest_value))))
 
     result = client.authorize(signed)
 
     expect(stub).to have_been_requested
     expect(sent).to eq(signed.xml)
     expect(result).to be_authorized
-    expect(result.protocol_xml).to eq(prot_mdfe(signed.key))
+    expect(result.protocol_xml).to eq(prot_mdfe(signed.key, digest: signed.digest_value))
   end
 
   it "sends the other requests as plain XML" do

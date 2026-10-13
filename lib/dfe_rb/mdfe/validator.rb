@@ -19,16 +19,18 @@ module DfeRb
       CONTINGENCY = "2"
       EXTERIOR = "EX"
       EXTERIOR_CITY = "9999999"
-      # Series kept for an issuer that is a person (F69, F70).
-      PERSON_SERIES = (920..969)
+      PERSON_SERIES = AccessKey::PERSON_SERIES
       # tpEmis of a document printed on security paper (FS-DA), whose second bar code the
       # manifest must carry (F35, F41).
       FS_DA = 5
-      # Documents a manifest lists, with the model and first year of each one's key.
+      # Documents a manifest lists, with the model and first year of each one's key, and the
+      # rejections of a bad key, of one too old and of one repeated.
       DOCUMENTS = {
-        "infCTe" => ["chCTe", [57], 2008, 601, 668], "infNFe" => ["chNFe", [55], 2006, 604, 669],
-        "infMDFeTransp" => ["chMDFe", [58], 2012, 649, nil]
+        "infCTe" => ["chCTe", [57], 2008, 601, 518, 668], "infNFe" => ["chNFe", [55], 2006, 604, 519, 669],
+        "infMDFeTransp" => ["chMDFe", [58], 2012, 649, 520, nil]
       }.freeze
+      # How old a listed document's key may be, by its year and month (NT 2024.001).
+      MONTHS_KEPT = 6
       # When the CIOT became required, per tpAmb (NT 2026.001).
       CIOT_SINCE = {"2" => Time.new(2026, 9, 21, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 11, 23, 0, 0, 0, "-03:00")}.freeze
       # The states each one borders, which is what a road route can cross in order (F90).
@@ -43,13 +45,16 @@ module DfeRb
       }.freeze
 
       # qr_code: the URL that goes in infMDFeSupl. csrt: the CSRT the manifest was built with.
-      def initialize(infmdfe, qr_code: nil, clock: Time, csrt: nil)
+      # signer: the X509 certificate that signs the manifest, to check a QR code that came
+      # with the XML.
+      def initialize(infmdfe, qr_code: nil, clock: Time, csrt: nil, signer: nil)
         @inf = infmdfe
         @ide = infmdfe["ide"] || {}
         @emit = infmdfe["emit"] || {}
         @qr_code = qr_code
         @clock = clock
         @csrt = csrt
+        @signer = signer
         @issues = []
       end
 
@@ -58,6 +63,7 @@ module DfeRb
         @issues = []
         check_issuer
         check_identification
+        check_key
         check_cities
         check_later_loading
         check_documents
@@ -135,6 +141,22 @@ module DfeRb
         end
       end
 
+      # The Id is the key its fields compose, check digit included (F03, F05).
+      def check_key
+        id = @inf["@Id"].to_s
+        issued = time(@ide["dhEmi"])
+        return if id.empty? || issued.nil? || issuer_id.nil?
+
+        composed = AccessKey.build(state: @ide["cUF"], issued_at: issued, tax_id: issuer_id, series: @ide["serie"].to_i,
+          number: @ide["nMDF"].to_i, numeric_code: @ide["cMDF"], model: @ide["mod"].to_i, emission_type: @ide["tpEmis"].to_i)
+        add "infMDFe/@Id: #{id} is not the key its fields compose, #{composed} (F03, rej. 227)" unless id == composed.id
+        unless @ide["cDV"].to_s == composed.check_digit
+          add "ide/cDV: #{@ide["cDV"]} is not the key's check digit, #{composed.check_digit} (F05, rej. 253)"
+        end
+      rescue ArgumentError
+        nil
+      end
+
       def check_cities
         loading = Array(@ide["infMunCarrega"]).map { |city| city["cMunCarrega"].to_s }
         check_city_list(loading, @ide["UFIni"], "ide/infMunCarrega/cMunCarrega", "ide/UFIni", [456, 405, 685], %w[F08 F09 F10])
@@ -201,7 +223,7 @@ module DfeRb
       end
 
       def check_document(group, document)
-        tag, models, first_year, rejection, = DOCUMENTS.fetch(group)
+        tag, models, first_year, rejection, too_old, = DOCUMENTS.fetch(group)
         value = document[tag].to_s
         path = "infDoc/infMunDescarga/#{group}/#{tag}"
         unless DfeRb::AccessKey.valid?(value)
@@ -213,6 +235,15 @@ module DfeRb
         year, month = 2000 + key.year_month[0, 2].to_i, key.year_month[2, 2].to_i
         unless (first_year..@clock.now.year).cover?(year) && (1..12).cover?(month)
           add "#{path}: #{value} has an impossible year and month, #{key.year_month} (rej. #{rejection})"
+        end
+        add "#{path}: #{value} has document number zero (rej. #{rejection})" if key.number.zero?
+        add "#{path}: #{value} has an unknown state, #{key.state_code} (rej. #{rejection})" if key.state.nil?
+        add "#{path}: #{value} has emission type zero (rej. #{rejection})" if key.emission_type.zero?
+        person = key.tax_id.start_with?("000") && TaxId.valid_cpf?(key.tax_id[3..])
+        add "#{path}: #{value} has an invalid issuer, #{key.tax_id} (rej. #{rejection})" unless person || TaxId.valid_cnpj?(key.tax_id)
+        now = @clock.now
+        if (now.year * 12 + now.month) - (year * 12 + month) > MONTHS_KEPT
+          add "#{path}: #{value} is from #{format("%02d/%d", month, year)}, more than #{MONTHS_KEPT} months ago (NT 2024.001, rej. #{too_old})"
         end
         check_second_barcode(group, path, key, document) unless group == "infMDFeTransp"
         if group == "infCTe" && document["infEntregaParcial"] && @ide["modal"].to_s != AIR
@@ -473,7 +504,12 @@ module DfeRb
         add "infMDFeSupl/qrCodMDFe: chMDFe differs from the manifest's key, #{key} (F116, rej. 481)" unless parts[:key] == key
 
         case @ide["tpEmis"].to_s
-        when CONTINGENCY then add "infMDFeSupl/qrCodMDFe: a manifest in contingency signs its key in `sign` (F117, rej. 482)" if parts[:sign].nil?
+        when CONTINGENCY
+          if parts[:sign].nil?
+            add "infMDFeSupl/qrCodMDFe: a manifest in contingency signs its key in `sign` (F117, rej. 482)"
+          elsif @signer && !QrCode.signed_by?(key, parts[:sign], @signer)
+            add "infMDFeSupl/qrCodMDFe: `sign` is not the key signed with the manifest's certificate (F119, rej. 496)"
+          end
         when NORMAL then add "infMDFeSupl/qrCodMDFe: `sign` is for a manifest in contingency only (F118, rej. 488)" if parts[:sign]
         end
       end

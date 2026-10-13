@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - MDF-e (modelo 58, layout 3.00, MOC 3.00b and NTs up to 2026.001): `DfeRb::Mdfe::Client` builds, validates, signs and authorizes a manifest (`build_manifest`, `sign`, `authorize`, `authorize!`), consults it (`consult`), lists the issuer's manifests still open (`unclosed`) and registers its events: `cancel` (110111), `close` (110112), `add_driver` (110114) and `add_documents` (110115). A lost answer or a duplicate report is resolved by looking the key up, as for the NF-e.
 - `DfeRb::Mdfe::Manifest` is filled like an invoice. The road modal has English names (`road`, `vehicle`, `trailer`, `driver`, `owner`, `rntrc`, `ciot`, `toll_voucher`, `contractor`, `freight_payment`); the air, water and rail modals are filled by tag and validated against their own schemas. `load_at`, `unload_at` and `route` take cities by IBGE code or by name and state. The key, the modal, `UFIni`/`UFFim`, the document counts, `tpTransp`, the contractor and the QR code are derived.
@@ -8,6 +8,12 @@
 - Off-line contingency: `mdfe.contingency` issues with `tpEmis` 2 and a QR code signed with the certificate (MOC 9.2.2); the same signed manifest is authorized later.
 - `DfeRb::Mdfe::Distribution::Client` (`MDFeDistribuicaoDFe`, NT 2015.002): `distribute(after:)` and `fetch_nsu`, with typed `ManifestDocument` and `EventDocument`.
 - More of what isn't particular to the NF-e moves to the top level: `DfeRb::Scope` and `DfeRb::NameIndex` (given a document's vocabulary), `DfeRb::Document`, `DfeRb::Response`, `DfeRb::Cities`, `DfeRb::Xsd` and `DfeRb::Distribution` (`Reader`, `Response`, `Result`, `InvalidResponse`). Their `DfeRb::Nfe` namesakes stay and the NF-e XML is byte for byte what it was. `NameIndex.for` and `DfeRb::Scope.new` take the vocabulary; `lib/dfe_rb/nfe/data/municipalities.tsv` is now `lib/dfe_rb/data/municipalities.tsv`.
+- Raw MDF-e XML handed to `sign` is held to more of what SEFAZ checks: the `Id` and `cDV` against the fields that compose the key (F03, rej. 227; F05, rej. 253), the modal's group against `ide/modal` (F07, rej. 580), no namespace prefixes (C04, rej. 404) and, in contingency, the QR code's `sign` against the certificate that signs the manifest (F119, rej. 496).
+- A listed CT-e, NF-e or MDF-e key is also refused for a document number or emission type of zero, an unknown state, an invalid issuer, and a year and month more than six months old (NT 2024.001, rej. 518, 519, 520).
+- An MDF-e event names its author by the key's series (920 to 969 is a person's CPF), so a CNPJ starting with `000` is no longer sent as a CPF. `DfeRb::Mdfe::AccessKey#person?` and `#issuer_id` say which.
+- `authorize` raises `DfeRb::Mdfe::Conflict` when SEFAZ's protocol is about another key, or authorizes a digest other than the one sent.
+- `sign` refuses a certificate of the other kind than the issuer (an e-CPF for a CNPJ issuer and the reverse), for the NF-e too. A certificate that names no one is still left for SEFAZ to judge.
+- The events of a `consult` keep their namespaces in `EventSummary#xml`, for the NF-e too, so a `procEventoMDFe` or `procEventoNFe` read from it validates and its signature verifies.
 - `DfeRb::Schema.new` reads a root declared as a global element (`element:`), under a `path:` of its own.
 
 ## 0.9.0

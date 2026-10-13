@@ -27,8 +27,12 @@ module DfeRb
       # (rej. 580). An unsigned MDFe is checked with a placeholder signature, since
       # <Signature> is mandatory in the schema.
       def mdfe_issues(xml)
-        source = xml.include?("<Signature") ? xml : xml.sub(%r{</MDFe>\s*\z}, "#{DUMMY_SIGNATURE}</MDFe>")
-        document = Nokogiri::XML(source) { |config| config.strict.nonet }
+        document = Nokogiri::XML(xml) { |config| config.strict.nonet }
+        prefixed = document.xpath("//*").find { |node| node.namespace&.prefix }
+        return ["<#{prefixed.namespace.prefix}:#{prefixed.name}>: namespace prefixes are not allowed (C04, rej. 404)"] if prefixed
+
+        root = document.root
+        root.add_child(DUMMY_SIGNATURE) if root && root.at_xpath("ds:Signature", Signature::NAMESPACES).nil?
         general = Xsd.issues(document, package: PACKAGE, file: "mdfe_v3.00.xsd")
         general.empty? ? modal_issues(document) : general
       rescue Nokogiri::XML::SyntaxError => e
@@ -53,8 +57,11 @@ module DfeRb
         modal = document.at_xpath("/mdfe:MDFe/mdfe:infMDFe/mdfe:infModal/*", Signature::NAMESPACES)
         return ["infModal: the modal's group is missing"] unless modal
 
-        file, = Schema::MODALS[modal.name]
+        file, code = Schema::MODALS[modal.name]
         return ["infModal: <#{modal.name}> is not a modal (#{Schema::MODALS.keys.join(", ")})"] unless file
+
+        declared = document.at_xpath("/mdfe:MDFe/mdfe:infMDFe/mdfe:ide/mdfe:modal", Signature::NAMESPACES)&.text
+        return ["infModal: <#{modal.name}> is modal #{code}, but ide/modal says #{declared} (F07, rej. 580)"] unless declared.to_i == code
 
         Xsd.issues(standalone(modal), package: PACKAGE, file: file)
       end

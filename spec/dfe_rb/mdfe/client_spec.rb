@@ -66,6 +66,34 @@ RSpec.describe DfeRb::Mdfe::Client do
       expect { stranger.sign(manifest.to_xml) }.to raise_error(DfeRb::ValidationError, /rej. 213/)
     end
 
+    it "refuses a person's certificate for a company's manifest" do
+      cert, key = icp_certificate(oid: "2.16.76.1.3.1", value: "0101198052998224725#{"0" * 24}")
+      person = DfeRb::Mdfe::Client.new(certificate: DfeRb::Certificate.new(certificate: cert, private_key: key), uf: "SP", transport: transport)
+
+      expect { person.sign(manifest.to_xml) }
+        .to raise_error(DfeRb::ValidationError, /belongs to CPF 52998224725 but the issuer is 11444777000161 \(rej. 213\)/)
+    end
+
+    it "refuses raw XML whose key, modal or prefixes SEFAZ would refuse" do
+      xml = manifest.to_xml
+      renumbered = xml.sub("<nMDF>10</nMDF>", "<nMDF>11</nMDF>")
+      air = xml.sub("<modal>1</modal>", "<modal>2</modal>")
+      prefixed = xml.sub(%(<MDFe xmlns="#{MdfeHelpers::MDFE_NS}"), %(<m:MDFe xmlns:m="#{MdfeHelpers::MDFE_NS}" xmlns="#{MdfeHelpers::MDFE_NS}"))
+        .sub(%r{</MDFe>\z}, "</m:MDFe>")
+
+      expect { client.sign(renumbered) }.to raise_error(DfeRb::ValidationError, /is not the key its fields compose.*\(F03, rej. 227\)/)
+      expect { client.sign(air) }.to raise_error(DfeRb::ValidationError, /<rodo> is modal 1, but ide\/modal says 2 \(F07, rej. 580\)/)
+      expect { client.sign(prefixed) }.to raise_error(DfeRb::ValidationError, /<m:MDFe>: namespace prefixes are not allowed \(C04, rej. 404\)/)
+    end
+
+    it "checks the signature in the QR code of raw XML issued in contingency" do
+      xml = own_cargo_manifest(client, &:contingency).to_xml
+      forged = xml.sub(/&amp;sign=[^<]*/, "&amp;sign=AAAA")
+
+      expect(client.sign(xml).key).to eq(DfeRb::Mdfe::Document.new(xml).key)
+      expect { client.sign(forged) }.to raise_error(DfeRb::ValidationError, /F119, rej. 496/)
+    end
+
     it "signs the QR code of a manifest built in contingency" do
       contingency = client.sign(own_cargo_manifest(client, &:contingency))
       url = DfeRb::Mdfe::Document.new(contingency.xml).qr_code
@@ -78,7 +106,8 @@ RSpec.describe DfeRb::Mdfe::Client do
 
   describe "#authorize" do
     it "sends the signed MDFe gzipped and returns its protocol" do
-      transport.answer(:authorization, ->(_payload) { ret_mdfe(prot_mdfe(signed.key)) })
+      protocol = prot_mdfe(signed.key, digest: signed.digest_value)
+      transport.answer(:authorization, ->(_payload) { ret_mdfe(protocol) })
 
       result = client.authorize(signed)
 
@@ -86,13 +115,24 @@ RSpec.describe DfeRb::Mdfe::Client do
       expect(result).to have_attributes(key: signed.key, protocol: "935260000000123", status: :authorized, recovered?: false)
       expect(DfeRb::Mdfe::Requests.unpack(transport.calls.first.xml)).to eq(signed.xml)
       expect(result.filename).to eq("#{signed.key}-procMDFe.xml")
-      expect(result.proc_xml).to eq(%(<?xml version="1.0" encoding="UTF-8"?><mdfeProc xmlns="#{MdfeHelpers::MDFE_NS}" versao="3.00">#{signed.xml}#{prot_mdfe(signed.key)}</mdfeProc>))
+      expect(result.proc_xml).to eq(%(<?xml version="1.0" encoding="UTF-8"?><mdfeProc xmlns="#{MdfeHelpers::MDFE_NS}" versao="3.00">#{signed.xml}#{protocol}</mdfeProc>))
     end
 
     it "builds, signs and sends a Manifest in one call" do
-      transport.answer(:authorization, ->(payload) { ret_mdfe(prot_mdfe(DfeRb::Mdfe::Document.new(DfeRb::Mdfe::Requests.unpack(payload)).key)) })
+      transport.answer(:authorization, ->(payload) {
+        sent = DfeRb::Mdfe::Requests.unpack(payload)
+        ret_mdfe(prot_mdfe(DfeRb::Mdfe::Document.new(sent).key, digest: DfeRb::Mdfe::Signature.digest_value(sent)))
+      })
 
       expect(client.authorize(manifest)).to be_authorized
+    end
+
+    it "refuses a protocol about another manifest, or about other bytes" do
+      other = document_key(58, tax_id: MdfeHelpers::ISSUER, number: 99)
+      transport.answer(:authorization, ret_mdfe(prot_mdfe(other, digest: signed.digest_value)), ret_mdfe(prot_mdfe(signed.key)))
+
+      expect { client.authorize(signed) }.to raise_error(DfeRb::Mdfe::Conflict, /answered about #{other}, not about #{signed.key}/)
+      expect { client.authorize(signed) }.to raise_error(DfeRb::Mdfe::Conflict, /with digest AAAAAAAAAAAAAAAAAAAAAAAAAAA=/)
     end
 
     it "returns a rejection as a result" do
@@ -173,6 +213,7 @@ RSpec.describe DfeRb::Mdfe::Client do
       expect(result).to have_attributes(status: :authorized, found?: true, protocol: "935260000000123")
       expect(result.events.map { |e| [e.type, e.sequence, e.code, e.protocol, e.description] })
         .to eq([["110114", 2, 135, "935260000000999", "Inclusao Condutor"]])
+      expect(result.events.first.xml).to start_with(%(<procEventoMDFe xmlns="#{MdfeHelpers::MDFE_NS}" versao="3.00"><eventoMDFe))
       expect(transport.calls.first.xml).to eq(%(<consSitMDFe xmlns="#{MdfeHelpers::MDFE_NS}" versao="3.00"><tpAmb>2</tpAmb><xServ>CONSULTAR</xServ><chMDFe>#{signed.key}</chMDFe></consSitMDFe>))
     end
 

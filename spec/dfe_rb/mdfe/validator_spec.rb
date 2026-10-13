@@ -104,6 +104,22 @@ RSpec.describe DfeRb::Mdfe::Validator do
       )
     end
 
+    it "checks what the key is made of, and that it isn't older than six months" do
+      parts = {state: "SP", tax_id: "11222333000181", series: 1, numeric_code: "12345679", model: 55}
+      old = DfeRb::AccessKey.build(issued_at: Time.new(2025, 1, 15), number: 7, **parts).to_s
+      kept = DfeRb::AccessKey.build(issued_at: Time.new(2026, 4, 15), number: 8, **parts).to_s
+      unnumbered = DfeRb::AccessKey.build(issued_at: clock.now, number: 0, **parts).to_s
+      nobody = DfeRb::AccessKey.build(issued_at: clock.now, number: 9, **parts, tax_id: "11222333000182").to_s
+      found = issues_of(own_cargo { |mdfe| mdfe.unload_at "3304557", nfe: [old, kept, unnumbered, nobody] })
+
+      expect(found).to include(
+        a_string_including("#{old} is from 01/2025, more than 6 months ago (NT 2024.001, rej. 519)"),
+        a_string_including("#{unnumbered} has document number zero (rej. 604)"),
+        a_string_including("#{nobody} has an invalid issuer, 11222333000182 (rej. 604)")
+      )
+      expect(found.grep(/#{kept}/)).to eq([])
+    end
+
     it "asks for the second bar code of a document issued on FS-DA paper, and of no other" do
       paper = document_key(55, number: 9, emission_type: 5)
       found = issues_of(own_cargo { |mdfe|

@@ -100,6 +100,7 @@ module DfeRb
 
         protocol_xml = answer.fragment("protMDFe")
         protocol = protocol_xml && Protocol.parse(protocol_xml)
+        check_protocol(manifest, protocol) if protocol
         code = protocol&.code || answer.code
         if recover && StatusCodes.duplicate?(code)
           found = recovered(manifest, cause: protocol || answer)
@@ -208,7 +209,8 @@ module DfeRb
       def validated(document, strict:)
         problems = Schemas.mdfe_issues(document.xml)
         if strict && problems.empty?
-          problems += Validator.new(document.to_infmdfe, qr_code: document.qr_code, clock: @clock).issues
+          problems += Validator.new(document.to_infmdfe, qr_code: document.qr_code, clock: @clock,
+            signer: document.signer || certificate.certificate).issues
         end
         raise ValidationError, problems unless problems.empty?
 
@@ -224,6 +226,7 @@ module DfeRb
       end
 
       # The certificate must be valid and belong to the issuer (same CNPJ root, or same CPF).
+      # One that names no one (not an ICP-Brasil one) is left for SEFAZ to judge.
       def check_certificate(document)
         problems = []
         problems << "the certificate expired on #{certificate.expires_at.utc.iso8601}" if certificate.expired?(@clock.now)
@@ -231,10 +234,11 @@ module DfeRb
 
         issuer = document.issuer_cnpj
         issuer_cpf = document.issuer_cpf
-        if issuer && certificate.cnpj_root && issuer[0, 8] != certificate.cnpj_root
-          problems << "the certificate belongs to CNPJ root #{certificate.cnpj_root} but the issuer is #{issuer} (rej. 213)"
-        elsif issuer_cpf && certificate.cpf && issuer_cpf != certificate.cpf
-          problems << "the certificate belongs to CPF #{certificate.cpf} but the issuer is #{issuer_cpf} (rej. 202)"
+        holder = certificate.cnpj ? "CNPJ root #{certificate.cnpj_root}" : ("CPF #{certificate.cpf}" if certificate.cpf)
+        if issuer && holder && issuer[0, 8] != certificate.cnpj_root
+          problems << "the certificate belongs to #{holder} but the issuer is #{issuer} (rej. 213)"
+        elsif issuer_cpf && holder && issuer_cpf != certificate.cpf
+          problems << "the certificate belongs to #{holder} but the issuer is #{issuer_cpf} (rej. 202)"
         end
         raise ValidationError, problems unless problems.empty?
       end
@@ -251,6 +255,18 @@ module DfeRb
         raise ArgumentError, "protocol must have 15 digits" unless number.match?(/\A\d{15}\z/)
 
         number
+      end
+
+      # The protocol must be about the manifest sent, and authorize the very bytes sent.
+      def check_protocol(manifest, protocol)
+        unless protocol.key == manifest.key
+          raise Conflict, "SEFAZ answered about #{protocol.key}, not about #{manifest.key}, the manifest sent " \
+            "(#{protocol.code} #{protocol.message}); consult the key to learn where it stands"
+        end
+        return unless StatusCodes.authorized?(protocol.code) && protocol.digest_value != manifest.digest_value
+
+        raise Conflict, "SEFAZ authorized #{manifest.key} with digest #{protocol.digest_value}, " \
+          "but the manifest sent has #{manifest.digest_value}"
       end
 
       def build_result(manifest, code, message, protocol, response_xml, recovered: false)
@@ -285,12 +301,12 @@ module DfeRb
       end
 
       def consult_events(response)
-        response.plain.xpath("//procEventoMDFe").map do |node|
-          fragment = Response.new(node.to_xml)
+        response.fragments("procEventoMDFe").map do |xml|
+          fragment = Response.new(xml)
           EventSummary.new(
             type: fragment.text("eventoMDFe/infEvento/tpEvento"), sequence: fragment.text("eventoMDFe/infEvento/nSeqEvento")&.to_i,
             code: fragment.text("retEventoMDFe/infEvento/cStat")&.to_i, message: fragment.text("retEventoMDFe/infEvento/xMotivo"),
-            protocol: fragment.text("retEventoMDFe/infEvento/nProt"), description: fragment.text("descEvento"), xml: node.to_xml
+            protocol: fragment.text("retEventoMDFe/infEvento/nProt"), description: fragment.text("descEvento"), xml: xml
           )
         end
       end

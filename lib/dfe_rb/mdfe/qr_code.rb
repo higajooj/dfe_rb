@@ -21,6 +21,13 @@ module DfeRb
         Base64.strict_encode64(certificate.private_key.sign(OpenSSL::Digest.new("SHA1"), key.to_s))
       end
 
+      # Whether `sign` is `key` signed by the holder of `x509`, an OpenSSL certificate (F119).
+      def signed_by?(key, sign, x509)
+        x509.public_key.verify(OpenSSL::Digest.new("SHA1"), Base64.decode64(sign.to_s), key.to_s)
+      rescue OpenSSL::PKey::PKeyError
+        false
+      end
+
       # {key:, environment:, sign:} read from a URL, or nil when it isn't one of these.
       def parse(url)
         address, query = url.to_s.split("?", 2)

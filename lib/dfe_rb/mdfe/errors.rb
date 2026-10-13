@@ -21,8 +21,9 @@ module DfeRb
     # 686). Close it (Client#unclosed lists them) and send again.
     class Unclosed < Rejected; end
 
-    # The key already exists at SEFAZ with different content than what was sent. The earlier
-    # manifest is authorized and this one is not.
+    # The key already exists at SEFAZ with different content than what was sent (the earlier
+    # manifest is authorized and this one is not), or SEFAZ's protocol is about another
+    # manifest than the one sent.
     class Conflict < Error; end
   end
 end

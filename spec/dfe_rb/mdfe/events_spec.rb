@@ -38,6 +38,19 @@ RSpec.describe DfeRb::Mdfe::Client, "events" do
     end
   end
 
+  it "tells a person from a company by the key's series, not by leading zeros" do
+    parts = {state: "SP", issued_at: clock.now, number: 5, numeric_code: "12345679"}
+    company = DfeRb::Mdfe::AccessKey.build(tax_id: "00000000000191", series: 1, **parts).to_s
+    person = DfeRb::Mdfe::AccessKey.build(tax_id: "12345678909", series: 920, **parts).to_s
+    transport.answer(:event, ret_evento_mdfe(company, type: "110111"))
+
+    client.cancel(company, protocol: protocol, reason: "Erro na emissao do manifesto")
+    client.cancel(person, protocol: protocol, reason: "Erro na emissao do manifesto")
+
+    expect(sent).to include("<CNPJ>00000000000191</CNPJ><chMDFe>#{company}</chMDFe>")
+    expect(transport.calls.last.xml).to include("<CPF>12345678909</CPF><chMDFe>#{person}</chMDFe>")
+  end
+
   it "returns a rejection as a result" do
     transport.answer(:event, ret_evento_mdfe(key, type: "110111", code: 220, message: "Rejeicao: MDF-e autorizado ha mais de 24 horas", protocol: nil),
       ret_evento_mdfe(key, type: "110111", code: 631, message: "Rejeicao: Duplicidade de evento", protocol: nil))

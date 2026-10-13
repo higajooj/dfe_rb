@@ -17,6 +17,22 @@ module CertificateHelpers
     end
   end
 
+  # An ICP-Brasil style certificate: the CNPJ (or CPF) travels in a subjectAltName otherName.
+  def icp_certificate(oid:, value:, cn: "EMPRESA TESTE")
+    key = OpenSSL::PKey::RSA.new(2048)
+    cert = OpenSSL::X509::Certificate.new
+    cert.version = 2
+    cert.serial = 2
+    cert.subject = cert.issuer = OpenSSL::X509::Name.parse("/CN=#{cn}")
+    cert.public_key = key.public_key
+    cert.not_before = Time.now - 60
+    cert.not_after = Time.now + 3600
+    factory = OpenSSL::X509::ExtensionFactory.new(cert, cert)
+    cert.add_extension(factory.create_extension("subjectAltName", "otherName:#{oid};UTF8:#{value}"))
+    cert.sign(key, OpenSSL::Digest.new("SHA256"))
+    [cert, key]
+  end
+
   def pkcs12_der(password: "cert-pass", cnpj: "00000000000000", not_after: nil) = CertificateHelpers.pkcs12(password:, cnpj:, not_after:)
 end
 
