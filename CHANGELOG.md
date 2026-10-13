@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1
+
+- Fix `DfeRb::Mdfe::Distribution::Client` against the real service: the request goes in `<mdfeDadosMsg>` alone (wrapped in `<mdfeDistDFeInteresse>` it was rejected with 243), and the answer's `dhResp`, which comes without an offset, is read as UTC instead of raising `InvalidResponse`. `DfeRb::Mdfe::Endpoints::Endpoint` loses `request_wrapper`.
+- The MDF-e live spec ran against SVRS homologação (status, consult, unclosed, authorization, the four events, distribution, and the authorize/close/cancel lifecycle). It numbers its manifests per run, cancels the one its protocol check gets authorized, and keeps the registered XML in `DFE_RB_LIVE_SAVE_DIR`.
+
 ## 0.10.0
 
 - MDF-e (modelo 58, layout 3.00, MOC 3.00b and NTs up to 2026.001): `DfeRb::Mdfe::Client` builds, validates, signs and authorizes a manifest (`build_manifest`, `sign`, `authorize`, `authorize!`), consults it (`consult`), lists the issuer's manifests still open (`unclosed`) and registers its events: `cancel` (110111), `close` (110112), `add_driver` (110114) and `add_documents` (110115). A lost answer or a duplicate report is resolved by looking the key up, as for the NF-e.

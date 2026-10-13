@@ -6,7 +6,7 @@ module DfeRb
     module Endpoints
       # request_tag: the element the payload goes in. answer: the root element of the answer,
       # which is found by name whatever the service wraps it in.
-      Endpoint = Data.define(:service, :url, :namespace, :operation, :authorizer, :request_tag, :request_wrapper, :answer)
+      Endpoint = Data.define(:service, :url, :namespace, :operation, :authorizer, :request_tag, :answer)
 
       # Web service (WSDL) name, SOAP operation and answer of each service.
       SERVICES = {
@@ -15,7 +15,7 @@ module DfeRb
         consult: {name: "MDFeConsulta", operation: "mdfeConsultaMDF", answer: "retConsSitMDFe"},
         unclosed: {name: "MDFeConsNaoEnc", operation: "mdfeConsNaoEnc", answer: "retConsMDFeNaoEnc"},
         event: {name: "MDFeRecepcaoEvento", operation: "mdfeRecepcaoEvento", answer: "retEventoMDFe"},
-        distribution: {name: "MDFeDistribuicaoDFe", operation: "mdfeDistDFeInteresse", answer: "retDistDFeInt", wrapper: "mdfeDistDFeInteresse"}
+        distribution: {name: "MDFeDistribuicaoDFe", operation: "mdfeDistDFeInteresse", answer: "retDistDFeInt"}
       }.freeze
       SERVICE_KEYS = SERVICES.keys.freeze
 
@@ -40,7 +40,7 @@ module DfeRb
         url = overrides[service] || "#{BASES.fetch(Environment.normalize(environment))}#{name}/#{name}.asmx"
 
         Endpoint.new(service: service, url: url, namespace: format(NAMESPACE, name), operation: definition[:operation],
-          authorizer: AUTHORIZER, request_tag: REQUEST_TAG, request_wrapper: definition[:wrapper], answer: definition[:answer])
+          authorizer: AUTHORIZER, request_tag: REQUEST_TAG, answer: definition[:answer])
       end
     end
   end

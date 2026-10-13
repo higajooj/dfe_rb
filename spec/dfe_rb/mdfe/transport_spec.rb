@@ -35,17 +35,19 @@ RSpec.describe DfeRb::Mdfe::Client, "over SOAP" do
     expect(stub).to have_been_requested
   end
 
-  it "wraps the distribution request in its operation" do
+  it "sends the distribution request unwrapped and reads its offsetless dhResp as UTC" do
     stub = stub_request(:post, "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeDistribuicaoDFe/MDFeDistribuicaoDFe.asmx")
       .with { |request|
-        request.body.include?(%(<mdfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeDistribuicaoDFe">) +
-          %(<mdfeDadosMsg xmlns="http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeDistribuicaoDFe"><distDFeInt))
+        request.body.include?(%(<soap12:Body><mdfeDadosMsg xmlns="http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeDistribuicaoDFe"><distDFeInt))
       }
       .to_return(status: 200, body: soap("mdfeDistDFeInteresse", "MDFeDistribuicaoDFe",
         %(<retDistDFeInt xmlns="#{MdfeHelpers::MDFE_NS}" versao="1.00"><tpAmb>2</tpAmb><verAplic>RS</verAplic><cStat>137</cStat>) +
-        %(<xMotivo>Nenhum documento localizado</xMotivo><dhResp>2026-09-29T10:00:00-03:00</dhResp><ultNSU>0</ultNSU><maxNSU>0</maxNSU></retDistDFeInt>)))
+        %(<xMotivo>Nenhum documento localizado</xMotivo><dhResp>2026-09-29T13:00:00</dhResp><ultNSU>0</ultNSU><maxNSU>0</maxNSU></retDistDFeInt>)))
 
-    expect(DfeRb::Mdfe::Distribution::Client.new(certificate: mdfe_certificate).distribute).to be_empty
+    result = DfeRb::Mdfe::Distribution::Client.new(certificate: mdfe_certificate).distribute
+
+    expect(result).to be_empty
+    expect(result.responded_at).to eq(Time.utc(2026, 9, 29, 13))
     expect(stub).to have_been_requested
   end
 

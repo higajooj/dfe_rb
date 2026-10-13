@@ -34,7 +34,7 @@ RSpec.describe DfeRb::Mdfe::Distribution::Client do
     expect(transport.calls.last.xml).to eq(%(<distDFeInt xmlns="#{MdfeHelpers::MDFE_NS}" versao="1.00"><tpAmb>2</tpAmb>) +
       %(<CNPJ>#{MdfeHelpers::ISSUER}</CNPJ><distNSU><ultNSU>000000000000000</ultNSU></distNSU></distDFeInt>))
     expect(client.endpoint).to have_attributes(url: "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeDistribuicaoDFe/MDFeDistribuicaoDFe.asmx",
-      operation: "mdfeDistDFeInteresse", request_wrapper: "mdfeDistDFeInteresse", request_tag: "mdfeDadosMsg", answer: "retDistDFeInt")
+      operation: "mdfeDistDFeInteresse", request_tag: "mdfeDadosMsg", answer: "retDistDFeInt")
   end
 
   it "returns manifests and events typed, with the exact XML to archive" do

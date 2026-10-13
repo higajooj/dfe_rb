@@ -14,8 +14,18 @@
 #   DFE_RB_LIVE_UF and DFE_RB_LIVE_IE
 #   DFE_RB_LIVE_CITY_CODE and _ZIP (and optionally _NAME, _STREET, _STREET_NUMBER, _DISTRICT)
 #   DFE_RB_LIVE_PLATE, a vehicle with no manifest left open (default ABC1D23)
-#   DFE_RB_LIVE_NFE_KEY, an NF-e authorized in homologacao for the issuer to carry
+#   DFE_RB_LIVE_NFE_KEY, the NF-e to carry (default: a made-up key of the issuer's, which
+#     homologacao doesn't look up)
+#
+# DFE_RB_LIVE_SAVE_DIR keeps what SEFAZ registered (each mdfeProc and procEventoMDFe) in that
+# directory, the manifest before its cancellation or closing.
+require "fileutils"
+
 RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
+  # Each run numbers its manifests anew (from DFE_RB_LIVE_NUMBER or the clock), read once so
+  # that the examples don't land on each other's numbers.
+  first_number = Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]), 10)
+
   def self.certificate
     @certificate ||= begin
       pfx = ENV["DFE_RB_PFX"] || File.expand_path("../../notes/cert/cert.pfx", __dir__)
@@ -34,6 +44,7 @@ RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
   end
 
   let(:certificate) { self.class.certificate }
+  let(:number) { first_number }
   let(:uf) { ENV.fetch("DFE_RB_LIVE_UF", "SP") }
   let(:client) { DfeRb::Mdfe::Client.new(certificate: certificate, uf: uf, timeouts: {read: 60}) }
   let(:city_code) { ENV.fetch("DFE_RB_LIVE_CITY_CODE", "3550308") }
@@ -45,8 +56,22 @@ RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
                 district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: city_code, zip: ENV.fetch("DFE_RB_LIVE_ZIP", "01001000")}
     }
   end
+  let(:nfe_key) do
+    ENV.fetch("DFE_RB_LIVE_NFE_KEY") do
+      DfeRb::AccessKey.build(state: uf, issued_at: Time.now, tax_id: certificate.tax_id, series: 1, number: 999_997,
+        numeric_code: "87654321", model: 55).to_s
+    end
+  end
   let(:unknown_key) do
     DfeRb::Mdfe::AccessKey.build(state: uf, issued_at: Time.now, tax_id: certificate.tax_id, series: 1, number: 999_999, numeric_code: "87654321").to_s
+  end
+
+  def save(result)
+    return result unless ENV["DFE_RB_LIVE_SAVE_DIR"] && result.proc_xml
+
+    FileUtils.mkdir_p(ENV["DFE_RB_LIVE_SAVE_DIR"])
+    File.write(File.join(ENV["DFE_RB_LIVE_SAVE_DIR"], result.filename), result.proc_xml)
+    result
   end
 
   def manifest(number:, nfe:, &block)
@@ -86,10 +111,9 @@ RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
     end
 
     it "accepts a compressed, signed, schema-valid MDFe and answers with a business verdict" do
-      nfe = DfeRb::AccessKey.build(state: uf, issued_at: Time.now, tax_id: certificate.tax_id, series: 1, number: 999_997,
-        numeric_code: "87654321", model: 55).to_s
-
-      result = client.authorize(manifest(number: 999_998, nfe: nfe), recover: false)
+      result = save(client.authorize(manifest(number: number, nfe: nfe_key), recover: false))
+      # An accredited issuer gets it authorized: cancel it, so the vehicle isn't left on a trip.
+      save(client.cancel(result.key, protocol: result.protocol, reason: "Teste de cancelamento em homologacao")) if result.code == 100
 
       # Not a compression (2xx B-0), schema (215, 580), signature (29x) or QR code (48x)
       # problem: the issuer's registration or the NF-e it can't find.
@@ -120,22 +144,20 @@ RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
     end
   end
 
-  describe "lifecycle", if: ENV["DFE_RB_LIVE_IE"] && ENV["DFE_RB_LIVE_NFE_KEY"] do
-    let(:number) { Integer(ENV.fetch("DFE_RB_LIVE_NUMBER", Time.now.to_i.to_s[-7..]), 10) }
-
+  describe "lifecycle", if: ENV["DFE_RB_LIVE_IE"] do
     it "authorizes, consults, adds a driver, closes and archives an MDF-e" do
-      signed = client.sign(manifest(number: number, nfe: ENV.fetch("DFE_RB_LIVE_NFE_KEY")))
-      result = client.authorize!(signed)
+      signed = client.sign(manifest(number: number + 1, nfe: nfe_key))
+      result = save(client.authorize!(signed))
       expect(result.proc_xml).to include("<mdfeProc", signed.xml)
       expect(DfeRb::Xsd.issues(result.proc_xml, package: "mdfe_3.00", file: "procMDFe_v3.00.xsd")).to eq([])
 
       expect(client.consult(result.key)).to be_authorized
       expect(client.unclosed.manifests.map(&:key)).to include(result.key)
 
-      driver = client.add_driver(result.key, name: "SEGUNDO MOTORISTA", cpf: "52998224725")
+      driver = save(client.add_driver(result.key, name: "SEGUNDO MOTORISTA", cpf: "52998224725"))
       expect(driver).to be_registered, "#{driver.code} #{driver.message}"
 
-      closed = client.close(result.key, protocol: result.protocol, city: city_code)
+      closed = save(client.close(result.key, protocol: result.protocol, city: city_code))
       expect(closed).to be_registered, "#{closed.code} #{closed.message}"
       expect(DfeRb::Xsd.issues(closed.proc_xml, package: "mdfe_3.00", file: "procEventoMDFe_v3.00.xsd")).to eq([])
 
@@ -145,9 +167,9 @@ RSpec.describe "MDF-e against SEFAZ homologacao", live: true do
     end
 
     it "authorizes and cancels an MDF-e" do
-      result = client.authorize!(manifest(number: number + 1, nfe: ENV.fetch("DFE_RB_LIVE_NFE_KEY")))
+      result = save(client.authorize!(manifest(number: number + 2, nfe: nfe_key)))
 
-      canceled = client.cancel(result.key, protocol: result.protocol, reason: "Teste de cancelamento em homologacao")
+      canceled = save(client.cancel(result.key, protocol: result.protocol, reason: "Teste de cancelamento em homologacao"))
 
       expect(canceled).to be_registered, "#{canceled.code} #{canceled.message}"
       expect(client.consult(result.key)).to be_canceled

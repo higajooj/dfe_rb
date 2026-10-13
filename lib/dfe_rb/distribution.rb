@@ -49,12 +49,14 @@ module DfeRb
     # Strict, namespace-aware readers of one document type's XML. They never expand entities
     # or read DTDs, external resources or schema names from a response.
     class Reader
-      attr_reader :namespace, :namespaces
+      attr_reader :namespace, :namespaces, :response_offset
 
-      # label: how the namespace is called in messages ("NF-e").
-      def initialize(namespace:, label:)
+      # label: how the namespace is called in messages ("NF-e"). response_offset: the UTC
+      # offset of the service's dhResp when it comes without one (the MDF-e's, in UTC).
+      def initialize(namespace:, label:, response_offset: nil)
         @namespace = namespace
         @label = label
+        @response_offset = response_offset
         @namespaces = {"doc" => namespace, "ds" => Signature::DS}.freeze
       end
 
@@ -88,9 +90,11 @@ module DfeRb
         value.to_i
       end
 
-      def time(node, path, required: false)
+      # offset: the UTC offset to read a timestamp that carries none in.
+      def time(node, path, required: false, offset: nil)
         value = text(node, path, required: required)
         return unless value
+        value += offset if offset && value.match?(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\z/)
         unless value.match?(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\z/)
           raise ArgumentError, "invalid #{path}: expected an ISO 8601 timestamp with UTC offset"
         end
@@ -143,7 +147,7 @@ module DfeRb
         exhausted = query == :dist_nsu && (code == 137 || (code == 138 && last_nsu && max_nsu && last_nsu == max_nsu))
         Result.new(**@reader.freeze_values(
           query: query, code: code, message: @reader.text(root, "xMotivo", required: true), environment: declared,
-          application_version: @reader.text(root, "verAplic", required: true), responded_at: @reader.time(root, "dhResp", required: true),
+          application_version: @reader.text(root, "verAplic", required: true), responded_at: responded_at(root),
           last_nsu: last_nsu, max_nsu: max_nsu, documents: documents, request_xml: request_xml, response_xml: @xml,
           retry_at: (BLOCKED.include?(code) || exhausted) ? received_at + COOLDOWN : nil
         ))
@@ -152,6 +156,8 @@ module DfeRb
       end
 
       private
+
+      def responded_at(root) = @reader.time(root, "dhResp", required: true, offset: @reader.response_offset)
 
       def optional_nsu(root, tag)
         value = @reader.text(root, tag)

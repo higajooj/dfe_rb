@@ -10,7 +10,8 @@ module DfeRb
     module Distribution
       PACKAGE = "PL_MDFeDistDFe_100"
       VERSION = "1.00"
-      READER = DfeRb::Distribution::Reader.new(namespace: Signature::MDFE, label: "MDF-e")
+      # The service answers dhResp as AAAA-MM-DDTHH:MM:SS, with no offset, in UTC.
+      READER = DfeRb::Distribution::Reader.new(namespace: Signature::MDFE, label: "MDF-e", response_offset: "+00:00")
 
       # An unusable answer, not an ordinary SEFAZ rejection (DfeRb::Distribution::InvalidResponse).
       InvalidResponse = DfeRb::Distribution::InvalidResponse
