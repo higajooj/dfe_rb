@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.2
+
+- Flag locally an NF-e item with ICMS-ST and no `CEST` (RV N23-10, rej. 806): CST 10, 30, 60, 70, CSOSN 201, 202, 203, 500, and CST 90 or CSOSN 900 with a `vICMSST`; not in the `ICMSPart` group nor in an NFC-e. `Validator::CEST_ST_CODES` and `CEST_ST_AMOUNT_CODES` list them.
+
 ## 0.10.1
 
 - Fix `DfeRb::Mdfe::Distribution::Client` against the real service: the request goes in `<mdfeDadosMsg>` alone (wrapped in `<mdfeDistDFeInteresse>` it was rejected with 243), and the answer's `dhResp`, which comes without an offset, is read as UTC instead of raising `InvalidResponse`. `DfeRb::Mdfe::Endpoints::Endpoint` loses `request_wrapper`.

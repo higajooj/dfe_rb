@@ -42,6 +42,10 @@ module DfeRb
       DIFAL_FUEL_ANP_CODES = %w[820101001 820101010 810102001 810102004 810102002 810102003 810101002 810101001
         810101003 220101003 220101004 220101002 220101001 220101005 220101006 560101001].freeze
       DIFAL_EXEMPT_ICMS = %w[40 41 103 300 400].freeze
+      # RV N23-10: the ICMS CSTs/CSOSNs of an operation with ST, whose item carries the CEST,
+      # and those (90, 900) that count only with an ST amount withheld (vICMSST).
+      CEST_ST_CODES = %w[10 30 60 70 201 202 203 500].freeze
+      CEST_ST_AMOUNT_CODES = %w[90 900].freeze
       CFOP_TITLE_LENGTH = 60
       # Length of the xJust of a note in contingency (B29).
       CONTINGENCY_REASON_LENGTH = (15..256)
@@ -188,6 +192,7 @@ module DfeRb
         check_gtin("#{where}/prod/cEAN", prod["cEAN"])
         check_gtin("#{where}/prod/cEANTrib", prod["cEANTrib"])
         check_manufacturer(where, prod)
+        check_cest(where, item, prod)
         check_icms(where, item)
         check_item_taxes(where, item)
       end
@@ -366,6 +371,16 @@ module DfeRb
         elsif !TaxId.valid_cnpj?(cnpj)
           add "#{where}/prod/CNPJFab: #{cnpj} is not a valid CNPJ (check digits, rej. 489)"
         end
+      end
+
+      # RV N23-10: an NF-e item with ST carries its CEST (rej. 806), except in the ICMSPart group.
+      def check_cest(where, item, prod)
+        name, values = Totals.icms_variant(item)
+        return if values.nil? || name == "ICMSPart" || @ide["mod"].to_s == "65" || !prod["CEST"].to_s.empty?
+
+        code = (values["CST"] || values["CSOSN"]).to_s
+        st = CEST_ST_CODES.include?(code) || CEST_ST_AMOUNT_CODES.include?(code) && Totals.number(values["vICMSST"]).positive?
+        add "#{where}/prod/CEST: required for an operation with ICMS-ST, #{values["CST"] ? "CST" : "CSOSN"} #{code} (rej. 806)" if st
       end
 
       def check_icms(where, item)

@@ -50,6 +50,21 @@ RSpec.describe DfeRb::Nfe::Validator do
     expect(item_issues({}, prod: {"indEscala" => "N", "CNPJFab" => "11222333000181"}) + item_issues({}, prod: {"indEscala" => "S"})).to eq([])
   end
 
+  it "requires the CEST of an item with ICMS-ST, but not in ICMSPart or an NFC-e (N23-10)" do
+    expect(item_issues({"ICMS" => {"ICMSSN500" => {"CSOSN" => "500"}}}))
+      .to eq(["det[1]/prod/CEST: required for an operation with ICMS-ST, CSOSN 500 (rej. 806)"])
+    expect(item_issues({"ICMS" => {"ICMS60" => {"CST" => "60"}}}))
+      .to eq(["det[1]/prod/CEST: required for an operation with ICMS-ST, CST 60 (rej. 806)"])
+    expect(item_issues({"ICMS" => {"ICMS90" => {"CST" => "90", "vICMSST" => "1.00"}}}))
+      .to eq(["det[1]/prod/CEST: required for an operation with ICMS-ST, CST 90 (rej. 806)"])
+
+    expect(item_issues({"ICMS" => {"ICMSSN500" => {"CSOSN" => "500"}}}, prod: {"CEST" => "1004900"})).to eq([])
+    expect(item_issues({"ICMS" => {"ICMSSN900" => {"CSOSN" => "900"}}})).to eq([])
+    expect(item_issues({"ICMS" => {"ICMSSN102" => {"CSOSN" => "102"}}})).to eq([])
+    expect(item_issues({"ICMS" => {"ICMSPart" => {"CST" => "10"}}})).to eq([])
+    expect(item_issues({"ICMS" => {"ICMSSN500" => {"CSOSN" => "500"}}}, ide: {"mod" => "65"})).to eq([])
+  end
+
   it "requires a credit note to be an entry and a debit note an exit (B25-110, B25-120)" do
     issues = ->(ide) { described_class.new({"ide" => ide}).issues.grep(%r{\Aide/tpNF}) }
 
