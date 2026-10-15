@@ -205,24 +205,30 @@ CEST	dIniVig	dFimVig	NCM	xDescricao
 0301301	2021-06-01		210690 22029900	Bebidas energéticas em embalagem PET
 0301302			210690 22029900	Bebidas energéticas em vidro
 0301400		2021-05-31	210690 22029900	Bebidas energéticas em embalagem com capacidade igual ou superior a 600ml
-0301500			210690 22029900	Bebidas hidroeletrolíticas  
-0302100			22030000	Cerveja em garrafa de vidro retornável  
-0302101			22030000	Cerveja em garrafa de vidro descartável  
-0302102			22030000	Cerveja em garrafa de alumínio  
-0302103			22030000	Cerveja em lata  
-0302104			22030000	Cerveja em barril  
-0302105			22030000	Cerveja em embalagem PET  
-0302106			22030000	Cerveja em outras embalagens  
-0302200			22029100	Cerveja sem álcool em garrafa de vidro retornável  
-0302201			22029100	Cerveja sem álcool em garrafa de vidro descartável  
-0302202			22029100	Cerveja sem álcool em garrafa de alumínio  
-0302203			22029100	Cerveja sem álcool em lata  
-0302204			22029100	Cerveja sem álcool em barril  
-0302205			22029100	Cerveja sem álcool em embalagem PET  
-0302206			22029100	Cerveja sem álcool em outras embalagens  
-0302300			22030000	Chope  
-0302400			22011000	Água mineral em embalagens retornáveis com capacidade igual ou superior a 10 (dez) e inferior a 20 (vinte) litros  
-0302500			22011000	Água mineral em embalagens retornáveis com capacidade igual ou superior a 20 (vinte) litros  
+0301500		2020-11-30	210690 22029900	Bebidas hidroeletrolíticas (isotônicas) em embalagem com capacidade inferior a 600ml
+0301500	2020-12-01	2021-05-31	210690 22029900	Bebidas hidroeletrolíticas em embalagem com capacidade inferior a 600ml
+0301500	2021-06-01		210690 22029900	Bebidas hidroeletrolíticas
+0301600		2020-11-30	210690 22029900	Bebidas hidroeletrolíticas (isotônicas) em embalagem com capacidade igual ou superior a 600ml
+0301600	2020-12-01	2021-05-31	210690 22029900	Bebidas hidroeletrolíticas em embalagem com capacidade igual ou superior a 600ml
+0302100		2021-05-31	22030000	Cerveja
+0302100	2021-06-01		22030000	Cerveja em garrafa de vidro retornável
+0302101	2021-06-01		22030000	Cerveja em garrafa de vidro descartável
+0302102			22030000	Cerveja em garrafa de alumínio
+0302103			22030000	Cerveja em lata
+0302104			22030000	Cerveja em barril
+0302105	2021-06-01		22030000	Cerveja em embalagem PET
+0302106			22030000	Cerveja em outras embalagens
+0302200		2021-05-31	22029100	Cerveja sem álcool
+0302200	2021-06-01		22029100	Cerveja sem álcool em garrafa de vidro retornável
+0302201	2021-06-01		22029100	Cerveja sem álcool em garrafa de vidro descartável
+0302202			22029100	Cerveja sem álcool em garrafa de alumínio
+0302203			22029100	Cerveja sem álcool em lata
+0302204			22029100	Cerveja sem álcool em barril
+0302205	2021-06-01		22029100	Cerveja sem álcool em embalagem PET
+0302206			22029100	Cerveja sem álcool em outras embalagens
+0302300			22030000	Chope
+0302400			22011000	Água mineral em embalagens retornáveis com capacidade igual ou superior a 10 (dez) e inferior a 20 (vinte) litros
+0302500			22011000	Água mineral em embalagens retornáveis com capacidade igual ou superior a 20 (vinte) litros
 0400100			2402	Charutos, cigarrilhas e cigarros, de tabaco ou dos seus sucedâneos
 0400200			24031	Tabaco para fumar, mesmo contendo sucedâneos de tabaco em qualquer proporção
 0500100			2523	Cimento
@@ -1056,7 +1062,7 @@ CEST	dIniVig	dFimVig	NCM	xDescricao
 2200100			2309	Ração tipo “pet” para animais domésticos
 2300100			210500	Sorvetes de qualquer espécie
 2300200		2023-05-31	1806 1901 2106	Preparados para fabricação de sorvete em máquina
-2300200	2023-06-01		0404 1806 1901 2106	Preparados para fabricação de sorvete em máquina  
+2300200	2023-06-01		0404 1806 1901 2106	Preparados para fabricação de sorvete em máquina
 2400100			3208 3209 321000	Tintas, vernizes
 2400200		2020-02-29	2821 32041700 3206	Xadrez e pós assemelhados, exceto pigmentos à base de dióxido de titânio classificados no código 3206.11.19
 2400200	2020-03-01	2022-05-01	2821 32041700 3206	Xadrez e pós assemelhados, em embalagem de conteúdo inferior ou igual a 1 kg, exceto pigmentos à base de dióxido de titânio classificados no código 3206.11.19
@@ -1087,7 +1093,7 @@ CEST	dIniVig	dFimVig	NCM	xDescricao
 2502100			87043190	Outros veículos automóveis para transporte de mercadorias, de peso em carga máxima não superior a 5 toneladas, com motor a explosão, exceto carro-forte para transporte de valores e caminhão de peso em carga máxima superior a 3,9 toneladas
 2502200			87022000	Veículos automóveis para transporte de 10 pessoas ou mais, incluindo o motorista, com motor de pistão, de ignição por compressão (diesel ou semidiesel) e um motor elétrico, com volume interno de habitáculo, destinado a passageiros e motorista, superior a 6 m³, mas inferior a 9 m³
 2502300			87023000	Veículos automóveis para transporte de 10 pessoas ou mais, incluindo o motorista, com motor de pistão alternativo, de ignição por centelha (faísca) e um motor elétrico, com volume interno de habitáculo, destinado a passageiros e motorista, superior a 6 m³, mas inferior a 9 m³
-2502400			87029000	 Outros veículos automóveis para transporte de 10 pessoas ou mais, incluindo o motorista, com volume interno de habitáculo, destinado a passageiros e motorista, superior a 6 m³, mas inferior a 9 m³
+2502400			87029000	Outros veículos automóveis para transporte de 10 pessoas ou mais, incluindo o motorista, com volume interno de habitáculo, destinado a passageiros e motorista, superior a 6 m³, mas inferior a 9 m³
 2502500			87034000	Automóveis equipados para propulsão, simultaneamente, com um motor de pistão alternativo de ignição por centelha (faísca*) e um motor elétrico, exceto os suscetíveis de serem carregados por conexão a uma fonte externa de energia elétrica, o carro celular e o carro funerário
 2502600			87035000	Automóveis equipados para propulsão, simultaneamente, com um motor de pistão por compressão (diesel ou semidiesel) e um motor elétrico, exceto os suscetíveis de serem carregados por conexão a uma fonte externa de energia elétrica, exceto o carro celular e o carro funerário
 2502700			87036000	Automóveis equipados para propulsão, simultaneamente, com um motor de pistão alternativo de ignição por centelha (faísca*) e um motor elétrico, suscetíveis de serem carregados por conexão a uma fonte externa de energia elétrica, exceto o carro celular e o carro funerário

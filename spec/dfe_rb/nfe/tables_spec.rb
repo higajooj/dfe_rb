@@ -35,6 +35,12 @@ RSpec.describe DfeRb::Nfe::Tables do
     expect(described_class.cest("9999999")).to be_nil
   end
 
+  it "keeps the history of a wording given in a padded table, in plain spaces" do
+    expect(described_class.cest("0301600", on: "2021-05-31").description).to eq("Bebidas hidroeletrolíticas em embalagem com capacidade igual ou superior a 600ml")
+    expect(described_class.cest("0301600", on: "2021-06-01")).to be_nil
+    expect(described_class.cests(on: "2026-10-15").map(&:description)).to all(match(/\A\S(.*\S)?\z/))
+  end
+
   it "lists the CESTs in force on a day, or those an NCM fits" do
     cests = described_class.cests(on: Date.new(2026, 10, 15))
 

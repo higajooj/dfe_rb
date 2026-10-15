@@ -181,7 +181,7 @@ def cest_rows(html)
       elsif !row.at_css("[class*=verde]") then ["", ""]
       end
       remark = nil
-      description = cells[(index + 2)..].join(" ").split.join(" ") if index
+      description = cells[(index + 2)..].join(" ").gsub(/[[:space:]]+/, " ").strip if index
       next if index.nil? || days.nil? || description.match?(/\AREVOGAD/i)
 
       code = cells[index].delete(".")
@@ -207,10 +207,12 @@ def cest_rows(html)
   rows
 end
 
+# A cell's text, its paragraphs and line breaks as spaces and the page's no-break spaces as
+# plain ones.
 def cest_cell(cell)
-  cell.css("br").each { |br| br.replace("\n") }
+  cell.css("br").each { |br| br.replace(" ") }
   paragraphs = cell.css("p").map(&:text)
-  (paragraphs.empty? ? cell.text : paragraphs.join("\n")).strip
+  (paragraphs.empty? ? cell.text : paragraphs.join(" ")).gsub(/[[:space:]]+/, " ").strip
 end
 
 # The first and last days a remark gives the wording after it, as yyyy-mm-dd ("" for no

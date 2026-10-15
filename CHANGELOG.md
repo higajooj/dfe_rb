@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- `cests.tsv` reads the CONFAZ page's no-break spaces as spaces: 20 descriptions lose trailing spaces, and the remarks of the Anexo IV items they hid now date their wordings (03.015.00, 03.016.00, 03.021.xx and 03.022.xx have their history, and the revoked 03.016.00 is listed with the days it was in force).
+
 ## 0.11.0
 
 - The CESTs of Conv. ICMS 142/2018 (Anexos II to XXVI), from the CONFAZ page: `DfeRb::Nfe::Tables.cest(code, on:)` gives a CEST in its wording of a day and `Tables.cests(on:, ncm:)` those in force, or those an NCM fits. A `Tables::Cest` has its NCM prefixes, description, `valid_from` and `valid_until` (the last day in force), `fits?(ncm)`, `valid_on?` and `catch_all?` for the "outros" items (01.999.00), which list no NCM. `script/update_tables` regenerates `cests.tsv` from the page (`--confaz`, downloaded when not given), keeping every wording with its days.
