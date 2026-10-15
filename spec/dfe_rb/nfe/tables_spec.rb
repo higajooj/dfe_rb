@@ -24,6 +24,35 @@ RSpec.describe DfeRb::Nfe::Tables do
     expect(described_class.classification("999999")).to be_nil
   end
 
+  it "gives a CEST in its wording of a day, with the NCMs it is listed for" do
+    water = described_class.cest("03.003.00", on: Date.new(2026, 10, 15))
+
+    expect(water).to have_attributes(code: "0300300", ncms: %w[22011000 22019000], valid_from: "2024-09-01", valid_until: nil)
+    expect(water.description).to start_with("Água mineral, gasosa ou não, ou potável, naturais, em embalagem de vidro descartável")
+    expect(described_class.cest("0300300", on: "2021-05-31").description).to end_with("com capacidade de até 300 ml")
+    expect(described_class.cest("2104601", on: Date.new(2026, 10, 31))).to be_nil
+    expect(described_class.cest("2104601", on: Date.new(2026, 11, 1)).description).to eq("Fogões de cozinha, exceto os portáteis")
+    expect(described_class.cest("9999999")).to be_nil
+  end
+
+  it "lists the CESTs in force on a day, or those an NCM fits" do
+    cests = described_class.cests(on: Date.new(2026, 10, 15))
+
+    expect(cests.size).to eq(1040)
+    expect(cests.map(&:code)).to include("0199900", "2805600")
+    expect(cests.map(&:code)).not_to include("2104601", "0300100")
+    expect(described_class.cests(on: Date.new(2026, 11, 1)).size).to eq(1043)
+    expect(described_class.cests(on: Date.new(2026, 10, 15), ncm: "7308.40.00").map(&:code)).to eq(%w[0199900 1004800 1004900 2806100 2806300 2899900])
+  end
+
+  it "fits an NCM to a CEST by prefix, and any NCM to an \"outros\" item" do
+    expect(described_class.cest("2805600").fits?("33049910")).to be(true)
+    expect(described_class.cest("2805600").fits?("35069190")).to be(false)
+    expect(described_class.cest("0199900")).to have_attributes(catch_all?: true, segment: "01", ncms: [])
+    expect(described_class.cest("0199900").fits?("87089990")).to be(true)
+    expect(described_class.cest("0100100").catch_all?).to be(false)
+  end
+
   it "describes a CFOP by the indicators of IT 2023.002" do
     purchase = described_class.cfop("1102")
 

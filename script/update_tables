@@ -5,10 +5,11 @@
 #   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
 #   cfop.tsv             CFOP table of IT 2023.002, the .xlsx the Portal Nacional da NF-e publishes
 #   tipi.tsv             IPI rates of the TIPI, the Tipi.xlsx the Receita Federal publishes
+#   cests.tsv            CESTs of Conv. ICMS 142/2018 (Anexos II to XXVI), as the CONFAZ page publishes it
 #
-# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]
+# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--confaz CV142_18.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]
 #
-# IBGE and SVRS are downloaded when not given. The CFOP table and the TIPI have no stable
+# IBGE, SVRS and CONFAZ are downloaded when not given. The CFOP table and the TIPI have no stable
 # address, so cfop.tsv and tipi.tsv are regenerated only from a given .xlsx (read with the
 # unzip command). payment_methods.tsv and card_brands.tsv are edited by hand, from the tables
 # of the Portal Nacional da NF-e.
@@ -24,6 +25,13 @@ require "uri"
 
 IBGE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado"
 SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/ClassificacaoTributaria"
+CONFAZ_URL = "https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18"
+# The annexes of Conv. ICMS 142/2018 that list CESTs, one segment each (Anexo XV four); the
+# ones after them are lists of other kinds.
+CEST_ANNEXES = %w[II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII XVIII XIX XX XXI XXII XXIII XXIV XXV XXVI].map { |number| "ANEXO #{number}" }.freeze
+CEST_CODE = /\A\d{2}\.\d{3}\.\d{2}\z/
+# NCMs the CONFAZ page misprints, by CEST: 20.040.00 lists 926.90.90 for 3926.90.90.
+CEST_MISPRINTS = {"2004000" => {"9269090" => "39269090"}}.freeze
 DATA = File.expand_path("../lib/dfe_rb/nfe/data", __dir__)
 # The .xlsx column headers, in the order cfop.tsv writes them under its own names.
 CFOP_COLUMNS = {
@@ -36,9 +44,10 @@ EXCEL_EPOCH = Date.new(1899, 12, 30)
 
 options = {}
 OptionParser.new do |parser|
-  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]"
+  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--confaz CV142_18.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]"
   parser.on("--ibge FILE", "IBGE municipalities JSON (downloaded if not given)") { |file| options[:ibge] = file }
   parser.on("--svrs FILE", "SVRS cClassTrib page HTML (downloaded if not given)") { |file| options[:svrs] = file }
+  parser.on("--confaz FILE", "CONFAZ page of Conv. ICMS 142/2018 (downloaded if not given)") { |file| options[:confaz] = file }
   parser.on("--cfop FILE", "IT 2023.002 CFOP table .xlsx (cfop.tsv is left alone if not given)") { |file| options[:cfop] = file }
   parser.on("--tipi FILE", "TIPI .xlsx of the Receita Federal (tipi.tsv is left alone if not given)") { |file| options[:tipi] = file }
 end.parse!
@@ -139,6 +148,100 @@ def tipi_rate(value)
   text.match?(/\.\d\z/) ? "#{text}0" : text
 end
 
+# Every wording of every CEST of Conv. ICMS 142/2018 as [CEST, first day, last day, NCMs, description].
+# Each item is listed with each wording it has had: a remark before a wording says when it
+# was in force ("efeitos a partir de 01.06.21", "efeitos de 01.12.20 até 31.05.21", "sem
+# efeitos"), and a wording out of force is printed in green. A wording with no remark of its
+# own is in force from the start, unless green: then its days are unknown and it's left out,
+# as are those without effects and the revocations (the wording before one ends the day before).
+# A remark may cover the items after it ("itens 49.3 e 49.4"), so a wording with no first day
+# starts the day after its CEST's dated wordings end.
+def cest_rows(html)
+  annex = nil
+  tables = Nokogiri::HTML(html).xpath("//p[not(ancestor::table)] | //table[not(ancestor::table)]").each_with_object([]) do |node, found|
+    if node.name == "p"
+      annex = node.text.split.join(" ") if node.text.strip.match?(/\AANEXO [IVXL]+\z/)
+    elsif CEST_ANNEXES.include?(annex)
+      found << node
+    end
+  end
+  raise "the CONFAZ page no longer has the CEST annexes (#{CEST_ANNEXES.first} to #{CEST_ANNEXES.last})" unless tables.size == CEST_ANNEXES.size
+
+  rows = tables.flat_map do |table|
+    remark = nil
+    table.css("tr").filter_map do |row|
+      cells = row.css("td, th").map { |cell| cest_cell(cell) }
+      if row.at_css("[class*=Remissao], [class*=RedacaoAnt]") && cells.count { |text| !text.empty? } == 1
+        remark = cells.find { |text| !text.empty? }
+        next
+      end
+
+      index = cells.index { |text| text.match?(CEST_CODE) }
+      days = if remark then cest_days(remark)
+      elsif !row.at_css("[class*=verde]") then ["", ""]
+      end
+      remark = nil
+      description = cells[(index + 2)..].join(" ").split.join(" ") if index
+      next if index.nil? || days.nil? || description.match?(/\AREVOGAD/i)
+
+      code = cells[index].delete(".")
+      fixes = CEST_MISPRINTS.fetch(code, {})
+      ncms = cest_ncms(cells[index + 1].to_s).map { |ncm| fixes.fetch(ncm, ncm) }.uniq.sort
+      [code, *days, ncms.join(" "), description]
+    end
+  end
+
+  rows = rows.group_by(&:first).flat_map do |code, wordings|
+    last = wordings.map { |wording| wording[2] }.reject(&:empty?).max
+    wordings.each { |wording| wording[1] = (Date.iso8601(last) + 1).iso8601 if wording[1].empty? && wording[2].empty? && last }
+    wordings.sort_by { |wording| wording[1] }
+  end
+
+  rows.group_by(&:first).each do |code, wordings|
+    wordings.each_cons(2) do |(_, _, until_before), (_, from, *)|
+      next if !until_before.empty? && !from.empty? && until_before < from
+
+      raise "CEST #{code} has wordings in force on the same days (one until #{until_before.inspect}, the next from #{from.inspect})"
+    end
+  end
+  rows
+end
+
+def cest_cell(cell)
+  cell.css("br").each { |br| br.replace("\n") }
+  paragraphs = cell.css("p").map(&:text)
+  (paragraphs.empty? ? cell.text : paragraphs.join("\n")).strip
+end
+
+# The first and last days a remark gives the wording after it, as yyyy-mm-dd ("" for no
+# bound), or nil for one without effects.
+def cest_days(remark)
+  return nil if remark.match?(/sem efeitos/i)
+
+  dates = remark.scan(/(\d{2})\.(\d{2})\.(\d{2}(?:\d{2})?)/).map { |day, month, year| Date.new(year.rjust(4, "20").to_i, month.to_i, day.to_i).iso8601 }
+  raise "a CONFAZ remark gives no date: #{remark.inspect}" if dates.empty?
+
+  if dates.size >= 2 then dates.first(2)
+  elsif remark.match?(/até/i) then ["", dates.first]
+  else [dates.first, ""]
+  end
+end
+
+# The NCM prefixes of a cell, without dots: codes on their own lines or separated by commas,
+# or the chapters of "Capítulos 13 e 15 a 23".
+def cest_ncms(text)
+  if text.match?(/cap[ií]tulo/i)
+    return text.scan(/(\d+)(?:\s+a\s+(\d+))?/).flat_map do |first, last|
+      (first.to_i..(last || first).to_i).map { |chapter| format("%02d", chapter) }
+    end
+  end
+
+  text.scan(/\d[\d.]*/).map { |code| code.delete(".") }.tap do |codes|
+    bad = codes.reject { |code| code.match?(/\A\d{2,8}\z/) }
+    raise "the CONFAZ page lists #{bad.join(", ")} as NCMs" unless bad.empty?
+  end
+end
+
 municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
   .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
   .sort
@@ -156,7 +259,10 @@ rows = JSON.parse(json).flat_map do |cst|
 end.sort
 write_tsv("classifications.tsv", [header] + rows)
 
-summary = "#{municipalities.size} municipalities, #{rows.size} classifications"
+cests = cest_rows(source(options[:confaz], CONFAZ_URL))
+write_tsv("cests.tsv", [%w[CEST dIniVig dFimVig NCM xDescricao]] + cests)
+
+summary = "#{municipalities.size} municipalities, #{rows.size} classifications, #{cests.map(&:first).uniq.size} CESTs (#{cests.size} wordings)"
 if options[:cfop]
   cfops = cfop_rows(options[:cfop])
   write_tsv("cfop.tsv", [CFOP_COLUMNS.values] + cfops)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0
+
+- The CESTs of Conv. ICMS 142/2018 (Anexos II to XXVI), from the CONFAZ page: `DfeRb::Nfe::Tables.cest(code, on:)` gives a CEST in its wording of a day and `Tables.cests(on:, ncm:)` those in force, or those an NCM fits. A `Tables::Cest` has its NCM prefixes, description, `valid_from` and `valid_until` (the last day in force), `fits?(ncm)`, `valid_on?` and `catch_all?` for the "outros" items (01.999.00), which list no NCM. `script/update_tables` regenerates `cests.tsv` from the page (`--confaz`, downloaded when not given), keeping every wording with its days.
+
 ## 0.10.2
 
 - Flag locally an NF-e item with ICMS-ST and no `CEST` (RV N23-10, rej. 806): CST 10, 30, 60, 70, CSOSN 201, 202, 203, 500, and CST 90 or CSOSN 900 with a `vICMSST`; not in the `ICMSPart` group nor in an NFC-e. `Validator::CEST_ST_CODES` and `CEST_ST_AMOUNT_CODES` list them.

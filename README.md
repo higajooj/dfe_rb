@@ -85,6 +85,8 @@ The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procE
   - an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE)
   - each CFOP's indicators (IT 2023.002), through `DfeRb::Nfe::Tables.cfop("6916")`
 
+  - the CESTs of Conv. ICMS 142/2018, each wording with its days in force and the NCMs it is listed for, through `DfeRb::Nfe::Tables.cest("2104600")`
+
   `script/update_tables --cfop <file.xlsx>` regenerates the CFOP table from the `.xlsx` the Portal Nacional da NF-e publishes, and `--tipi <Tipi.xlsx>` regenerates the TIPI from the Receita Federal's.
 - **Operation-dependent codes**: a 3-digit CFOP (`"102"`) gets the first digit the operation calls for (`5102`, `6102`, `7102`, or `1`/`2`/`3` on entries). `finNFe` is 5 with a `credit_note_type` (`tpNFCredito`), 6 with a `debit_note_type`, otherwise 1. `tpNF` is 0 (entry) on a credit note or when every item has an entry CFOP (`1102`), otherwise 1. The gem flags a devolução CFOP (`5202`) on a note that isn't a return (rej. 328). Give `purpose :return` yourself, since a complement of a return (`:complementary`) takes the same CFOPs.
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
@@ -442,6 +444,13 @@ ipi = DfeRb::Nfe::Tables.ipi_rate("2203.00.00")         # TIPI: also "22030000";
 ipi.rate, ipi.non_taxed?                                # => 3.9 (a BigDecimal, nil on an NT line), false
 DfeRb::Nfe::Tables.ipi_rate("03057100", "01")           # the line of an EX (EXTIPI), else the NCM's own
 DfeRb::Nfe::Tables.ipi_rates                            # all 11,107 lines, by NCM and EX
+
+cest = DfeRb::Nfe::Tables.cest("01.001.00")            # also "0100100"; the wording in force today, nil if none
+cest.ncms, cest.description                              # => ["38151210", "38151290"], "Catalisadores em colmeia ..."
+cest.fits?("3815.12.10"), cest.valid_from                # => true, nil (in force from the start)
+DfeRb::Nfe::Tables.cest("2104601", on: Date.new(2026, 11, 1))  # the wording of a day (nil before 01/11/2026)
+DfeRb::Nfe::Tables.cests                                 # those in force today (1,040 on 15/10/2026)
+DfeRb::Nfe::Tables.cests(ncm: "73084000")                # those an NCM fits, with the "outros" items (01.999.00), which list no NCM
 
 pix = DfeRb::Nfe::Tables.payment_method("23")           # tPag: title, valid_from, deferred? (90 and 91)
 pix.valid_on?(Date.new(2026, 5, 3))                     # => false: accepted from 04/05/2026
