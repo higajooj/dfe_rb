@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0
+
+- An item's presumed credits (`gCred`, NT 2019.001 v1.60): `presumed_credit code:, rate:, amount:` (or by position, `presumed_credit "SC850001", "3.00", "9.00"`) adds one `<gCred>` after `cBenef`, and `presumed_credits [...]` takes a list; the schema allows four per item. `vCredPresumido` is the issuer's to give: the layout sets no base for it. The state rules on the group and its code (RV I05g-10, I05h-10) are left to SEFAZ.
+
 ## 0.11.1
 
 - `cests.tsv` reads the CONFAZ page's no-break spaces as spaces: 20 descriptions lose trailing spaces, and the remarks of the Anexo IV items they hid now date their wordings (03.015.00, 03.016.00, 03.021.xx and 03.022.xx have their history, and the revoked 03.016.00 is listed with the days it was in force).

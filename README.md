@@ -92,7 +92,7 @@ The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procE
 - **Billing and payment**: a single payment without amount pays `vNF` (0.00 for tPag 90/91); `fat/vOrig` defaults to `vNF`, `vLiq` to `vOrig - vDesc`, a single installment to `vLiq`, and installments are numbered `001`, `002`...
 - **Responsável técnico**: `technical_contact:` on the `Client` (or `Invoice.new`) fills `infRespTec` on every invoice and, with `csrt:`, its `hashCSRT` (NT 2018.005). The CSRT never goes into the XML.
 
-**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`) and benefit codes (`cBenef`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin (`pMVAST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized. The gem ships no state table either (internal and FCP rates, cBenef x CST): those are your application's to keep.
+**State law is always yours to give.** The gem derives only what federal law or a national table fixes. It never fills in what each state's ICMS regulation decides: the internal `pICMS` of a product, base reductions (`pRedBC`, `pRedBCST`), benefit codes (`cBenef`) and presumed credits (`gCred`), FCP rates (`pFCP`, `pFCPST`, `pFCPUFDest`), the ST margin (`pMVAST`), the destination's internal rate (`pICMSUFDest`), or the ICMS CST itself. SEFAZ mostly doesn't check these, so a wrong value is usually authorized. The gem ships no state table either (internal and FCP rates, cBenef x CST, presumed credit codes): those are your application's to keep.
 
 Anything you set yourself is kept, and checked where SEFAZ checks it. `cNF` and the issue time are generated once per invoice, so building the XML twice gives the same document.
 
@@ -128,6 +128,17 @@ i.icms  csosn: "101", origin: 0, credit_rate: "2.83"      # vCredICMSSN
 i.pis   cst: "01", rate: "1.65"                           # vBC without the item's ICMS
 i.icms_destination destination_rate: "18.00"              # DIFAL: bases, interstate rate, partition, amounts
 ```
+
+An item's presumed ICMS credits go in `gCred` (NT 2019.001 v1.60), after `cBenef`, up to four per item:
+
+```ruby
+i.benefit_code "SC810001"
+i.presumed_credit code: "SC850001", rate: "3.00", amount: "9.00"   # cCredPresumido, pCredPresumido, vCredPresumido
+i.presumed_credit "SC850002", "1.50", "4.50"                        # the same, by position
+i.presumed_credits [{code: "SC850001", rate: "3.00", amount: "9.00"}, ...]
+```
+
+The layout gives the credit no base, and each state's regulation says what the rate applies to, so `vCredPresumido` is yours to give, like the code. Whether a state accepts the group (RV I05g-10) and the code (I05h-10, Santa Catarina for now) depends on its own table, so SEFAZ checks them, not the gem.
 
 `DfeRb::Nfe::Rates` has the federal rates you may need to pass along:
 

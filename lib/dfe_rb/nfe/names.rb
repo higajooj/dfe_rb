@@ -68,7 +68,8 @@ module DfeRb
         "enderEmit" => ADDRESS, "enderDest" => ADDRESS, "retirada" => ADDRESS, "entrega" => ADDRESS,
         "det" => {
           code: "cProd", gtin: "cEAN", barcode: "cBarra", description: "xProd", ncm: "NCM", cest: "CEST",
-          scale_indicator: "indEscala", manufacturer_cnpj: "CNPJFab", benefit_code: "cBenef", ex_tipi: "EXTIPI",
+          scale_indicator: "indEscala", manufacturer_cnpj: "CNPJFab", benefit_code: "cBenef", presumed_credit: "gCred",
+          presumed_credits: "gCred", ex_tipi: "EXTIPI",
           cfop: "CFOP", unit: "uCom", quantity: "qCom", unit_price: "vUnCom", total: "vProd",
           taxable_gtin: "cEANTrib", taxable_unit: "uTrib", taxable_quantity: "qTrib",
           taxable_unit_price: "vUnTrib", freight: "vFrete", insurance: "vSeg", discount: "vDesc",
@@ -77,6 +78,7 @@ module DfeRb
           selective_tax: "IS", icms_destination: "ICMSUFDest", import_tax: "II", returned_tax: "impostoDevol",
           referenced_dfe: "DFeReferenciado"
         },
+        "gCred" => {code: "cCredPresumido", rate: "pCredPresumido", amount: "vCredPresumido"},
         "NFref" => {key: "refNFe", nfe: "refNFe", cte: "refCTe"},
         "obsCont" => {field: "@xCampo", text: "xTexto"},
         "transp" => {

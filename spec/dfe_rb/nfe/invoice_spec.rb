@@ -152,6 +152,62 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(invoice.resolved["det"].first["prod"]).to include("cProd" => "X", "xProd" => "Nome", "NCM" => "84713012")
     end
 
+    def credited_item(nfe)
+      nfe.item do |i|
+        i.code "2"
+        i.description "Segundo"
+        i.ncm "84713012"
+        i.cfop "6102"
+        i.unit "UN"
+        i.quantity 1
+        i.unit_price "100.00"
+        i.benefit_code "SC810001"
+        yield i
+        i.icms csosn: "102", origin: :domestic
+        i.pis cst: "07"
+        i.cofins cst: "07"
+      end
+      nfe.payment :money, "100.00"
+    end
+
+    it "writes the presumed credits (gCred) after cBenef, by name, by position or as a list" do
+      invoice = simples_invoice(client) do |nfe|
+        credited_item(nfe) do |i|
+          i.presumed_credit code: "SC850001", rate: "3.00", amount: "3.00"
+          i.presumed_credit "SC850002", "1.5", "1.50"
+        end
+      end
+      listed = DfeRb::Nfe::Invoice.new(items: [{presumed_credits: [
+        {code: "SC850001", rate: "3.00", amount: "3.00"}, {cCredPresumido: "SC850002", pCredPresumido: "1.5", vCredPresumido: "1.50"}
+      ]}])
+
+      prod = doc(invoice).at_xpath("//nfe:det[2]/nfe:prod", ns)
+      tags = prod.elements.map(&:name)
+      expect(tags[tags.index("cBenef") + 1, 3]).to eq(%w[gCred gCred CFOP])
+      credits = prod.xpath("nfe:gCred", ns).map { |credit| credit.elements.map { |e| [e.name, e.text] } }
+      expect(credits).to eq([
+        [%w[cCredPresumido SC850001], %w[pCredPresumido 3.00], %w[vCredPresumido 3.00]],
+        [%w[cCredPresumido SC850002], %w[pCredPresumido 1.50], %w[vCredPresumido 1.50]]
+      ])
+      expect(listed.resolved["det"].first.dig("prod", "gCred")).to eq(invoice.resolved["det"].last.dig("prod", "gCred"))
+    end
+
+    it "holds an item to four presumed credits, each with its rate and amount (schema)" do
+      too_many = simples_invoice(client) { |nfe| credited_item(nfe) { |i| 5.times { |n| i.presumed_credit "SC85000#{n}", "1.00", "1.00" } } }
+      incomplete = simples_invoice(client) { |nfe| credited_item(nfe) { |i| i.presumed_credit code: "SC850001", rate: "1.00" } }
+      four = simples_invoice(client) { |nfe| credited_item(nfe) { |i| 4.times { |n| i.presumed_credit "SC85000#{n}", "1.00", "1.00" } } }
+
+      expect(too_many.issues).to include(a_string_matching(/gCred/))
+      expect(incomplete.issues).to include(a_string_matching(/vCredPresumido/))
+      expect(four.issues).to eq([])
+    end
+
+    it "leaves the presumed credit's amount to the issuer, the layout giving it no base" do
+      invoice = simples_invoice(client) { |nfe| credited_item(nfe) { |i| i.presumed_credit "SC850001", "3.00", "2.00" } }
+      expect(invoice.resolved["det"].last.dig("prod", "gCred")).to eq([{"cCredPresumido" => "SC850001", "pCredPresumido" => "3.00", "vCredPresumido" => "2.00"}])
+      expect(invoice.issues).to eq([])
+    end
+
     it "suggests the right name for a typo" do
       expect { client.build_invoice { |nfe| nfe.nature_of_operacion "x" } }
         .to raise_error(NoMethodError, /nature_of_operacion.*did you mean :?"?nature_of_operation/m)

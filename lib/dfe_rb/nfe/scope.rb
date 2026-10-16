@@ -15,6 +15,7 @@ module DfeRb
       POSITIONAL = {
         "detPag" => %i[kind amount],
         "NFref" => %i[key],
+        "gCred" => %i[code rate amount],
         "obsCont" => %i[field text]
       }.freeze
 
