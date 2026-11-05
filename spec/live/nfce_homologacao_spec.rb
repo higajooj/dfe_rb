@@ -11,6 +11,11 @@
 # accredited for the NFC-e at its state (otherwise 781), and are skipped without DFE_RB_LIVE_IE.
 # Their notes are numbered from the clock and canceled, by substitution or not, once
 # authorized.
+#
+# DFE_RB_LIVE_SAVE_DIR keeps what SEFAZ registered (each procNFe and procEventoNFe) in that
+# directory, the notes as authorized before their cancellation.
+require "fileutils"
+
 RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
   def self.certificate
     @certificate ||= begin
@@ -95,6 +100,19 @@ RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
     def authorized(input)
       result = client.authorize(input)
       expect(result).to be_authorized, "#{result.code} #{result.message}"
+      save(result)
+    end
+
+    def registered(event)
+      expect(event).to be_registered, "#{event.code} #{event.message}"
+      save(event)
+    end
+
+    def save(result)
+      return result unless ENV["DFE_RB_LIVE_SAVE_DIR"] && result.proc_xml
+
+      FileUtils.mkdir_p(ENV["DFE_RB_LIVE_SAVE_DIR"])
+      File.write(File.join(ENV["DFE_RB_LIVE_SAVE_DIR"], result.filename), result.proc_xml)
       result
     end
 
@@ -105,7 +123,7 @@ RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
       expect(client.consult(signed.key).protocol).to eq(result.protocol)
 
       cancellation = client.cancel(signed.key, protocol: result.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
-      expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+      registered(cancellation)
       expect(client.consult(signed.key)).to be_canceled
 
       unused = client.inutilize(series: 1, from: base_number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
@@ -125,12 +143,12 @@ RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
 
       substitution = client.cancel_by_substitution(original.key, protocol: first.protocol, replacement: replacement.key,
         reason: "Emitida em contingencia off-line para a mesma venda")
-      expect(substitution).to be_registered, "#{substitution.code} #{substitution.message}"
+      registered(substitution)
       expect(substitution.proc_xml).to include("<tpEvento>110112</tpEvento>")
       expect(client.consult(original.key)).to be_canceled
 
       cancellation = client.cancel(replacement.key, protocol: second.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
-      expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+      registered(cancellation)
     end
 
     it "gives an NFC-e handed in as XML its QR code before signing it" do
@@ -139,7 +157,7 @@ RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
       result = authorized(signed)
 
       cancellation = client.cancel(signed.key, protocol: result.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
-      expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+      registered(cancellation)
     end
   end
 end

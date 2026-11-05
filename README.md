@@ -14,7 +14,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.10.1"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.13.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.

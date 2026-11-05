@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+- NFC-e (modelo 65, layout 4.00): `DfeRb::Nfce::Client` builds, validates, signs and authorizes the consumer's note with the NF-e's builder and results (`build_invoice`, `sign`, `authorize`, `authorize!`, `consult`, `cancel`, `inutilize` of modelo 65), at the NFC-e's own authorizers: AM, GO, MG, MS, MT, PR, RS and SP have theirs, every other state uses the SVRS (BA, PE and MA included, unlike the NF-e). One note per request, answered synchronously (RV GAP03a-4, rej. 126). No carta de correção (784), EPEC or SVC (783): each says why.
+- The QR code version 3 (NT 2025.001), with no CSC: `infNFeSupl` carries it and the `urlChave`, from each state's addresses on the Portal Nacional da NFC-e (`endpoints: {qr_code:, consult_url:}` overrides them). `result.qr_code` and `result.consult_url` (and the same on `SignedInvoice`) give what the DANFE NFC-e prints.
+- Off-line contingency: `nfce.contingency :offline, since:, reason:` issues with `tpEmis` 9 and a QR code whose day, total and consumer are signed with the certificate (NT 2026.003 §4.3.2). `cancel_by_substitution(key, protocol:, replacement:, reason:)` registers evento 110112 (NT 2018.004) for a note an off-line one replaced, refusing locally a pair the rule rejects (911, 920).
+- Defaults of a consumer sale: `mod` 65, `tpImp` 4, `indFinal` 1, `indPres` 1, `idDest` 1, `indIEDest` 9, and in homologação the first item described as RV I04-10 requires (373). `nfce.consumer` names the recipient, and an NFC-e may leave it out.
+- The rules of modelo 65 (`DfeRb::Nfce::Validator`), each naming its RV and rejection: the CFOPs (I08-150 with 5.910, and each state's 5.949/5.403 of NT 2023.003) and the CST or CSOSN each goes with, the CST and CSOSN lists, a MEI's (N12a-81, -91), the groups an NFC-e can't carry, home delivery, the consumer's identification above R$ 10.000,00 (W16-40), freight and carrier, the payment methods it can't take and the card group of card and PIX payments (391), and the QR code's address, parameters and off-line signature (ZX02). Rules each state sets stay with SEFAZ.
+- A raw unsigned NFC-e handed to `sign` gets its `infNFeSupl`; a signed one must carry it (394). `DfeRb::Nfe::Client` refuses an NFC-e and `DfeRb::Nfce::Client` an NF-e, each naming the other.
+- For the NF-e too: series 920 to 969 from an issuer identified by CPF (RV B26-10, C02a-10), and a card payment's acquirer and authorization when integrated, its CNPJ and its brand (YA05-10, YA05-20, YA06-10).
+- Verified live in SEFAZ MS homologação: NFC-e authorization, cancellation, inutilização, an off-line note and a cancellation by substitution; status on every NFC-e authorizer; and the NF-e lifecycle of a registered issuer. `spec/live/nfce_homologacao_spec.rb` keeps what it registers in `DFE_RB_LIVE_SAVE_DIR`.
+
 ## 0.12.0
 
 - An item's presumed credits (`gCred`, NT 2019.001 v1.60): `presumed_credit code:, rate:, amount:` (or by position, `presumed_credit "SC850001", "3.00", "9.00"`) adds one `<gCred>` after `cBenef`, and `presumed_credits [...]` takes a list; the schema allows four per item. `vCredPresumido` is the issuer's to give: the layout sets no base for it. The state rules on the group and its code (RV I05g-10, I05h-10) are left to SEFAZ.
