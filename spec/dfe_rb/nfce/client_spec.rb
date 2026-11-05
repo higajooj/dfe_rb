@@ -28,6 +28,8 @@ RSpec.describe DfeRb::Nfce::Client do
     expect(transport.calls.last.url).to eq("https://hom.nfce.sefaz.ms.gov.br/ws/NFeAutorizacao4")
     expect(transport.calls.last.xml).to include("<indSinc>1</indSinc>")
     expect(result.proc_xml).to include("<nfeProc", "<infNFeSupl>", "<protNFe")
+    expect(result.qr_code).to eq("http://www.dfe.ms.gov.br/nfce/qrcode?p=#{result.key}|3|2")
+    expect(result.consult_url).to eq("www.dfe.ms.gov.br/nfce/consulta")
   end
 
   it "sends a single note per lot (rej. 126)" do

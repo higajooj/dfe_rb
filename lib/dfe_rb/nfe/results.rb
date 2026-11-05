@@ -55,6 +55,12 @@ module DfeRb
       end
 
       def filename = "#{key}-procNFe.xml"
+
+      # An NFC-e's infNFeSupl/qrCode, for the DANFE NFC-e; nil for an NF-e.
+      def qr_code = Document.new(signed_xml).supplement&.fetch("qrCode")
+
+      # An NFC-e's infNFeSupl/urlChave; nil for an NF-e.
+      def consult_url = Document.new(signed_xml).supplement&.fetch("urlChave")
     end
 
     # The situation of a key at SEFAZ (consult).

@@ -29,6 +29,12 @@ module DfeRb
     # SEFAZ authorizes and what goes into the nfeProc.
     SignedInvoice = Data.define(:xml, :key, :digest_value) do
       def to_s = xml
+
+      # An NFC-e's infNFeSupl/qrCode, which the DANFE NFC-e prints; nil for an NF-e.
+      def qr_code = Document.new(xml).supplement&.fetch("qrCode")
+
+      # An NFC-e's infNFeSupl/urlChave; nil for an NF-e.
+      def consult_url = Document.new(xml).supplement&.fetch("urlChave")
     end
 
     # The signed EPEC event of the note `key`. Store `xml` before sending it.
