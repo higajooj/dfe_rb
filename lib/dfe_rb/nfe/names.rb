@@ -41,7 +41,7 @@ module DfeRb
       # Per element tag. "infNFe" is the invoice itself.
       FIELDS = {
         "infNFe" => {
-          issuer: "emit", recipient: "dest", pickup: "retirada", delivery: "entrega", authorized_downloader: "autXML",
+          issuer: "emit", recipient: "dest", consumer: "dest", pickup: "retirada", delivery: "entrega", authorized_downloader: "autXML",
           shipping: "transp", transport: "transp", billing: "cobr", intermediary: "infIntermed",
           additional_info: "infAdic", export: "exporta", purchase: "compra", sugar_cane: "cana",
           technical_contact: "infRespTec", agro: "agropecuario", totals: "total", item: "det", items: "det",
@@ -132,7 +132,7 @@ module DfeRb
         "tpNF" => {incoming: 0, entry: 0, outgoing: 1, exit: 1},
         "idDest" => {internal: 1, interstate: 2, foreign: 3},
         "tpEmis" => {normal: 1, epec: 4, svc_an: 6, svc_rs: 7, offline: 9},
-        "tpImp" => {none: 0, portrait: 1, landscape: 2, simplified: 3, simplified_type_2: 6},
+        "tpImp" => {none: 0, portrait: 1, landscape: 2, simplified: 3, nfce: 4, nfce_message: 5, simplified_type_2: 6},
         "finNFe" => {normal: 1, complementary: 2, adjustment: 3, return: 4, credit_note: 5, debit_note: 6},
         "indFinal" => {no: 0, yes: 1},
         "indPres" => {not_applicable: 0, in_person: 1, internet: 2, phone: 3, home_delivery: 4, off_premises: 5, other: 9},

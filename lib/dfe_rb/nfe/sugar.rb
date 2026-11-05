@@ -218,8 +218,9 @@ module DfeRb
 
       # `contingency :svc, since: time, reason: "SEFAZ fora do ar"` makes the note one issued
       # in contingency: dhCont, xJust and tpEmis, which for :svc is the issuer's SVC (6 or 7,
-      # set once its state is known) and for :epec is 4.
-      CONTINGENCIES = {svc: :svc, epec: 4}.freeze
+      # set once its state is known), for :epec is 4 and for :offline (an NFC-e's off-line
+      # contingency) is 9.
+      CONTINGENCIES = {svc: :svc, epec: 4, offline: 9}.freeze
 
       register("infNFe", "contingency") do |_scope, data, args, kwargs, _block|
         first = args.first

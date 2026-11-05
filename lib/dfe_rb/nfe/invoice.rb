@@ -16,6 +16,9 @@ module DfeRb
     # phone:, csrt_id:, csrt:}); with `csrt:` the hashCSRT is computed for each key. The CSRT
     # itself never goes into the XML.
     class Invoice
+      # The mod the note gets (DfeRb::Nfce::Invoice is 65).
+      MODEL = 55
+
       attr_reader :environment
 
       # `attributes` (or plain keywords) may hold any field: Invoice.new(number: 1, issuer: {...}).
@@ -69,20 +72,26 @@ module DfeRb
 
       # [the resolved tree, the problems met while resolving it]
       def resolve
-        resolver = Resolver.new(environment: environment, memo: @memo, clock: @clock, csrt: @csrt)
+        resolver = Resolver.new(environment: environment, memo: @memo, clock: @clock, csrt: @csrt, model: self.class::MODEL)
         tree = resolver.call(@infnfe)
         [tree, resolver.issues]
       end
 
       def render(strict:)
         tree, problems = resolve
+        supplement, missing = supplement_of(tree)
         writer = XmlWriter.new
-        xml = writer.write("infNFe" => tree)
-        found = problems + writer.issues
+        xml = writer.write({"infNFe" => tree, "infNFeSupl" => supplement}.compact)
+        found = problems + missing + writer.issues
         found.concat(Schemas.nfe_issues(xml)) if found.empty?
-        found.concat(Validator.new(tree, csrt: @csrt).issues) if strict
+        found.concat(rule_issues(tree, supplement)) if strict
         [xml, found]
       end
+
+      # [infNFeSupl, problems building it]: none for an NF-e.
+      def supplement_of(_tree) = [nil, []]
+
+      def rule_issues(tree, _supplement) = Validator.new(tree, csrt: @csrt).issues
     end
   end
 end

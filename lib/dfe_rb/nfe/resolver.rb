@@ -11,6 +11,11 @@ module DfeRb
     # Anything the developer set explicitly is kept.
     class Resolver
       HOMOLOGACAO_RECIPIENT_NAME = "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+      # The first item of an NFC-e in homologação is described so (RV I04-10, rej. 373).
+      HOMOLOGACAO_ITEM_DESCRIPTION = "NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+      NFCE = "65"
+      # tpImp of the DANFE NFC-e (RV B21-10).
+      NFCE_DANFE = 4
       # First CFOP digit by tpNF and idDest (RVs I08-*, rej. 731-733).
       CFOP_PREFIX = {
         "0" => {"1" => "1", "2" => "2", "3" => "3"},
@@ -28,9 +33,11 @@ module DfeRb
       attr_reader :issues
 
       # csrt: the Código de Segurança do Responsável Técnico, which signs infRespTec/hashCSRT
-      # and never goes into the XML.
-      def initialize(environment:, memo:, clock: Time, csrt: nil)
+      # and never goes into the XML. model: the mod a note gets unless it says otherwise (55,
+      # or 65 for an NFC-e, whose defaults follow).
+      def initialize(environment:, memo:, clock: Time, csrt: nil, model: 55)
         @environment = Environment.normalize(environment)
+        @model = model
         @memo = memo
         @clock = clock
         @csrt = csrt
@@ -91,7 +98,7 @@ module DfeRb
 
       def defaults(ide, emit, state, det)
         ide["cUF"] ||= States.code(state) if state
-        ide["mod"] ||= 55
+        ide["mod"] ||= @model
         ide["serie"] ||= 1
         # A credit or debit note type fixes finNFe (RV B25.1-10, B25.2-10); a credit note is
         # an entry (B25-110) and a debit note an exit (B25-120). Any other note whose CFOPs
@@ -109,7 +116,7 @@ module DfeRb
         else entry_cfops?(det) ? 0 : 1
         end
         ide["cMunFG"] ||= emit.dig("enderEmit", "cMun")
-        ide["tpImp"] ||= 1
+        ide["tpImp"] ||= nfce?(ide) ? NFCE_DANFE : 1
         ide["tpEmis"] = States.contingency_emission_type(state) if ide["tpEmis"] == :svc && state
         ide["tpEmis"] ||= 1
         ide["dhCont"] = ide["dhCont"].to_time if ide["dhCont"].is_a?(DateTime)
@@ -130,12 +137,17 @@ module DfeRb
         det.any? && det.all? { |item| Tables.cfop(item.dig("prod", "CFOP").to_s[/\A\d{4}\z/])&.entry? }
       end
 
+      def nfce?(ide) = ide["mod"].to_s == NFCE
+
       def now_in(state)
         state ? States.now(state, @clock) : @clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
       end
 
+      # An NFC-e is a sale to a final consumer who isn't an ICMS taxpayer (RV B25a-10,
+      # E16a-10), whoever it names.
       def recipient(inf, ide, state)
         dest = inf["dest"]
+        ide["indFinal"] ||= 1 if nfce?(ide)
         unless dest
           ide["idDest"] ||= 1
           ide["indFinal"] ||= 0
@@ -143,6 +155,7 @@ module DfeRb
         end
 
         dest["xNome"] = HOMOLOGACAO_RECIPIENT_NAME if @environment == Environment::HOMOLOGACAO
+        dest["indIEDest"] ||= 9 if nfce?(ide)
         foreign = dest["idEstrangeiro"] || dest.dig("enderDest", "UF") == "EX"
 
         if dest["IE"].to_s.upcase == "ISENTO"
@@ -174,6 +187,7 @@ module DfeRb
         det.each_with_index do |item, index|
           item["@nItem"] ||= index + 1
           prod = (item["prod"] ||= {})
+          prod["xProd"] = HOMOLOGACAO_ITEM_DESCRIPTION if index.zero? && nfce?(ide) && @environment == Environment::HOMOLOGACAO
           prod["cEAN"] ||= "SEM GTIN"
           prod["cEANTrib"] ||= prod["cEAN"]
           prod["uTrib"] ||= prod["uCom"]

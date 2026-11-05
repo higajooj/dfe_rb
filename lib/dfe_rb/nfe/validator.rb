@@ -84,16 +84,8 @@ module DfeRb
         %w[dest retirada entrega].each { |tag| check_tax_id(tag, @inf[tag]) if @inf[tag] }
         Array(@inf["autXML"]).each { |entry| check_tax_id("autXML", entry) }
 
-        dest = @inf["dest"]
-        if dest.nil?
-          add "dest: the recipient is mandatory in NF-e modelo 55 (rej. 719)"
-        else
-          add "dest/xNome: the recipient name is mandatory (rej. 724)" if dest["xNome"].to_s.empty?
-          add "dest/enderDest: the recipient address is mandatory (rej. 726)" if dest["enderDest"].nil?
-          if dest["idEstrangeiro"].nil? && dest["CNPJ"].nil? && dest["CPF"].nil?
-            add "dest: give the recipient's CNPJ, CPF or foreign id"
-          end
-        end
+        # An NFC-e may leave its consumer unnamed, without address, or out (Nfce::Validator).
+        check_recipient(@inf["dest"]) unless nfce?
 
         state = emit&.dig("enderEmit", "UF")
         return unless state && States::CODES.key?(state)
@@ -102,6 +94,14 @@ module DfeRb
         add "emit/enderEmit/cMun: city #{city} does not belong to #{state} (rej. 273)" unless city.start_with?(States.code(state))
         fg = @ide["cMunFG"].to_s
         add "ide/cMunFG: city #{fg} does not belong to #{state} (rej. 271)" unless fg.empty? || fg.start_with?(States.code(state))
+      end
+
+      def check_recipient(dest)
+        return add "dest: the recipient is mandatory in NF-e modelo 55 (rej. 719)" if dest.nil?
+
+        add "dest/xNome: the recipient name is mandatory (rej. 724)" if dest["xNome"].to_s.empty?
+        add "dest/enderDest: the recipient address is mandatory (rej. 726)" if dest["enderDest"].nil?
+        add "dest: give the recipient's CNPJ, CPF or foreign id" if dest["idEstrangeiro"].nil? && dest["CNPJ"].nil? && dest["CPF"].nil?
       end
 
       def check_tax_id(path, party)
@@ -169,7 +169,7 @@ module DfeRb
         end
         started, issued = time_of(since), issued_at
         add "ide/dhCont: the contingency can't start after the note is issued (dhEmi)" if started && issued && started > issued
-        if emission == "9" && @ide["tpImp"].to_s != "6"
+        if emission == "9" && !nfce? && @ide["tpImp"].to_s != "6"
           add "ide/tpEmis: off-line contingency (9) is only for the DANFE Simplificado Tipo 2, tpImp 6 (rej. 711)"
         end
 
@@ -347,6 +347,8 @@ module DfeRb
 
       def credit_note_type = @ide["tpNFCredito"].to_s.rjust(2, "0")
 
+      def nfce? = @ide["mod"].to_s == "65"
+
       # Whether the note references an NF-e issued before 2016 (the key's year digits,
       # NA01-20), in ide/NFref or in the item's DFeReferenciado, where a return references
       # its note (VC02-14).
@@ -393,7 +395,7 @@ module DfeRb
       # RV N23-10: an NF-e item with ST carries its CEST (rej. 806), except in the ICMSPart group.
       def check_cest(where, item, prod)
         name, values = Totals.icms_variant(item)
-        return if values.nil? || name == "ICMSPart" || @ide["mod"].to_s == "65" || !prod["CEST"].to_s.empty?
+        return if values.nil? || name == "ICMSPart" || nfce? || !prod["CEST"].to_s.empty?
 
         code = (values["CST"] || values["CSOSN"]).to_s
         st = CEST_ST_CODES.include?(code) || CEST_ST_AMOUNT_CODES.include?(code) && Totals.number(values["vICMSST"]).positive?
@@ -554,7 +556,7 @@ module DfeRb
 
       # RV YA03-10 is only active for NFC-e ("implementação futura para modelo 55").
       def check_payment_total(details)
-        return unless @ide["mod"].to_s == "65"
+        return unless nfce?
         return if %w[3 4].include?(@ide["finNFe"].to_s)
 
         paid = Totals.sum(details) { |detail| detail["vPag"] }
