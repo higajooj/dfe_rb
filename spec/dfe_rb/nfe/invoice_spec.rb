@@ -683,6 +683,19 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(issues_of { |nfe| nfe.series 920 }).to include(a_string_matching(/serie: 920 is reserved/))
     end
 
+    it "takes series 920 to 969 from an issuer identified by CPF, and only those (RV B26-10, C02a-10)" do
+      by_cpf = lambda do |series|
+        issues_of do |nfe|
+          nfe.series series
+          nfe.issuer tax_id: "529.982.247-25", name: "PRODUTOR RURAL", state_registration: "111111111111", tax_regime: :simples,
+            address: {street: "Rua A", number: "100", district: "Centro", city_code: "3550308", state: "SP", zip: "01001000"}
+        end
+      end
+
+      expect(by_cpf.call(920).grep(/serie/)).to eq([])
+      expect(by_cpf.call(1)).to include(a_string_matching(/serie: 1 doesn't fit an issuer identified by CPF.*920 to 969 \(rej. 244, 495\)/))
+    end
+
     it "leaves payments below the total to SEFAZ on modelo 55 (RV YA03-10 is not active for it)" do
       invoice = simples_invoice(client, payment: [:money, "5.00"])
       expect(invoice.issues).to eq([])

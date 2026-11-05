@@ -24,6 +24,10 @@ module DfeRb
       DIFAL_REQUIRED_SINCE = Time.new(2016, 7, 1, 0, 0, 0, "-03:00")
       DEFERRED_PAYMENT_KINDS = Resolver::DEFERRED_PAYMENT_KINDS
       MAX_STANDARD_SERIES = 889
+      # The series of an issuer identified by CPF using its own software (RV C02a-10).
+      CPF_SERIES = (920..969)
+      # procEmi of a note issued with the issuer's own software (RV B26-10, NT 2026.001).
+      OWN_SOFTWARE = %w[0 3].freeze
       # Credit note types that may carry devolução CFOPs (tpNFCredito, RV I08-144).
       DEVOLUTION_CREDIT_NOTES = %w[03 04 06].freeze
       # Credit note types that, like a return, must carry devolução CFOPs (RV I08-140, I08-141).
@@ -111,10 +115,7 @@ module DfeRb
       end
 
       def check_identification
-        series = @ide["serie"].to_i
-        if @ide["procEmi"].to_i.zero? && series > MAX_STANDARD_SERIES
-          add "ide/serie: #{series} is reserved (own software uses series 0 to #{MAX_STANDARD_SERIES}, rej. 244)"
-        end
+        check_series
         add "ide/nNF: the invoice number is required" if @ide["nNF"].nil?
         add "ide/natOp: the nature of the operation is required" if @ide["natOp"].to_s.empty?
 
@@ -131,6 +132,22 @@ module DfeRb
           add "ide/indIntermed: required when indPres is 2, 3, 4 or 9 (rej. 434)"
         elsif !presence && !@ide["indIntermed"].nil?
           add "ide/indIntermed: only allowed when indPres is 2, 3, 4 or 9 (rej. 435)"
+        end
+      end
+
+      # The series of a note issued with the issuer's own software (procEmi 0 or 3): 0 to 889
+      # for a CNPJ (RV B26-10 and C02-30), 920 to 969 for a CPF (B26-10 and C02a-10).
+      def check_series
+        return unless OWN_SOFTWARE.include?(@ide["procEmi"].to_s)
+
+        series = @ide["serie"].to_i
+        if !@inf.dig("emit", "CPF").to_s.empty?
+          unless CPF_SERIES.cover?(series)
+            add "ide/serie: #{series} doesn't fit an issuer identified by CPF, whose own software uses series " \
+              "#{CPF_SERIES.min} to #{CPF_SERIES.max} (rej. 244, 495)"
+          end
+        elsif series > MAX_STANDARD_SERIES
+          add "ide/serie: #{series} is reserved (own software uses series 0 to #{MAX_STANDARD_SERIES}, rej. 244)"
         end
       end
 
