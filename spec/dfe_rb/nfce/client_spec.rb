@@ -54,6 +54,30 @@ RSpec.describe DfeRb::Nfce::Client do
     expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /freight only on a home delivery.*\(rej. 753\)/)
   end
 
+  it "refuses an off-line QR code another certificate signed, even of the same company (rej. 583)" do
+    renewed = DfeRb::Certificate.from_pkcs12(pkcs12_der(cnpj: "11444777000161", not_after: Time.now + 7200), "cert-pass")
+    invoice = nfce_invoice(certificate: renewed) { |nfce| nfce.contingency :offline, since: Time.now - 60, reason: "Sem comunicacao com a SEFAZ" }
+
+    expect { client.sign(invoice) }.to raise_error(DfeRb::ValidationError, /signature isn't this client's certificate's.*\(rej. 583\)/)
+  end
+
+  it "holds a modelo 65 note built with the NF-e's builder to the NFC-e's rules" do
+    nfe_builder = Object.new.tap { |builder| def builder.build_invoice(**options, &block) = DfeRb::Nfe::Invoice.new(**options, &block) }
+    invoice = nfce_invoice(nfe_builder) do |nfce|
+      nfce.model 65
+      nfce.presence :internet
+    end
+    expect(invoice.issues).to eq([])
+
+    expect { client.sign(invoice) }.to raise_error(DfeRb::ValidationError, /in-person sale.*\(rej. 717\)/)
+  end
+
+  it "flags a handed-in QR code that points at another site (rej. 395)" do
+    xml = nfce_invoice(client).to_xml.sub("http://www.dfe.ms.gov.br/nfce/qrcode", "https://example.invalid/qr")
+
+    expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /is not the state's QR code consultation.*\(rej. 395\)/)
+  end
+
   it "sends each model to its own client" do
     nfe = DfeRb::Nfe::Client.new(certificate: nfe_certificate, uf: "MS", transport: transport)
 

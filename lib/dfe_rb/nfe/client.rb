@@ -68,7 +68,7 @@ module DfeRb
         else Document.new(input)
         end
         check_model(document)
-        document = validated(document, strict: strict) unless input.is_a?(Invoice) || input.is_a?(SignedInvoice)
+        document = validated(document, strict: strict) unless built_here?(input) || input.is_a?(SignedInvoice)
         check_environment(document)
         check_certificate(document)
         document = supplemented(document) unless document.signed?
@@ -276,6 +276,9 @@ module DfeRb
 
         raise ValidationError, ["this is an NF-e modelo #{document.model} (ide/mod); #{self.class} issues modelo #{self.class::MODEL}"]
       end
+
+      # An invoice of this client's model has passed its rules already; any other gets them here.
+      def built_here?(input) = input.is_a?(Invoice) && input.class::MODEL == self.class::MODEL
 
       # What an unsigned note gets before it is signed: nothing, for an NF-e.
       def supplemented(document) = document

@@ -118,8 +118,10 @@ RSpec.describe DfeRb::Nfce::Invoice do
     it "identifies the consumer above R$ 10.000,00" do
       issues = issues_of(item: {unit_price: "10000.01"}, payment: [:money, "10000.01"])
 
-      expect(issues).to include(a_string_matching(/above R\$ 10.000,00 identifies the consumer.*\(rej. 750\)/),
-        a_string_matching(/above R\$ 10.000,00 gives the consumer's address \(rej. 752\)/))
+      expect(issues).to include(a_string_matching(/above R\$ 10.000,00 identifies the consumer.*\(rej. 750\)/))
+      # The address (W16-60) is each state's call.
+      identified = issues_of(item: {unit_price: "10000.01"}, payment: [:money, "10000.01"]) { |nfce| nfce.consumer cpf: "529.982.247-25" }
+      expect(identified).to eq([])
     end
 
     it "bars payments an NFC-e can't take and asks card and PIX payments for the card group" do
@@ -157,6 +159,24 @@ RSpec.describe DfeRb::Nfce::Invoice do
         a_string_matching(/signature doesn't match .* \(rej. 583\)/))
       expect(issues_with(invoice.qr_code.sub(/\|[^|]*\z/, "|")))
         .to include(a_string_matching(/off-line \(tpEmis 9\) carries the day, vNF, recipient and signature \(rej. 474\)/))
+    end
+
+    it "checks the day and total of an off-line version 2 QR code, which need no CSC" do
+      v2 = "http://www.dfe.ms.gov.br/nfce/qrcode?p=#{invoice.key}|2|2|01|999.00|#{"ab" * 28}|1|#{"c" * 40}"
+
+      expect(issues_with(v2)).to include(a_string_matching(/its day 01 differs from dhEmi's \(rej. 397\)/),
+        a_string_matching(/its total 999.00 differs from vNF 8.50 \(rej. 397\)/))
+    end
+
+    it "flags another site's address when it knows the state's (rej. 395)" do
+      check = ->(url) {
+        DfeRb::Nfce::Validator.new(invoice.resolved, supplement: {"qrCode" => url}, signer: certificate.certificate,
+          qr_address: "http://www.dfe.ms.gov.br/nfce/qrcode").issues
+      }
+
+      expect(check.call(invoice.qr_code.sub("http://www.dfe.ms.gov.br", "https://WWW.DFE.MS.GOV.BR"))).to eq([])
+      expect(check.call(invoice.qr_code.sub("www.dfe.ms.gov.br", "example.invalid")))
+        .to include(a_string_matching(%r{example.invalid/nfce/qrcode is not the state's QR code consultation.*\(rej. 395\)}))
     end
 
     it "flags a signature on a note issued on-line" do

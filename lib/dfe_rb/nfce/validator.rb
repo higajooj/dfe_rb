@@ -46,7 +46,7 @@ module DfeRb
       BARRED_PAYMENTS = {"14" => 857, "90" => 899, "99" => 436}.freeze
       # tPag that carry the card group: credit card, debit card and PIX (RV YA04-10).
       CARD_PAYMENTS = %w[03 04 17].freeze
-      # Above this total the consumer must be identified (RV W16-40, W16-60).
+      # Above this total the consumer must be identified (RV W16-40).
       IDENTIFIED_ABOVE = BigDecimal(10_000)
 
       # Groups an NFC-e can't carry: [path from infNFe, rejection, what it is].
@@ -90,12 +90,14 @@ module DfeRb
 
       # infnfe: the resolved infNFe tree. supplement: its infNFeSupl ({"qrCode", "urlChave"}),
       # when there is one to check. signer: the OpenSSL certificate that signs the note, to
-      # check an off-line QR code's signature.
-      def initialize(infnfe, supplement: nil, signer: nil)
+      # check an off-line QR code's signature. qr_address: the state's QR code consultation
+      # address (Endpoints.qr_code), to check the QR code's against.
+      def initialize(infnfe, supplement: nil, signer: nil, qr_address: nil)
         @inf = infnfe
         @ide = infnfe["ide"] || {}
         @supplement = supplement
         @signer = signer
+        @qr_address = qr_address
         @issues = []
       end
 
@@ -231,7 +233,8 @@ module DfeRb
         end
       end
 
-      # Above R$ 10.000,00 the consumer is identified, with an address (RV W16-40, W16-60).
+      # Above R$ 10.000,00 the consumer is identified (RV W16-40). Its address (W16-60) and name
+      # (W16-50) are each state's call, so SEFAZ checks them.
       def check_total
         total = Nfe::Totals.number(@inf.dig("total", "ICMSTot", "vNF"))
         return unless total > IDENTIFIED_ABOVE
@@ -240,7 +243,6 @@ module DfeRb
         if %w[CNPJ CPF idEstrangeiro].none? { |tag| present?(dest[tag]) }
           add "dest: an NFC-e above R$ 10.000,00 identifies the consumer by CNPJ, CPF or foreign id (rej. 750)"
         end
-        add "dest/enderDest: an NFC-e above R$ 10.000,00 gives the consumer's address (rej. 752)" if dest["enderDest"].nil?
       end
 
       # Only a home delivery has freight and a carrier, and it must have the carrier (RV X02-10, X03-10, X03-20).
@@ -273,17 +275,22 @@ module DfeRb
         url = @supplement["qrCode"].to_s
         parsed = QrCode.parse(url) or return add "infNFeSupl/qrCode: #{url.inspect} is not a QR code URL (<address>?p=<parameters>)"
 
+        if @qr_address && comparable(parsed[:address]) != comparable(@qr_address)
+          add "infNFeSupl/qrCode: #{parsed[:address]} is not the state's QR code consultation, #{@qr_address} (rej. 395)"
+        end
         key = @inf["@Id"].to_s.delete_prefix("NFe")
         add "infNFeSupl/qrCode: its key #{parsed[:key]} differs from the note's #{key} (rej. 397)" unless parsed[:key] == key
         version = parsed[:version]
         return add "infNFeSupl/qrCode: version #{version} is not 2 or 3 (rej. 398)" unless %w[2 3].include?(version)
         add "infNFeSupl/qrCode: its tpAmb #{parsed[:environment]} differs from the note's (rej. 397)" unless parsed[:environment] == @ide["tpAmb"].to_s
+        offline = @ide["tpEmis"].to_s == OFFLINE
         if version == "2"
           add "infNFeSupl/qrCode: an issuer identified by CPF uses QR code version 3 (rej. 444)" if @inf.dig("emit", "CPF")
+          # Its hash needs the CSC, which the gem doesn't hold; the day and total don't.
+          check_day_and_total(parsed[:parameters][3], parsed[:parameters][4]) if offline
           return
         end
 
-        offline = @ide["tpEmis"].to_s == OFFLINE
         if !offline && parsed[:parameters].size > 3
           add "infNFeSupl/qrCode: a note issued on-line carries only key, version and tpAmb, no signature (rej. 445)"
         elsif offline && parsed[:signature].to_s.empty?
@@ -294,12 +301,7 @@ module DfeRb
       end
 
       def check_offline_qr_code(parsed)
-        issued = time_of(@ide["dhEmi"])
-        add "infNFeSupl/qrCode: its day #{parsed[:day]} differs from dhEmi's (rej. 397)" if issued && parsed[:day] != format("%02d", issued.day)
-        total = @inf.dig("total", "ICMSTot", "vNF")
-        if total && parsed[:total] != QrCode.amount(total)
-          add "infNFeSupl/qrCode: its total #{parsed[:total]} differs from vNF #{QrCode.amount(total)} (rej. 397)"
-        end
+        check_day_and_total(parsed[:day], parsed[:total])
         kind, id = QrCode.identification(@inf["dest"])
         unless parsed[:recipient_kind] == kind && parsed[:recipient_id] == id
           add "infNFeSupl/qrCode: its recipient (#{parsed[:recipient_kind]}|#{parsed[:recipient_id]}) differs from dest's (#{kind}|#{id}) (rej. 397)"
@@ -308,6 +310,20 @@ module DfeRb
           add "infNFeSupl/qrCode: its signature doesn't match its parameters and the certificate (rej. 583)"
         end
       end
+
+      # RV ZX02-268 and ZX02-276, of versions 2 and 3.
+      def check_day_and_total(day, total)
+        issued = time_of(@ide["dhEmi"])
+        add "infNFeSupl/qrCode: its day #{day} differs from dhEmi's (rej. 397)" if issued && day != format("%02d", issued.day)
+        expected = @inf.dig("total", "ICMSTot", "vNF")
+        if expected && total != QrCode.amount(expected)
+          add "infNFeSupl/qrCode: its total #{total} differs from vNF #{QrCode.amount(expected)} (rej. 397)"
+        end
+      end
+
+      # An address as RV ZX02-20 compares it: whatever the case, and the scheme, which the
+      # Portal Nacional's list gives either way.
+      def comparable(address) = address.to_s.downcase.sub(%r{\Ahttps?://}, "").delete_suffix("/")
 
       def state_cfop?(cfop, code)
         state = @inf.dig("emit", "enderEmit", "UF")
