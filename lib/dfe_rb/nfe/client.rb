@@ -9,6 +9,8 @@ module DfeRb
     #   File.write("#{result.key}-procNFe.xml", result.proc_xml) if result.authorized?
     #   result = client.resume(result.receipt, [result]) if result.pending?   # lot answer still pending
     class Client
+      # The mod of the notes it issues (DfeRb::Nfce::Client issues 65).
+      MODEL = 55
       MAX_LOT = 50
       DEFAULT_POLLING = {wait: 15, interval: 5, max_wait: 120}.freeze
 
@@ -63,10 +65,13 @@ module DfeRb
         document = case input
         when Invoice then Document.new(input.to_xml(strict: strict))
         when SignedInvoice then Document.new(input.xml)
-        else validated(Document.new(input), strict: strict)
+        else Document.new(input)
         end
+        check_model(document)
+        document = validated(document, strict: strict) unless input.is_a?(Invoice) || input.is_a?(SignedInvoice)
         check_environment(document)
         check_certificate(document)
+        document = supplemented(document) unless document.signed?
 
         signed = document.signed? ? document.xml : Signature.sign_nfe(document.xml, certificate)
         problem = Signature.verify(signed)
@@ -168,7 +173,7 @@ module DfeRb
       end
 
       # Declares a range of numbers as unused (inutilização).
-      def inutilize(series:, from:, reason:, to: from, model: 55, year: @clock.now.year)
+      def inutilize(series:, from:, reason:, to: from, model: self.class::MODEL, year: @clock.now.year)
         raise ArgumentError, "from must not be greater than to" if from > to
         raise ArgumentError, "a request covers at most 10000 numbers" if to - from >= 10_000
 
@@ -262,6 +267,18 @@ module DfeRb
 
         document
       end
+
+      # A client issues one model: an NFC-e goes through DfeRb::Nfce::Client.
+      def check_model(document)
+        return if document.model.to_s == self.class::MODEL.to_s
+
+        raise ValidationError, ["this is an NFC-e (modelo 65): issue it with DfeRb::Nfce::Client"] if document.model.to_s == "65"
+
+        raise ValidationError, ["this is an NF-e modelo #{document.model} (ide/mod); #{self.class} issues modelo #{self.class::MODEL}"]
+      end
+
+      # What an unsigned note gets before it is signed: nothing, for an NF-e.
+      def supplemented(document) = document
 
       def check_environment(document)
         declared = document.environment

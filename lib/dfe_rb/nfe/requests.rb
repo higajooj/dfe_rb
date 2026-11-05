@@ -52,6 +52,14 @@ module DfeRb
         %(<descEvento>Cancelamento</descEvento><nProt>#{protocol}</nProt><xJust>#{escape(reason)}</xJust>)
       end
 
+      # Cancelamento por substituição (110112, NT 2018.004): `replacement` is the key of the
+      # note that took this one's place.
+      def substitution_detail(state:, protocol:, reason:, replacement:)
+        %(<descEvento>Cancelamento por substituicao</descEvento><cOrgaoAutor>#{States.code(state)}</cOrgaoAutor>) +
+          %(<tpAutor>1</tpAutor><verAplic>#{escape("dfe_rb #{DfeRb::VERSION}")}</verAplic><nProt>#{protocol}</nProt>) +
+          %(<xJust>#{escape(reason)}</xJust><chNFeRef>#{replacement}</chNFeRef>)
+      end
+
       def correction_detail(text:)
         %(<descEvento>Carta de Correcao</descEvento><xCorrecao>#{escape(text)}</xCorrecao><xCondUso>#{CORRECTION_TERMS}</xCondUso>)
       end
