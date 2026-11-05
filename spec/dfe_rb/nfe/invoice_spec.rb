@@ -696,6 +696,19 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(by_cpf.call(1)).to include(a_string_matching(/serie: 1 doesn't fit an issuer identified by CPF.*920 to 969 \(rej. 244, 495\)/))
     end
 
+    it "holds card payments to RV YA05-10, YA05-20 and YA06-10" do
+      card = ->(details) { simples_invoice(client, payment: nil) { |nfe| nfe.payment kind: :credit_card, amount: "20.00", card: details }.issues }
+
+      expect(card.call(integration: :not_integrated, brand: "01")).to eq([])
+      expect(card.call(integration: :integrated, cnpj: "11222333000181", brand: "01", authorization: "A1B2")).to eq([])
+      expect(card.call(integration: :integrated, brand: "01"))
+        .to include(a_string_matching(%r{detPag\[1\]/card: an integrated payment .* cAut \(rej. 392\)}))
+      expect(card.call(integration: :not_integrated, cnpj: "11222333000182"))
+        .to include(a_string_matching(%r{card/CNPJ: 11222333000182 is not a valid CNPJ .*rej. 437}))
+      expect(card.call(integration: :not_integrated, brand: "77"))
+        .to include(a_string_matching(%r{card/tBand: 77 is not a card brand .*rej. 443}))
+    end
+
     it "leaves payments below the total to SEFAZ on modelo 55 (RV YA03-10 is not active for it)" do
       invoice = simples_invoice(client, payment: [:money, "5.00"])
       expect(invoice.issues).to eq([])

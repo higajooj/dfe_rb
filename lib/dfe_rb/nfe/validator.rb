@@ -515,7 +515,10 @@ module DfeRb
           return add "pag/detPag: at least one payment is required (use kind: :no_payment for none)"
         end
 
-        details.each_with_index { |detail, index| check_payment_kind("pag/detPag[#{index + 1}]/tPag", detail["tPag"].to_s) }
+        details.each_with_index do |detail, index|
+          check_payment_kind("pag/detPag[#{index + 1}]/tPag", detail["tPag"].to_s)
+          check_card("pag/detPag[#{index + 1}]/card", detail["card"]) if detail["card"]
+        end
         deferred = details.select { |detail| DEFERRED_PAYMENT_KINDS.include?(detail["tPag"].to_s) }
         unless deferred.all? { |detail| Totals.number(detail["vPag"]).zero? }
           add "pag/detPag: with tPag 90 (no payment) or 91 (paid later) vPag must be 0.00 (rej. 904)"
@@ -532,6 +535,20 @@ module DfeRb
           add "#{path}: #{kind} is not a payment method (see DfeRb::Nfe::Tables.payment_methods)"
         elsif issued_at && !method.valid_on?(issued_at)
           add "#{path}: #{kind} (#{method.title}) is only accepted from #{Date.iso8601(method.valid_from).strftime("%d/%m/%Y")}"
+        end
+      end
+
+      # A card payment integrated with the issuer's system names its acquirer and authorization
+      # code (RV YA05-10), with a valid CNPJ (YA05-20), and its brand is in the table (YA06-10).
+      def check_card(path, card)
+        if card["tpIntegra"].to_s == "1" && (card["CNPJ"].to_s.empty? || card["cAut"].to_s.empty?)
+          add "#{path}: an integrated payment (tpIntegra 1) gives the acquirer's CNPJ and the authorization code, cAut (rej. 392)"
+        end
+        cnpj = card["CNPJ"].to_s
+        add "#{path}/CNPJ: #{cnpj} is not a valid CNPJ (check digits, rej. 437)" unless cnpj.empty? || TaxId.valid_cnpj?(cnpj)
+        brand = card["tBand"].to_s
+        unless brand.empty? || Tables.card_brands.key?(brand)
+          add "#{path}/tBand: #{brand} is not a card brand (see DfeRb::Nfe::Tables.card_brands, rej. 443)"
         end
       end
 
