@@ -8,9 +8,10 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Distribution** (`NFeDistribuicaoDFe`) and all four **recipient manifestations** through `DfeRb::Nfe::Distribution::Client`: typed metadata, exact decoded XML, cooldown advice and signed events ready to archive.
 - **Contingency**: the SEFAZ Virtuais de Contingência (SVC-AN, SVC-RS) and the EPEC.
 - **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
+- **Emit NFC-e** (modelo 65, layout 4.00) through `DfeRb::Nfce::Client`: the same builder, with the QR code version 3 (no CSC), its off-line contingency, the cancellation by substitution and the rules of modelo 65. See [NFC-e](#nfc-e).
 - **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
 
-Not covered yet: NFC-e (modelo 65), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
+Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.10.1"
@@ -328,6 +329,74 @@ Manifestation results distinguish `:registered` (135, `linked?`), `:registered_u
 
 A transport failure keeps `maybe_processed?`. A lost manifestation answer may already have registered the event, so keep the signed XML and reconcile the outcome before resubmitting. The gem doesn't retry or look up the event itself, and a distribution query whose answer was lost may still have counted against SEFAZ's consumption controls.
 
+## NFC-e
+
+```ruby
+client = DfeRb::Nfce::Client.new(certificate: certificate, uf: "MS",   # homologação unless told otherwise
+  technical_contact: {cnpj: "99999999000191", contact: "Fulano", email: "dev@example.com", phone: "11999999999"})   # MS and others require it (972)
+
+invoice = client.build_invoice do |nfce|
+  nfce.series 1
+  nfce.number 1234
+  nfce.nature_of_operation "Venda ao consumidor"
+  nfce.issuer tax_id: "24.647.331/0001-86", name: "LOJA LTDA", state_registration: "282567143", tax_regime: :simples,
+    address: {street: "Rua A", number: "100", district: "Centro", city_code: "5002704", zip: "79002000"}
+  nfce.consumer cpf: "529.982.247-25"          # optional: an NFC-e may leave its consumer out
+  nfce.item do |i|
+    i.code "SKU-1"
+    i.description "Cafe torrado 500g"
+    i.ncm "09012100"
+    i.cfop "5102"
+    i.unit "UN"
+    i.quantity 2
+    i.unit_price "8.50"
+    i.icms csosn: "102", origin: :domestic
+    i.pis cst: "07"
+    i.cofins cst: "07"
+  end
+  nfce.payment kind: :pix, card: {integration: :not_integrated}   # a card or PIX payment carries the card group (391)
+end
+
+signed = client.sign(invoice)        # store signed.xml before sending
+result = client.authorize(signed)    # one note per request, answered synchronously
+if result.authorized?
+  File.write(result.filename, result.proc_xml)
+  result.qr_code                     # what the DANFE NFC-e's QR code holds
+  result.consult_url                 # the address it prints for looking the note up by key
+end
+```
+
+It is the NF-e's builder, layout, signature, results and errors (`DfeRb::Nfce::Rejected` is `DfeRb::Nfe::Rejected`), with the NFC-e's own authorizers (AM, GO, MG, MS, MT, PR, RS and SP have theirs; every other state, BA and PE included, uses the SVRS) and these differences:
+
+- **Defaults of a consumer sale**: `mod` 65, `tpImp` 4 (DANFE NFC-e), `indFinal` 1, `indPres` 1, `idDest` 1 and, for a consumer, `indIEDest` 9. In homologação the first item's description becomes the text RV I04-10 requires (rej. 373), as the consumer's name does (598).
+- **QR code version 3** (NT 2025.001): `infNFeSupl` is built for you, with the state's QR code and consultation addresses from the Portal Nacional da NFC-e. A note issued on-line needs no CSC. Override an address with `endpoints: {qr_code: "...", consult_url: "..."}`.
+- **Rules of modelo 65**, checked before sending: the CFOPs an NFC-e takes and the CST or CSOSN each goes with (with the states' own exceptions), the groups it can't carry (IPI, DIFAL, billing, vehicles, references...), home delivery, the consumer's identification above R$ 10.000,00, the payment methods it can't take and the card group of card and PIX payments (391), and the QR code's parameters. Rules each state sets (its total cap, the CSOSNs it bars, home delivery, the NCMs it refuses) stay with SEFAZ.
+- **One note per request**, synchronous (RV GAP03a-4): `authorize` refuses a lot of more. A lost answer or a duplicate is resolved by key, as for the NF-e.
+- **Cancellation** within 30 minutes of the authorization, unless the state allows longer. There is no carta de correção (rej. 784) and no SVC (783).
+- `client.sign(xml)` takes an NFC-e from another system too: an unsigned one gets its `infNFeSupl`; a signed one must already carry it.
+
+### Off-line contingency
+
+When the authorizer can't be reached, issue the sale off-line (`tpEmis` 9): sign it, print the DANFE NFC-e marked "EMITIDA EM CONTINGÊNCIA" and send the same signed note once SEFAZ is back, by the end of the next business day (Anexo IV).
+
+```ruby
+invoice = client.build_invoice do |nfce|
+  # ... the same sale, under a number no note sent before may have taken
+  nfce.contingency :offline, since: outage_started_at, reason: "Sem comunicacao com a SEFAZ"
+end
+signed = client.sign(invoice)        # the QR code carries the day, total and consumer, signed with the certificate
+client.authorize(signed)             # later: the same key and signed XML
+```
+
+If a note sent before the outage turns out authorized too, both cover the same sale. Cancel the first by substitution (evento 110112, NT 2018.004) within 168 hours. It needs the same total, ICMS, consumer and items, and the two notes issued at most 2 hours apart:
+
+```ruby
+client.cancel_by_substitution(first.key, protocol: first.protocol, replacement: offline.key,
+  reason: "Emitida em contingencia off-line para a mesma venda")
+```
+
+A note sent and never answered that SEFAZ doesn't hold is inutilized instead (`client.inutilize(series: 1, from: 20, reason: "...")`, of modelo 65).
+
 ## MDF-e
 
 ```ruby
@@ -524,11 +593,13 @@ The gem takes A1 certificates only, from a `.pfx` (`DfeRb::Certificate.from_pkcs
 DFE_RB_LIVE=1 DFE_RB_PFX=empresa.pfx DFE_RB_PFX_PASSWORD=... bundle exec rspec spec/live
 ```
 
-They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`. `spec/live/mdfe_homologacao_spec.rb` does the same for the MDF-e; its lifecycle (authorize, consult, add a driver, close, cancel) needs an issuer accredited for the MDF-e and an NF-e to carry, as its header says.
+They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`. `spec/live/nfce_homologacao_spec.rb` checks every NFC-e authorizer and, with the same issuer variables, authorizes, cancels and inutilizes NFC-e, issues one off-line and cancels another by substitution; the issuer must be accredited for the NFC-e at its state. `spec/live/mdfe_homologacao_spec.rb` does the same for the MDF-e; its lifecycle (authorize, consult, add a driver, close, cancel) needs an issuer accredited for the MDF-e and an NF-e to carry, as its header says.
 
 ## Legislation
 
 Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
+
+The NFC-e follows the same MOC and Anexo I, the rules each NT gives modelo 65 (NT 2015.002, 2018.004 for the cancellation by substitution, 2023.001, 2023.002 v1.01, 2023.003 v1.40, 2024.001, 2025.001 v1.03 for the QR code version 3, NT 2025.002), with the parameters of the QR code as NT 2026.003 tabulates them and Anexo IV for the off-line contingency. Where an NT lists fewer CFOPs than another, the gem takes the wider list. Its web services come from the SVRS DF-e portal's "Relação de Serviços Web" (MG, missing there, from its own authorizer's answer), and the QR code and consultation addresses from the Portal Nacional da NFC-e (`nfce.encat.org`).
 
 The MDF-e is built from the MOC MDF-e 3.00b (with its Anexo I) and the NTs up to NT 2026.001, with the layout read from the `PL_MDFe_300b_NT012025_1.05` schema package; its distribution follows NT 2015.002 and `PL_MDFeDistDFe_100`. Its web service addresses are the SVRS portal's "Relação de Serviços Web".
 
@@ -565,6 +636,9 @@ Edited by hand:
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
 | IBS/CBS standard rates by year | `Rates::IBS_CBS` (2027 and 2028 have no CBS rate yet; nothing after 2028) | IT 2025.002 §05 and the laws that set each year's rates | yearly, before the first issue of the year |
 | Interstate ICMS rates and the DIFAL partition | `Rates::SOUTH_SOUTHEAST`, `IMPORTED_ORIGINS`, `PARTITION` | Senate Resolutions 22/1989 and 13/2012, EC 87/2015 | a new resolution (rare) |
+| NFC-e web services and each state's NFC-e authorizer | `nfce/endpoints.rb` (`AUTHORIZERS`, `PATHS`), `Nfce::States::OWN_AUTHORIZER` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfce/Servicos`) | a state moves to or from the SVRS, or an address changes |
+| NFC-e QR code and consultation addresses | `Nfce::Endpoints::QR_CODE`, `CONSULT` | Portal Nacional da NFC-e, "URL por UF utilizada QR code" and "... para consulta chave" | a state moves its consultation |
+| Lists the NFC-e rules consult | in `nfce/validator.rb`: `CFOPS`, `SALE_CFOPS`, `ST_CFOPS`, `CSTS`, `CSOSNS`, `STATE_CFOPS`, `BARRED`, `BARRED_ITEM` | the RVs of modelo 65 and the NTs that amend them | an NT changes a rule of modelo 65 |
 | Web service addresses, each state's authorizer and SVC, and who offers consulta cadastro | `nfe/endpoints.rb` (`AUTHORIZERS`, `PATHS`, `CONTINGENCY`, `REGISTRY_URLS`, `REGISTRY_SVRS`), `States::OWN_AUTHORIZER`, `SVAN` and `SVC_AN`, `nfe/distribution/endpoints.rb` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfe/Servicos` and the Portal Nacional) | a state moves to or from a SEFAZ Virtual, or an address changes |
 | Status codes the client acts on | `nfe/status_codes.rb` | Anexo I §4.4 and the NTs | an NT adds a `cStat` that changes the flow |
 | ICP-Brasil root CAs | `lib/dfe_rb/certs/icp-brasil.pem` (v5, v10, v11, v12; v5 expires 02/03/2029) | `acraiz.icpbrasil.gov.br/credenciadas/RAIZ` | ITI publishes a new root, or one expires |
