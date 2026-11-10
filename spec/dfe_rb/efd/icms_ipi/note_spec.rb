@@ -6,7 +6,7 @@ RSpec.describe DfeRb::Efd::IcmsIpi::Note do
     let(:note) { described_class.new(xml, informant: "12.345.678/0001-95") }
 
     it "books a sale going out: C100 with the totals of its C190, and C101 for the DIFAL" do
-      c100 = note.c100(participant: "11222333000181", entry_date: Date.new(2026, 10, 31))
+      c100 = note.c100(participant: "11222333000181", period_end: Date.new(2026, 10, 31))
 
       expect(c100).to include(ind_oper: "1", ind_emit: "0", cod_part: "11222333000181", cod_mod: "55", cod_sit: "00", ser: "001", num_doc: 1234,
         chv_nfe: "50261012345678000195550010000012341000012345", dt_doc: Date.new(2026, 10, 5), dt_e_s: Date.new(2026, 10, 6),

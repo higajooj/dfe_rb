@@ -40,6 +40,9 @@ module DfeRb
 
         def nfce? = model == "65"
 
+        # A complementary note (finNFe 2), booked as COD_SIT 06.
+        def complementary? = text("ide finNFe") == "2"
+
         def issued_on = date(text("ide dhEmi"))
 
         # When the goods left or came in, as the issuer gave it (dhSaiEnt), else nil.
@@ -92,15 +95,16 @@ module DfeRb
         # The C100 of the note in a situation (COD_SIT): the identity alone for a canceled,
         # denied or voided one; else its values, the taxes summed from its items (as booked:
         # Item#on_entry), the participant's code (none for an NFC-e) and, coming in, the day
-        # it came in (DT_E_S, required then).
-        def c100(situation: "00", items: self.items, participant: nil, entry_date: nil)
+        # it came in (DT_E_S, required then); going out, the day it left, when it falls
+        # within the period (period_end).
+        def c100(situation: "00", items: self.items, participant: nil, entry_date: nil, period_end: nil)
           head = {ind_oper: operation, ind_emit: own? ? "0" : "1", cod_mod: model, cod_sit: situation,
                   ser: series.to_s.rjust(3, "0"), num_doc: number, chv_nfe: key}
           return head if REDUCED.include?(situation)
 
           sums = Analytic.totals(items)
           values = head.merge(
-            cod_part: (participant unless nfce?), dt_doc: issued_on, dt_e_s: outbound? ? moved_on_within(entry_date) : (entry_date || issued_on),
+            cod_part: (participant unless nfce?), dt_doc: issued_on, dt_e_s: outbound? ? moved_on_within(period_end) : (entry_date || issued_on),
             vl_doc: total, ind_pgto: payment_indicator, vl_desc: sums[:discount], vl_abat_nt: 0, vl_merc: sums[:value], ind_frt: freight_indicator,
             vl_frt: sums[:freight], vl_seg: sums[:insurance], vl_out_da: sums[:other], vl_bc_icms: sums[:icms_base], vl_icms: sums[:icms_value]
           )

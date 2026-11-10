@@ -76,11 +76,11 @@ module DfeRb
         # or the Simples Nacional supplier's credit rate over the goods); the IPI and the
         # ST it takes no credit for added to the item's value, as part of its cost (Guia
         # Prático, C100, informação adicional 3); in the CST under its own view: ICMS
-        # already charged by ST is 60, and a Simples Nacional supplier's note 90, or 60
-        # when it charged ST.
+        # already charged by ST, with no credit taken, is 60, and a Simples Nacional
+        # supplier's note 90, or 60 when it charged ST.
         def on_entry(cfop:, icms_credit: ZERO, ipi_credit: false, st_credit: false, cst: nil)
           credit = BigDecimal(icms_credit.to_s)
-          changes = {cfop:, cst: cst || entry_cst, csosn: nil}
+          changes = {cfop:, cst: cst || entry_cst(credited: credit.positive?), csosn: nil}
           if credit.positive?
             base = icms_base.positive? ? icms_base : value - discount
             rate = icms_rate.positive? ? icms_rate : simples_credit_rate
@@ -100,10 +100,11 @@ module DfeRb
           with(**changes, value: folded)
         end
 
-        # A recipient's CST for the item, without the origin.
-        def entry_cst
+        # A recipient's CST for the item, without the origin: ICMS charged by ST
+        # it takes no credit on is 60 to it.
+        def entry_cst(credited: false)
           return (%w[201 202 203 500].include?(csosn) ? "60" : "90") if csosn
-          return "60" if %w[10 30 70].include?(cst)
+          return "60" if %w[10 30 70].include?(cst) && !credited
 
           cst || "90"
         end

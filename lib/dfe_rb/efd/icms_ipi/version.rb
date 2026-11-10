@@ -6,7 +6,7 @@ module DfeRb
       # the Nota Técnica of Ato COTEPE/ICMS 44/2018). From 2027 the leiaute is 021 (NT
       # 2026.001), whose registers aren't written here yet.
       module Version
-        BY_YEAR = {2019 => "013", 2020 => "014", 2021 => "015", 2022 => "016", 2023 => "017", 2024 => "018", 2025 => "019", 2026 => "020"}.freeze
+        BY_YEAR = {2020 => "014", 2021 => "015", 2022 => "016", 2023 => "017", 2024 => "018", 2025 => "019", 2026 => "020"}.freeze
 
         module_function
 
