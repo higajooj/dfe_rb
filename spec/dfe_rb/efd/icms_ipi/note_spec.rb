@@ -53,6 +53,17 @@ RSpec.describe DfeRb::Efd::IcmsIpi::Note do
         vl_item: BigDecimal("315.5"), cst_icms: "000", cfop: "2102", vl_icms: BigDecimal("37.2"), vl_ipi: 0, ind_mov: "0")
     end
 
+    it "books what it takes no credit on as CST 90 with no reduced base, and the IPI by the entry's CST" do
+      item = note.items.find { |i| i.cst == "20" }.on_entry(cfop: "2102")
+      rows = analytic.c190([item])
+
+      expect(rows.size).to eq(1)
+      expect(rows.first).to include(cst_icms: "090", vl_red_bc: 0, vl_icms: 0)
+      expect(note.items.first.on_entry(cfop: "2102", ipi_credit: true)).to have_attributes(ipi_cst: "00", ipi_value: BigDecimal("15.5"))
+      expect(note.items.first.on_entry(cfop: "2102")).to have_attributes(ipi_cst: "49", ipi_value: 0)
+      expect(note.items.last.on_entry(cfop: "2410", st_credit: true)).to have_attributes(cst_icms: "010", st_value: BigDecimal("29.2"))
+    end
+
     it "takes a Simples Nacional supplier's note as CST 90, or 60 with ST, its credit on the goods" do
       item = DfeRb::Efd::IcmsIpi::Item.new(origin: "0", csosn: "101", value: 100, simples_credit_rate: 2.5, simples_credit_value: 2.5)
 

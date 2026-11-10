@@ -80,7 +80,8 @@ module DfeRb
         # supplier's note 90, or 60 when it charged ST.
         def on_entry(cfop:, icms_credit: ZERO, ipi_credit: false, st_credit: false, cst: nil)
           credit = BigDecimal(icms_credit.to_s)
-          changes = {cfop:, cst: cst || entry_cst(credited: credit.positive?), csosn: nil}
+          changes = {cfop:, cst: cst || entry_cst(credited: credit.positive?, st_credited: st_credit), csosn: nil,
+                     ipi_cst: entry_ipi_cst(credited: ipi_credit && ipi_value.positive?)}
           if credit.positive?
             base = icms_base.positive? ? icms_base : value - discount
             rate = icms_rate.positive? ? icms_rate : simples_credit_rate
@@ -101,12 +102,24 @@ module DfeRb
         end
 
         # A recipient's CST for the item, without the origin: ICMS charged by ST
-        # it takes no credit on is 60 to it.
-        def entry_cst(credited: false)
+        # it takes no credit on is 60 to it, taxed ICMS it takes no credit on 90.
+        def entry_cst(credited: false, st_credited: false)
           return (%w[201 202 203 500].include?(csosn) ? "60" : "90") if csosn
-          return "60" if %w[10 30 70].include?(cst) && !credited
+          return "60" if %w[10 30 70].include?(cst) && !credited && !st_credited
+          # Taxed by its issuer, with no credit to its recipient (Guia Prático, C170 field 10, example 1).
+          return "90" if %w[00 20 51].include?(cst) && !credited
 
           cst || "90"
+        end
+
+        # The IPI's CST of an entry (IN RFB 932/2009): 00 with the credit taken, the
+        # entry's kin of a zero rate, exemption, non-taxation, immunity or suspension,
+        # else 49. Nil for an item with no IPI group.
+        def entry_ipi_cst(credited: false)
+          return unless ipi_cst
+          return "00" if credited
+
+          {"51" => "01", "52" => "02", "53" => "03", "54" => "04", "55" => "05"}.fetch(ipi_cst, "49")
         end
       end
 
