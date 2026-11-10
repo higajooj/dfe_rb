@@ -10,11 +10,12 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
 - **Emit NFC-e** (modelo 65, layout 4.00) through `DfeRb::Nfce::Client`: the same builder, with the QR code version 3 (no CSC), its off-line contingency, the cancellation by substitution and the rules of modelo 65. See [NFC-e](#nfc-e).
 - **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
+- **Write the EFD ICMS/IPI** (SPED Fiscal) of a period: its registers, the blocks' openings and closings and Block 9, an NF-e's or NFC-e's C100, C101, C170 and C190 from its XML, and the apurações of Block E. See [EFD ICMS/IPI](#efd-icmsipi).
 
 Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.13.0"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.14.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.
@@ -501,6 +502,38 @@ distribution.fetch_nsu("42")                        # one specific document
 ```
 
 It returns MDF-e (`ManifestDocument`) and their events (`EventDocument`) of interest to the certificate's holder that someone else issued, such as those naming it in `autXML`, with the same results, cursor rules and failure handling as the NF-e's distribution. A consumption block is cStat 678 here.
+
+## EFD ICMS/IPI
+
+`DfeRb::Efd::IcmsIpi` writes the EFD ICMS/IPI (SPED Fiscal) a taxpayer delivers each month, the file its accountant imports into the PVA, validates, signs and transmits. The registers follow the Guia Prático (Ato COTEPE/ICMS 44/2018); `Version.for(last_day)` gives `COD_VER`, for periods from 2020 to 2026.
+
+```ruby
+efd = DfeRb::Efd::IcmsIpi
+file = efd::File.new
+file.add "0000", cod_ver: efd::Version.for(last_day), cod_fin: 0, dt_ini: first_day, dt_fin: last_day, nome: "ACME LTDA",
+  cnpj: "12345678000195", uf: "MS", ie: "283456789", cod_mun: "5002704", ind_perfil: "A", ind_ativ: 1
+file.add "0005", fantasia: "ACME", cep: "79002000", end: "Rua A", bairro: "Centro"
+
+note = efd::Note.new(nfe_proc_xml, informant: "12345678000195")
+items = note.own? ? note.items : note.items.map { it.on_entry(cfop: "1102", icms_credit: 18) }
+c100 = file.add("C100", note.c100(items:, participant: note.participant&.dig(:cod_part), entry_date:, period_end: last_day))
+c100.add("C101", note.c101) if note.own? && note.c101
+efd::Analytic.c190(items).each { c100.add("C190", it) }
+file.add "0150", note.participant
+
+e110 = efd::Apuracao.e110(debits: 1000, credits: 400, previous_credit: 0, adjustments: [{code: "MS020001", amount: 50}])
+file.add("E100", dt_ini: first_day, dt_fin: last_day).add("E110", e110)
+
+File.binwrite("efd.txt", file.to_latin1)   # ISO-8859-1, "|" between fields, CR LF
+```
+
+- **Registers** are added at their level: those right below a block's opening on the file, the others under their parent (`c100.add "C190", ...`), by the lowercase names of their fields. The file orders them by block and code, opens and closes every block (`X001` with or without data, `X990` with its count, Block B and the empty ones included) and writes Block 9 (`9900` for each register, `9990`, `9999`). `to_s` raises `DfeRb::ValidationError` with every field it can't write: a required one blank, a number too long, a CNPJ or key of the wrong size.
+- **Fields** are written as the layout asks: decimals with a comma and their places, dates `ddmmaaaa`, codes with their leading zeros, text without `|` and in Latin-1 (what isn't becomes its nearest kin).
+- **A note** (`Note`) gives its participant (0150), its C100 (only the identity of a canceled one, COD_SIT 02; no participant nor ST, IPI, PIS and COFINS for an NFC-e), its C101 (DIFAL and FCP to a non-contributor, EC 87/15) and, received, the C170 of each item in the recipient's code and unit. Its `items` carry the document's values, the FCP with its ICMS; `Item#on_entry` books one as its recipient does: its CFOP of entry, the ICMS credit taken (none, or the amount), the IPI and ST it takes no credit for added to the item's value, and its CST from its own view (60 for ST with no credit, 90 from a Simples Nacional supplier). Following the Guia, a note the informant issued carries only C100 and C190; one it received, C170 too.
+- **The analytic records** (`Analytic.c190`) sum items by CST, CFOP and ICMS rate, with the operation value (`VL_OPR`: goods, freight, insurance, other expenses, ST and IPI, less the discount) and the base the reduction left out (`VL_RED_BC`); the C100's totals are theirs.
+- **Apurações** (`Apuracao`): `e110` from the period's debits and credits, the credit carried over and the E111 adjustments by their code (the state, `0`, then 0 other debits, 1 credits reversed, 2 other credits, 3 debits reversed, 4 deductions, 5 special debits); `e210` (ST of a state), `e310` (DIFAL and FCP of a state) and `e520` (IPI), each as the Guia's validations state them.
+
+Not covered yet: Blocks D, G and K (they go out empty), C110 to C197, 0400 to 0460, the registers of other documents (CT-e, energy, communication) and the leiaute 021 of 2027.
 
 ## Official tables
 
