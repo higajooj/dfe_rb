@@ -12,7 +12,7 @@ module DfeRb
       class Item
         CONTRIBUTIONS = %i[pis_base pis_rate pis_quantity pis_unit_rate pis_value cofins_base cofins_rate cofins_quantity cofins_unit_rate
           cofins_value].freeze
-        ATTRIBUTES = (%i[number code description quantity unit value discount freight insurance other cfop origin cst csosn
+        ATTRIBUTES = (%i[number code description ncm quantity unit value discount freight insurance other cfop origin cst csosn
           icms_base icms_rate icms_value reduction_rate st_base st_rate st_value ipi_cst ipi_base ipi_rate ipi_value
           extra pis_cst cofins_cst simples_credit_rate simples_credit_value] + CONTRIBUTIONS).freeze
         ZERO = BigDecimal(0)
@@ -34,7 +34,7 @@ module DfeRb
              "#{tax}_unit_rate": value.call("vAliqProd"), "#{tax}_value": value.call("v#{tax.upcase}")}
           end
           new(
-            number: det["nItem"].to_i, code: at.call("prod cProd"), description: at.call("prod xProd"),
+            number: det["nItem"].to_i, code: at.call("prod cProd"), description: at.call("prod xProd"), ncm: at.call("prod NCM"),
             quantity: num.call("prod qCom"), unit: at.call("prod uCom"), value: num.call("prod vProd"), discount: num.call("prod vDesc"),
             freight: num.call("prod vFrete"), insurance: num.call("prod vSeg"), other: num.call("prod vOutro"), cfop: at.call("prod CFOP"),
             origin: icms_at.call("orig") || "0", cst: icms_at.call("CST"), csosn: icms_at.call("CSOSN"),
@@ -114,18 +114,20 @@ module DfeRb
         end
 
         # The item with its PIS and COFINS as the informant books them: a CST for both,
-        # and the base and rates of a credit (or of a contribution); the values are the
-        # base times each rate, unless given. Without a base, no contribution at all.
-        def contributions(cst:, base: ZERO, pis_rate: ZERO, cofins_rate: ZERO, pis_value: nil, cofins_value: nil)
-          base = BigDecimal(base.to_s)
-          pis_rate = BigDecimal(pis_rate.to_s)
-          cofins_rate = BigDecimal(cofins_rate.to_s)
-          zero = !base.positive?
-          with(pis_cst: cst, cofins_cst: cst, pis_base: zero ? ZERO : base, cofins_base: zero ? ZERO : base,
-            pis_rate: zero ? ZERO : pis_rate, cofins_rate: zero ? ZERO : cofins_rate, pis_quantity: ZERO, pis_unit_rate: ZERO,
-            cofins_quantity: ZERO, cofins_unit_rate: ZERO,
-            pis_value: zero ? ZERO : BigDecimal((pis_value || (base * pis_rate / 100).round(2)).to_s),
-            cofins_value: zero ? ZERO : BigDecimal((cofins_value || (base * cofins_rate / 100).round(2)).to_s))
+        # and the base (the COFINS's, when it differs) and rates of a credit (or of a
+        # contribution); the values are each base times its rate, unless given. Without a
+        # base, no contribution at all.
+        def contributions(cst:, base: ZERO, pis_rate: ZERO, cofins_rate: ZERO, pis_value: nil, cofins_value: nil, cofins_base: nil)
+          bases = {pis: BigDecimal(base.to_s), cofins: BigDecimal((cofins_base || base).to_s)}
+          rates = {pis: BigDecimal(pis_rate.to_s), cofins: BigDecimal(cofins_rate.to_s)}
+          given = {pis: pis_value, cofins: cofins_value}
+          changes = {pis_cst: cst, cofins_cst: cst}
+          %i[pis cofins].each do |tax|
+            taxed = bases[tax].positive?
+            changes.merge!("#{tax}_base": taxed ? bases[tax] : ZERO, "#{tax}_rate": taxed ? rates[tax] : ZERO, "#{tax}_quantity": ZERO,
+              "#{tax}_unit_rate": ZERO, "#{tax}_value": taxed ? BigDecimal((given[tax] || (bases[tax] * rates[tax] / 100).round(2)).to_s) : ZERO)
+          end
+          with(**changes)
         end
 
         # A recipient's CST for the item, without the origin: ICMS charged by ST

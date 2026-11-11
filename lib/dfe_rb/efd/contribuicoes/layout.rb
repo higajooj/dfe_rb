@@ -6,7 +6,8 @@ module DfeRb
       # right below a block's opening have none. See Field for the notation.
       #
       # M210 and M610 have the leiaute of the facts from 01/01/2019, with the base's
-      # adjustments (fields 05 to 07). NÍVEL of 0500 is written NIVEL. C100's COD_PART
+      # adjustments (fields 05 to 07). NÍVEL of 0500 is written NIVEL, and REC_TOTAL_NRB_PERÍODO of 0900
+      # REC_TOTAL_NRB_PERIODO. C100's COD_PART
       # isn't required here: an NFC-e to a consumer not named carries none, as in the
       # EFD ICMS/IPI.
       module Layout
@@ -20,6 +21,7 @@ module DfeRb
           "0100" => [nil, %w[REG:C4! NOME:C100! CPF:N11=! CRC:C15! CNPJ:N14= CEP:N8= END:C60 NUM:C COMPL:C60 BAIRRO:C60 FONE:C11 FAX:C11 EMAIL:C
             COD_MUN:N7=]],
           "0110" => [nil, %w[REG:C4! COD_INC_TRIB:N1! IND_APRO_CRED:N1 COD_TIPO_CONT:N1 IND_REG_CUM:N1]],
+          "0120" => [nil, %w[REG:C4! MES_REFER:C6=! INF_COMP:C90]],
           "0111" => ["0110", %w[REG:C4! REC_BRU_NCUM_TRIB_MI:N.2! REC_BRU_NCUM_NT_MI:N.2! REC_BRU_NCUM_EXP:N.2! REC_BRU_CUM:N.2! REC_BRU_TOTAL:N.2!]],
           "0140" => [nil, %w[REG:C4! COD_EST:C60 NOME:C100! CNPJ:N14=! UF:C2=! IE:C14 COD_MUN:N7=! IM:C SUFRAMA:C9=]],
           "0150" => ["0140", %w[REG:C4! COD_PART:C60! NOME:C100! COD_PAIS:N5! CNPJ:N14= CPF:N11= IE:C14 COD_MUN:N7= SUFRAMA:C9= END:C60 NUM:C
@@ -28,6 +30,9 @@ module DfeRb
           "0200" => ["0140", %w[REG:C4! COD_ITEM:C60! DESCR_ITEM:C! COD_BARRA:C COD_ANT_ITEM:C60 UNID_INV:C6 TIPO_ITEM:N2=! COD_NCM:C8 EX_IPI:C3
             COD_GEN:N2= COD_LST:N4 ALIQ_ICMS:N6.2]],
           "0500" => [nil, %w[REG:C4! DT_ALT:D! COD_NAT_CC:C2=! IND_CTA:C1=! NIVEL:N5! COD_CTA:C255! NOME_CTA:C60! COD_CTA_REF:C60 CNPJ_EST:N14=]],
+          "0900" => [nil, %w[REG:C4! REC_TOTAL_BLOCO_A:N.2! REC_NRB_BLOCO_A:N.2 REC_TOTAL_BLOCO_C:N.2! REC_NRB_BLOCO_C:N.2 REC_TOTAL_BLOCO_D:N.2!
+            REC_NRB_BLOCO_D:N.2 REC_TOTAL_BLOCO_F:N.2! REC_NRB_BLOCO_F:N.2 REC_TOTAL_BLOCO_I:N.2! REC_NRB_BLOCO_I:N.2 REC_TOTAL_BLOCO_1:N.2!
+            REC_NRB_BLOCO_1:N.2 REC_TOTAL_PERIODO:N.2! REC_TOTAL_NRB_PERIODO:N.2]],
           "0990" => [nil, %w[REG:C4! QTD_LIN_0:N!]],
           # Block A: services (ISS).
           "A001" => [nil, %w[REG:C4! IND_MOV:C1!]],

@@ -36,7 +36,9 @@ module DfeRb
                          "55" => %i[untaxed export], "56" => %i[taxed untaxed export]}.freeze
         GROUP_DIGITS = {taxed: "1", untaxed: "2", export: "3"}.freeze
         NON_CUMULATIVE_CODES = %w[01 02 03 04 32 71].freeze
-        UNTAXED_CSTS = %w[04 05 06 07 08 09].freeze
+        # CST 05 (by ST) isn't among them: since PGE 2.0.5 it goes in M210 and M610, even at a
+        # zero rate (Guia Prático, M400).
+        UNTAXED_CSTS = %w[04 06 07 08 09].freeze
 
         attr_reader :tax, :regime, :cnpj, :month
         # Credits of the months before: [{month:, code:, apurado:, balance:}], apurado
@@ -63,7 +65,8 @@ module DfeRb
           @carried = []
         end
 
-        # A revenue taxed (CST 01 to 03, 05), at a rate in percent: its gross revenue and base.
+        # A revenue taxed (CST 01 to 03, or 05 by ST, code 31, even at a zero rate), at a
+        # rate in percent: its gross revenue and base.
         def revenue(cst:, rate:, revenue:, base:)
           @revenues << {code: contribution_code(cst, rate), rate: d(rate), revenue: d(revenue), base: d(base)}
         end
@@ -84,11 +87,23 @@ module DfeRb
           @credits << {cst:, nature:, base: d(base), rate: d(rate)}
         end
 
-        # A credit taken back (M110, a reduction): of the credit type it was taken as,
-        # with the document and the day it refers to. What exceeds the month's credit of
-        # that type is added to the contribution (M220).
-        def reduce_credit(type:, amount:, code: "06", document: nil, description: nil, date: nil)
-          @credit_reductions << {type:, amount: d(amount), code:, document:, description:, date:}
+        # A credit taken back (M110, a reduction): of the credit type it was taken as, or
+        # of the entry CST it was taken with (a CST 53 to 56 is split by the month's shares
+        # of each revenue, at the rate given), with the document and the day it refers to.
+        # What exceeds the month's credit of that type is added to the contribution (M220).
+        def reduce_credit(amount:, type: nil, cst: nil, rate: nil, code: "06", document: nil, description: nil, date: nil)
+          details = {code:, document:, description:, date:}
+          return @credit_reductions << details.merge(type:, amount: d(amount)) if type
+          raise ArgumentError, "CST #{cst.inspect} isn't of a credit" unless CREDIT_GROUPS.key?(cst)
+
+          groups = CREDIT_GROUPS.fetch(cst)
+          weights = split(groups)
+          digit = (rate.nil? || d(rate) == BASIC_RATES.dig(tax, :non_cumulative)) ? "01" : "02"
+          parts = groups.map { |group| [group, round(d(amount) * weights.fetch(group))] }
+          parts[-1][1] += d(amount) - parts.sum { |_, part| part }
+          parts.each do |group, part|
+            @credit_reductions << details.merge(type: "#{GROUP_DIGITS.fetch(group)}#{digit}", amount: part) if part.positive?
+          end
         end
 
         # A reduction of the base of the contribution of a CST and rate (M215), coded by

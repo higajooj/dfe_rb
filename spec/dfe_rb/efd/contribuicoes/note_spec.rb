@@ -52,6 +52,11 @@ RSpec.describe DfeRb::Efd::Contribuicoes::Note do
         vl_pis: BigDecimal("5.12"), vl_cofins: BigDecimal("23.56"))
     end
 
+    it "books each contribution on its own base when they differ" do
+      item = note.items.first.contributions(cst: "50", base: 100, cofins_base: 90, pis_rate: "1.65", cofins_rate: "7.6")
+      expect(item).to have_attributes(pis_base: 100, pis_value: BigDecimal("1.65"), cofins_base: 90, cofins_value: BigDecimal("6.84"))
+    end
+
     it "books an item without credit with its CST alone" do
       item = note.items.last.contributions(cst: "70")
       expect(DfeRb::Efd::Contribuicoes::Analytic.contributions(item)).to include(cst_pis: "70", vl_bc_pis: nil, vl_pis: 0, cst_cofins: "70")

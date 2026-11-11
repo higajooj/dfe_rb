@@ -89,6 +89,25 @@ RSpec.describe DfeRb::Efd::Contribuicoes::Apuracao do
     end
   end
 
+  it "books a revenue by ST (CST 05) as contribution 31, even at a zero rate, never among the revenues without it" do
+    pis = described_class.new(:pis, regime: :cumulative, cnpj:, month:)
+    pis.revenue(cst: "05", rate: 0, revenue: 300, base: 0)
+
+    expect(line(pis, "M210")).to eq(["|M210|31|300,00|0,00|0,00|0,00|0,00|0,0000|||0,00|0,00|0,00|0,00|0,00|0,00|"])
+    expect(line(pis, "M400")).to be_empty
+    expect { pis.untaxed(cst: "05", nature: "999", revenue: 1) }.to raise_error(ArgumentError, /05/)
+  end
+
+  it "splits a credit taken back that went with more than one revenue by the month's shares" do
+    pis = described_class.new(:pis, regime: :non_cumulative, cnpj:, month:, shares: {taxed: 300, untaxed: 100})
+    pis.credit(cst: "53", nature: "01", base: 4_000, rate: "1.65")
+    pis.reduce_credit(cst: "53", rate: "1.65", amount: 10, document: "9")
+
+    expect(line(pis, "M110").map { _1.split("|")[3] }).to eq(%w[7,50 2,50])
+    expect(line(pis, "M100").map { _1.split("|").values_at(2, 10) }).to eq([%w[101 7,50], %w[201 2,50]])
+    expect { pis.reduce_credit(cst: "70", amount: 1) }.to raise_error(ArgumentError)
+  end
+
   it "refuses what isn't a contribution, a credit or a revenue without the contribution" do
     expect { described_class.new(:icms, regime: :cumulative, cnpj:, month:) }.to raise_error(ArgumentError)
     pis = described_class.new(:pis, regime: :non_cumulative, cnpj:, month:)

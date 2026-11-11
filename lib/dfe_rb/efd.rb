@@ -33,6 +33,7 @@ require_relative "efd/contribuicoes/version"
 require_relative "efd/contribuicoes/note"
 require_relative "efd/contribuicoes/apuracao"
 require_relative "efd/contribuicoes/monophase"
+require_relative "efd/contribuicoes/deadline"
 
 module DfeRb
   module Efd

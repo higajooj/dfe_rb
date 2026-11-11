@@ -33,6 +33,25 @@ RSpec.describe DfeRb::Efd::Contribuicoes::File do
     expect(file.records("C001").first[:ind_mov]).to eq(0)
   end
 
+  it "writes a file without data's 0120 and a late file's 0900" do
+    opening
+    file.add "0120", mes_refer: "102026", inf_comp: "04 - Pessoa jurídica em geral, sem operações geradoras de receitas ou de créditos"
+    file.add "0900", rec_total_bloco_a: 0, rec_total_bloco_c: 1500, rec_total_bloco_d: 0, rec_total_bloco_f: 0, rec_total_bloco_i: 0,
+      rec_total_bloco_1: 0, rec_total_periodo: 1500
+    lines = file.to_s.split("\r\n")
+
+    expect(lines).to include("|0120|102026|04 - Pessoa jurídica em geral, sem operações geradoras de receitas ou de créditos|",
+      "|0900|0,00||1500,00||0,00||0,00||0,00||0,00||1500,00||")
+  end
+
+  it "is due on the 10th business day of the second month after, past national holidays" do
+    expect(efd::Deadline.for(Date.new(2026, 1, 1))).to eq(Date.new(2026, 3, 13))
+    # April 2026: Good Friday on the 3rd and Tiradentes on the 21st.
+    expect(efd::Deadline.for(Date.new(2026, 2, 1))).to eq(Date.new(2026, 4, 15))
+    expect(efd::Deadline.easter(2026)).to eq(Date.new(2026, 4, 5))
+    expect(efd::Deadline.late?(Date.new(2026, 1, 1), on: Date.new(2026, 3, 16))).to be(true)
+  end
+
   it "has no leiaute before 2020 or after PIS and COFINS end" do
     expect(efd::Version.for(Date.new(2021, 1, 31))).to eq("006")
     expect { efd::Version.for(Date.new(2019, 12, 31)) }.to raise_error(ArgumentError, /2020/)
