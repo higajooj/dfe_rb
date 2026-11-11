@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.0
+
+- The EFD ICMS/IPI (SPED Fiscal): `DfeRb::Efd::IcmsIpi::File` writes a period's file from its registers, in the order of the Guia Prático (Ato COTEPE/ICMS 44/2018), opening and closing every block and writing Block 9, in ISO-8859-1 with CR LF; `Layout` holds the fields of Blocks 0, B, C (C100, C101, C170, C190, C195, C197), D, E (E100 to E116, E200 to E250, E300 to E316, E500 to E520), G, H (H005, H010, H020), K, 1 (1010) and 9; `Version.for` the leiaute of a period, 2020 to 2026.
+- `Note` reads an NF-e's or NFC-e's nfeProc as its informant books it: its participant (0150), C100 (reduced when canceled, without participant and the ST, IPI, PIS and COFINS of an NFC-e), C101, C170, and items whose `on_entry` turns the issuer's values into the recipient's (CFOP, ICMS credit, IPI and ST without credit in the goods' value, CST under its own view). `Analytic.c190` sums items by CST, CFOP and rate; `Apuracao` works out E110, E210, E310 and E520.
+
 ## 0.13.0
 
 - NFC-e (modelo 65, layout 4.00): `DfeRb::Nfce::Client` builds, validates, signs and authorizes the consumer's note with the NF-e's builder and results (`build_invoice`, `sign`, `authorize`, `authorize!`, `consult`, `cancel`, `inutilize` of modelo 65), at the NFC-e's own authorizers: AM, GO, MG, MS, MT, PR, RS and SP have theirs, every other state uses the SVRS (BA, PE and MA included, unlike the NF-e). One note per request, answered synchronously (RV GAP03a-4, rej. 126). No carta de correção (784), EPEC or SVC (783): each says why.
