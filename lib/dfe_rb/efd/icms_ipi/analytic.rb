@@ -6,10 +6,15 @@ module DfeRb
       #
       # The FCP goes with the ICMS it is charged with: icms_value carries vFCP and
       # st_value vFCPST, as the file has no fields of their own for them.
+      #
+      # PIS and COFINS are the EFD-Contribuições': each its CST, base (in value, or in
+      # quantity with a rate in reais), rate and value.
       class Item
-        ATTRIBUTES = %i[number code description quantity unit value discount freight insurance other cfop origin cst csosn
+        CONTRIBUTIONS = %i[pis_base pis_rate pis_quantity pis_unit_rate pis_value cofins_base cofins_rate cofins_quantity cofins_unit_rate
+          cofins_value].freeze
+        ATTRIBUTES = (%i[number code description ncm quantity unit value discount freight insurance other cfop origin cst csosn
           icms_base icms_rate icms_value reduction_rate st_base st_rate st_value ipi_cst ipi_base ipi_rate ipi_value
-          extra pis_cst cofins_cst simples_credit_rate simples_credit_value].freeze
+          extra pis_cst cofins_cst simples_credit_rate simples_credit_value] + CONTRIBUTIONS).freeze
         ZERO = BigDecimal(0)
 
         attr_reader(*ATTRIBUTES)
@@ -22,8 +27,14 @@ module DfeRb
           icms_at = ->(name) { icms&.at_css(name)&.text }
           icms_num = ->(name) { BigDecimal(icms_at.call(name) || "0") }
           deson = (icms_at.call("indDeduzDeson") == "1") ? icms_num.call("vICMSDeson") : ZERO
+          contribution = lambda do |tax|
+            group = det.at_css("imposto #{tax.upcase}")&.element_children&.first
+            value = ->(name) { BigDecimal(group&.at_css(name)&.text || "0") }
+            {"#{tax}_base": value.call("vBC"), "#{tax}_rate": value.call("p#{tax.upcase}"), "#{tax}_quantity": value.call("qBCProd"),
+             "#{tax}_unit_rate": value.call("vAliqProd"), "#{tax}_value": value.call("v#{tax.upcase}")}
+          end
           new(
-            number: det["nItem"].to_i, code: at.call("prod cProd"), description: at.call("prod xProd"),
+            number: det["nItem"].to_i, code: at.call("prod cProd"), description: at.call("prod xProd"), ncm: at.call("prod NCM"),
             quantity: num.call("prod qCom"), unit: at.call("prod uCom"), value: num.call("prod vProd"), discount: num.call("prod vDesc"),
             freight: num.call("prod vFrete"), insurance: num.call("prod vSeg"), other: num.call("prod vOutro"), cfop: at.call("prod CFOP"),
             origin: icms_at.call("orig") || "0", cst: icms_at.call("CST"), csosn: icms_at.call("CSOSN"),
@@ -36,7 +47,8 @@ module DfeRb
             # desoneração deducted from it.
             extra: num.call("impostoDevol IPI vIPIDevol") + num.call("imposto II vII") - deson,
             pis_cst: at.call("imposto PIS CST"), cofins_cst: at.call("imposto COFINS CST"),
-            simples_credit_rate: icms_num.call("pCredSN"), simples_credit_value: icms_num.call("vCredICMSSN")
+            simples_credit_rate: icms_num.call("pCredSN"), simples_credit_value: icms_num.call("vCredICMSSN"),
+            **contribution.call("pis"), **contribution.call("cofins")
           )
         end
 
@@ -46,7 +58,7 @@ module DfeRb
 
           ATTRIBUTES.each { |a| instance_variable_set(:"@#{a}", attributes[a]) }
           %i[quantity value discount freight insurance other icms_base icms_rate icms_value reduction_rate st_base st_rate st_value
-            ipi_base ipi_rate ipi_value extra simples_credit_rate simples_credit_value].each do |name|
+            ipi_base ipi_rate ipi_value extra simples_credit_rate simples_credit_value].concat(CONTRIBUTIONS).each do |name|
             instance_variable_set(:"@#{name}", BigDecimal((instance_variable_get(:"@#{name}") || 0).to_s))
           end
         end
@@ -99,6 +111,23 @@ module DfeRb
             changes.merge!(st_base: ZERO, st_rate: ZERO, st_value: ZERO)
           end
           with(**changes, value: folded)
+        end
+
+        # The item with its PIS and COFINS as the informant books them: a CST for both,
+        # and the base (the COFINS's, when it differs) and rates of a credit (or of a
+        # contribution); the values are each base times its rate, unless given. Without a
+        # base, no contribution at all.
+        def contributions(cst:, base: ZERO, pis_rate: ZERO, cofins_rate: ZERO, pis_value: nil, cofins_value: nil, cofins_base: nil)
+          bases = {pis: BigDecimal(base.to_s), cofins: BigDecimal((cofins_base || base).to_s)}
+          rates = {pis: BigDecimal(pis_rate.to_s), cofins: BigDecimal(cofins_rate.to_s)}
+          given = {pis: pis_value, cofins: cofins_value}
+          changes = {pis_cst: cst, cofins_cst: cst}
+          %i[pis cofins].each do |tax|
+            taxed = bases[tax].positive?
+            changes.merge!("#{tax}_base": taxed ? bases[tax] : ZERO, "#{tax}_rate": taxed ? rates[tax] : ZERO, "#{tax}_quantity": ZERO,
+              "#{tax}_unit_rate": ZERO, "#{tax}_value": taxed ? BigDecimal((given[tax] || (bases[tax] * rates[tax] / 100).round(2)).to_s) : ZERO)
+          end
+          with(**changes)
         end
 
         # A recipient's CST for the item, without the origin: ICMS charged by ST
