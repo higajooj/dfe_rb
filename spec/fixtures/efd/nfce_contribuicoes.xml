@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe50261012345678000195650010000000771000000777" versao="4.00">
+      <ide><cUF>50</cUF><natOp>Venda</natOp><mod>65</mod><serie>1</serie><nNF>77</nNF><dhEmi>2026-10-07T15:00:00-04:00</dhEmi><tpNF>1</tpNF><idDest>1</idDest><tpAmb>1</tpAmb></ide>
+      <emit><CNPJ>12345678000195</CNPJ><xNome>EMITENTE LTDA</xNome><enderEmit><xLgr>Rua A</xLgr><nro>10</nro><xBairro>Centro</xBairro><cMun>5002704</cMun><UF>MS</UF><cPais>1058</cPais></enderEmit><IE>283456789</IE><CRT>3</CRT></emit>
+      <det nItem="1">
+        <prod><cProd>CIM50</cProd><xProd>Cimento 50 kg</xProd><NCM>25232910</NCM><CFOP>5102</CFOP><uCom>SC</uCom><qCom>2.0000</qCom><vUnCom>30.00</vUnCom><vProd>60.00</vProd><vDesc>5.00</vDesc></prod>
+        <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><modBC>3</modBC><vBC>55.00</vBC><pICMS>17.00</pICMS><vICMS>9.35</vICMS></ICMS00></ICMS>
+          <PIS><PISAliq><CST>01</CST><vBC>45.65</vBC><pPIS>1.65</pPIS><vPIS>0.75</vPIS></PISAliq></PIS>
+          <COFINS><COFINSAliq><CST>01</CST><vBC>45.65</vBC><pCOFINS>7.60</pCOFINS><vCOFINS>3.47</vCOFINS></COFINSAliq></COFINS></imposto>
+      </det>
+      <det nItem="2">
+        <prod><cProd>CIM25</cProd><xProd>Cimento 25 kg</xProd><NCM>25232910</NCM><CFOP>5102</CFOP><uCom>SC</uCom><qCom>1.0000</qCom><vUnCom>20.00</vUnCom><vProd>20.00</vProd></prod>
+        <imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><modBC>3</modBC><vBC>20.00</vBC><pICMS>17.00</pICMS><vICMS>3.40</vICMS></ICMS00></ICMS>
+          <PIS><PISAliq><CST>01</CST><vBC>16.60</vBC><pPIS>1.65</pPIS><vPIS>0.27</vPIS></PISAliq></PIS>
+          <COFINS><COFINSAliq><CST>01</CST><vBC>16.60</vBC><pCOFINS>7.60</pCOFINS><vCOFINS>1.26</vCOFINS></COFINSAliq></COFINS></imposto>
+      </det>
+      <det nItem="3">
+        <prod><cProd>PNEU</cProd><xProd>Pneu de carrinho</xProd><NCM>40114000</NCM><CFOP>5405</CFOP><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>40.00</vUnCom><vProd>40.00</vProd></prod>
+        <imposto><ICMS><ICMS60><orig>0</orig><CST>60</CST></ICMS60></ICMS>
+          <PIS><PISNT><CST>04</CST></PISNT></PIS>
+          <COFINS><COFINSNT><CST>04</CST></COFINSNT></COFINS></imposto>
+      </det>
+      <total><ICMSTot><vBC>75.00</vBC><vICMS>12.75</vICMS><vProd>120.00</vProd><vDesc>5.00</vDesc><vPIS>1.02</vPIS><vCOFINS>4.73</vCOFINS><vNF>115.00</vNF></ICMSTot></total>
+      <transp><modFrete>9</modFrete></transp>
+      <pag><detPag><tPag>01</tPag><vPag>115.00</vPag></detPag></pag>
+    </infNFe>
+  </NFe>
+  <protNFe versao="4.00"><infProt><tpAmb>1</tpAmb><chNFe>50261012345678000195650010000000771000000777</chNFe><dhRecbto>2026-10-07T15:00:02-04:00</dhRecbto><nProt>150260000077777</nProt><cStat>100</cStat></infProt></protNFe>
+</nfeProc>

@@ -11,6 +11,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Emit NFC-e** (modelo 65, layout 4.00) through `DfeRb::Nfce::Client`: the same builder, with the QR code version 3 (no CSC), its off-line contingency, the cancellation by substitution and the rules of modelo 65. See [NFC-e](#nfc-e).
 - **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
 - **Write the EFD ICMS/IPI** (SPED Fiscal) of a period: its registers, the blocks' openings and closings and Block 9, an NF-e's or NFC-e's C100, C101, C170 and C190 from its XML, and the apurações of Block E. See [EFD ICMS/IPI](#efd-icmsipi).
+- **Write the EFD-Contribuições** (PIS/Pasep and COFINS) of a period up to December 2026: its registers, an NF-e's C100 and C170 or an NFC-e's C175 with their PIS and COFINS, the apuração of Block M and the credits carried in Block 1. See [EFD-Contribuições](#efd-contribuições).
 
 Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), off-line and paper contingency of the NF-e (`tpEmis` 9, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
 
@@ -534,6 +535,47 @@ File.binwrite("efd.txt", file.to_latin1)   # ISO-8859-1, "|" between fields, CR 
 - **Apurações** (`Apuracao`): `e110` from the period's debits and credits, the credit carried over and the E111 adjustments by their code (the state, `0`, then 0 other debits, 1 credits reversed, 2 other credits, 3 debits reversed, 4 deductions, 5 special debits); `e210` (ST of a state), `e310` (DIFAL and FCP of a state) and `e520` (IPI), each as the Guia's validations state them.
 
 Not covered yet: Blocks D, G and K (they go out empty), C110 to C197, 0400 to 0460, the registers of other documents (CT-e, energy, communication) and the leiaute 021 of 2027.
+
+## EFD-Contribuições
+
+`DfeRb::Efd::Contribuicoes` writes the EFD-Contribuições a company under the lucro real (non-cumulative) or presumido (cumulative) delivers each month for PIS/Pasep and COFINS, by the Guia Prático (versão 1.35). `Version.for(last_day)` gives `COD_VER` 006, from 2020 to December 2026: PIS and COFINS end then, when the CBS takes their place (LC 214/2025), and the file isn't used for later facts (Nota Técnica 011/2026).
+
+```ruby
+efd = DfeRb::Efd::Contribuicoes
+file = efd::File.new
+file.add "0000", cod_ver: efd::Version.for(last_day), tipo_escrit: 0, dt_ini: first_day, dt_fin: last_day, nome: "ACME LTDA",
+  cnpj: "12345678000195", uf: "MS", cod_mun: "5002704", ind_nat_pj: "00", ind_ativ: 2
+file.add "0110", cod_inc_trib: 1, ind_apro_cred: 1, cod_tipo_cont: 1
+establishment = file.add "0140", nome: "ACME LTDA", cnpj: "12345678000195", uf: "MS", cod_mun: "5002704"
+c010 = file.add "C010", cnpj: "12345678000195", ind_escri: "2"
+
+note = efd::Note.new(nfe_proc_xml, informant: "12345678000195")
+items = note.own? ? note.items : note.items.map { it.on_entry(cfop: "1102").contributions(cst: "50", base: 1000, pis_rate: "1.65", cofins_rate: "7.6") }
+c100 = c010.add("C100", note.c100(items:, participant: note.participant&.dig(:cod_part), entry_date:, period_end: last_day))
+if note.nfce?
+  efd::Analytic.c175(items, account: "3.1.1.01").each { c100.add("C175", it) }
+else
+  items.each { c100.add("C170", note.c170(it, cod_item: it.code, account: "3.1.1.01")) }
+end
+establishment.add "0150", note.participant if note.participant
+
+pis = efd::Apuracao.new(:pis, regime: :non_cumulative, cnpj: "12345678000195", month: first_day)
+pis.revenue(cst: "01", rate: "1.65", revenue: 10_000, base: 9_000)
+pis.untaxed(cst: "04", nature: "003", revenue: 500)
+pis.credit(cst: "50", nature: "01", base: 6_000, rate: "1.65")
+pis.carried = previous_month_carry                    # [{month:, code:, apurado:, balance:}]
+pis.write(file)                                       # M100 to M410 and 1100; :cofins writes M500 to M810 and 1500
+pis.carry                                             # what the next month starts from
+
+File.binwrite("efd.txt", file.to_latin1)
+```
+
+- **The file** (`File`) has the blocks 0, A, C, D, F, I, M, P and 1, ordered and counted as the EFD ICMS/IPI's: an establishment's participants, units and items go under its `0140`, its notes under its `C010`.
+- **A note** (`Note`) books its C100 as the EFD ICMS/IPI does, with the PIS and COFINS of its items as booked. An NF-e's items go in C170, with each contribution's CST, base (in value with a rate in percent, or in quantity with a rate in reais) and value and the account (`COD_CTA`); an NFC-e's are summed in C175 by CFOP, CSTs and rates. Its `items` read each contribution from the document; `Item#contributions(cst:, base:, pis_rate:, cofins_rate:)` books one as its recipient does: a credit's CST (50 to 56) and base, or a CST without credit (70 to 75, 98) and nothing else.
+- **The apuração** (`Apuracao`), one per contribution: the contribution of each code (table 4.3.5: 01 or 51 at the basic rate, 02 or 52 at another, 31 by ST) and rate from the revenues taxed (M210), its base reduced by table 4.3.18's codes (`reduce_base`, M215: 02 for sales given back in the cumulative regime); the credits by type (table 4.3.6) and rate (M100), each nature and CST of their base (M105), split by the month's revenue of each kind when a credit goes with more than one (CST 53 to 56, `shares:` as 0111 gives them); credits taken back (`reduce_credit`, M110), what the month's credit doesn't cover added to the contribution (M220); the credits of the months before spent first, oldest first, then the month's (M200 and 1100), with what is left to pay under the DCTF's code (M205: 6912-01 and 5856-01 non-cumulative, 8109-02 and 2172-01 cumulative); and the revenues without the contribution by CST and nature (M400, M410).
+- **Monophase goods** (`Monophase.for(ncm)`): the group of table 4.3.10 an NCM falls in (fuels, medicines, perfumery, vehicles and chapter 87's parts, tyres, cold drinks), with the CST and nature (`NAT_REC`) a reseller books it with.
+
+Not covered: the consolidated registers (C180 to C195, C380 to C395, C490), Blocks A, D, F, I and P (they go out empty), C110 and C120, withholdings (F600), deferral, extemporaneous credits (1101), the regime de caixa (F500) and SCPs.
 
 ## Official tables
 

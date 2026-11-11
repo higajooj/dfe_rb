@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- The EFD-Contribuições (PIS/Pasep and COFINS): `DfeRb::Efd::Contribuicoes::File` writes a period's file by the Guia Prático (versão 1.35), with the blocks 0, A, C, D, F, I, M, P, 1 and 9; `Layout` holds 0000 to 0500 (0110 and 0111, 0140 with its 0150, 0190 and 0200), C010, C100, C170 and C175, M100 to M810 (M210 and M610 in the leiaute of 2019, with the base's adjustments) and 1100 and 1500; `Version.for` gives COD_VER 006 for 2020 to 2026 and refuses a period after PIS and COFINS end.
+- `Note` books an NF-e's C100 and C170 or an NFC-e's C175 (`Analytic.c175`) with their PIS and COFINS; `Item` reads each contribution from the document, and `Item#contributions` books a credit or a CST without one. `Apuracao` works out a contribution's M210 (with M215 and M220), its credits' M100 (with M105 and M110, split by the month's revenue for CST 53 to 56), M200 with M205, M400 with M410 and the credits carried in 1100 (or the COFINS's registers). `Monophase.for` gives the group of table 4.3.10 an NCM falls in, with the CST and nature a reseller books it with.
+- The EFD's fields, records, Latin-1 text and file of blocks are shared by both files (`DfeRb::Efd::Field`, `Record`, `Latin1`, `File`); `IcmsIpi` keeps its names.
+
 ## 0.14.0
 
 - The EFD ICMS/IPI (SPED Fiscal): `DfeRb::Efd::IcmsIpi::File` writes a period's file from its registers, in the order of the Guia Prático (Ato COTEPE/ICMS 44/2018), opening and closing every block and writing Block 9, in ISO-8859-1 with CR LF; `Layout` holds the fields of Blocks 0, B, C (C100, C101, C170, C190, C195, C197), D, E (E100 to E116, E200 to E250, E300 to E316, E500 to E520), G, H (H005, H010, H020), K, 1 (1010) and 9; `Version.for` the leiaute of a period, 2020 to 2026.

@@ -27,11 +27,22 @@ require_relative "efd/icms_ipi/note"
 require_relative "efd/icms_ipi/analytic"
 require_relative "efd/icms_ipi/apuracao"
 
+require_relative "efd/contribuicoes/layout"
+require_relative "efd/contribuicoes/file"
+require_relative "efd/contribuicoes/version"
+require_relative "efd/contribuicoes/note"
+require_relative "efd/contribuicoes/apuracao"
+require_relative "efd/contribuicoes/monophase"
+
 module DfeRb
   module Efd
     module IcmsIpi
       Field = Efd::Field
       Latin1 = Efd::Latin1
+    end
+
+    module Contribuicoes
+      Item = IcmsIpi::Item
     end
   end
 end
