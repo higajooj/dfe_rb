@@ -387,10 +387,17 @@ module DfeRb
         first, last = @ide["UFIni"], @ide["UFFim"]
         return unless BORDERS.key?(first) && BORDERS.key?(last)
 
-        states = [first, *Array(@ide["infPercurso"]).map { |entry| entry["UFPer"] }, last]
+        route = Array(@ide["infPercurso"]).map { |entry| entry["UFPer"] }
+        return add "ide/infPercurso: #{first} is the loading state; the route lists only the states crossed after it (F90, rej. 663)" if route.first == first
+        return add "ide/infPercurso: #{last} is the unloading state; the route lists only the states crossed before it (F90, rej. 663)" if route.last == last
+
+        states = [first, *route, last]
         return if states.size == 2 && first == last
 
-        gap = states.each_cons(2).find { |from, to| from != to && !BORDERS.fetch(from, []).include?(to) }
+        repeated = states.each_cons(2).find { |from, to| from == to }
+        return add "ide/infPercurso: #{repeated.first} is listed twice in a row; list each state crossed once (F90, rej. 663)" if repeated
+
+        gap = states.each_cons(2).find { |from, to| !BORDERS.fetch(from, []).include?(to) }
         return unless gap
 
         add "ide/infPercurso: #{gap.join(" and ")} share no border; list every state crossed from #{first} to #{last}, in order, with `route` (F90, rej. 663)"
