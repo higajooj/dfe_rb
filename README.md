@@ -175,7 +175,7 @@ client.resume(result.receipt, pending_results)     # finish a lot whose answer c
 client.authorize!(signed)                          # raises DfeRb::Nfe::Rejected / Denied / ConsumptionBlocked instead
 ```
 
-A rejection is a *result* (SEFAZ answered "no"); exceptions are for problems: `DfeRb::ValidationError` (`#issues` lists everything wrong locally, nothing was sent), `DfeRb::TransportError` (`#maybe_processed?` tells whether SEFAZ may have acted), `DfeRb::CertificateError`, `DfeRb::Nfe::Conflict`.
+A rejection is a *result* (SEFAZ answered "no"); exceptions are for problems: `DfeRb::ValidationError` (`#issues` lists everything wrong locally, nothing was sent), `DfeRb::TransportError` (`#maybe_processed?` tells whether SEFAZ may have acted, `#http_status` the status of an answer that wasn't a SOAP one, `#certificate_refused?` a 403, SEFAZ refusing the certificate at the TLS layer), `DfeRb::CertificateError`, `DfeRb::Nfe::Conflict`.
 
 The gem handles lost answers. After a timeout that may have reached SEFAZ, or a duplicate rejection (204/539), it asks for the key. If SEFAZ holds this same document, the gem returns its protocol (`result.recovered?`), or `:canceled` if the note was canceled since. If SEFAZ holds a different document, it raises `Conflict`. If SEFAZ holds nothing, it re-raises the original error, and the *same signed XML* can be sent again. This is why you must store `signed.xml` first and never rebuild a note that may have been sent. You can hand a stored note back as `SignedInvoice.new(xml: File.read(path), key: nil, digest_value: nil)` or as the XML itself. The gem checks it against the client's environment, certificate and signature before it goes out.
 
