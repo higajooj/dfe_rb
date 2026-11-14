@@ -214,6 +214,24 @@ RSpec.describe DfeRb::Mdfe::Validator do
         .to include(a_string_starting_with("ide/infPercurso: SP and RS share no border"))
     end
 
+    it "leaves the loading and unloading states out of the route" do
+      expect(issues_of(own_cargo { |mdfe| mdfe.route "SP", "MG" }))
+        .to include("ide/infPercurso: SP is the loading state; the route lists only the states crossed after it (F90, rej. 663)")
+      expect(issues_of(carrier { |mdfe| mdfe.route "MG", "GO" }))
+        .to include("ide/infPercurso: GO is the unloading state; the route lists only the states crossed before it (F90, rej. 663)")
+      within_state = own_cargo do |mdfe|
+        mdfe.unload_at "3550308", nfe: [document_key(55)]
+        mdfe.end_state "SP"
+        mdfe.route "SP"
+      end
+      expect(issues_of(within_state)).to include(a_string_starting_with("ide/infPercurso: SP is the loading state"))
+    end
+
+    it "refuses a state listed twice in a row" do
+      expect(issues_of(carrier { |mdfe| mdfe.route "MG", "MG" }))
+        .to include("ide/infPercurso: MG is listed twice in a row; list each state crossed once (F90, rej. 663)")
+    end
+
     it "knows every border from both sides" do
       described_class::BORDERS.each do |state, neighbours|
         neighbours.each { |neighbour| expect(described_class::BORDERS.fetch(neighbour)).to include(state), "#{neighbour} lacks #{state}" }
