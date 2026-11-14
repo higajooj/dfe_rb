@@ -94,7 +94,7 @@ module DfeRb
 
       # SOAP faults come with HTTP 500 and are reported by extract_result.
       unless response.is_a?(Net::HTTPSuccess) || body.include?("Fault")
-        raise TransportError.new("HTTP #{response.code} from #{uri.host}", maybe_processed: response.code.to_i >= 500)
+        raise TransportError.new("HTTP #{response.code} from #{uri.host}", maybe_processed: response.code.to_i >= 500, http_status: response.code.to_i)
       end
 
       body

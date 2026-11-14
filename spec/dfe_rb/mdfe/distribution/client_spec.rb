@@ -85,7 +85,7 @@ RSpec.describe DfeRb::Mdfe::Distribution::Client do
   it "raises on a rejection only when asked to" do
     transport.answer(:distribution, response([], code: 491, last: nil, max: nil))
 
-    expect(client.distribute).to be_rejected
+    expect(client.distribute).to have_attributes(rejected?: true, status: :certificate, certificate_refused?: true)
     expect { client.fetch_nsu!(1) }.to raise_error(DfeRb::Mdfe::Rejected, /491/)
   end
 

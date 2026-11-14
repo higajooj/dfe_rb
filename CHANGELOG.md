@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0
+
+- A distribution answer that refuses the certificate is `:certificate` (`certificate_refused?`): its own checks, 280 to 287, or a holder other than the one asked about, 593 and 472 at the NF-e's service, 491 and 492 at the MDF-e's. `DfeRb::Distribution.status(code)` tells what a cStat kept on its own means, as `Result#status` does.
+- `TransportError#http_status` is the HTTP status of an answer that wasn't a SOAP one, and `certificate_refused?` tells a 403, SEFAZ refusing the client certificate at the TLS layer.
+
+## 0.15.1
+
+- `DfeRb::Mdfe::Validator` refuses a route (`infPercurso`) whose first state is the loading one (`UFIni`), whose last is the unloading one (`UFFim`), or that lists a state twice in a row (F90, rej. 663): SEFAZ rejects them, a trip within one state included.
+
 ## 0.15.0
 
 - The EFD-Contribuições (PIS/Pasep and COFINS): `DfeRb::Efd::Contribuicoes::File` writes a period's file by the Guia Prático (versão 1.35), with the blocks 0, A, C, D, F, I, M, P, 1 and 9; `Layout` holds 0000 to 0500 (0110 and 0111, 0120 of a file without data, 0140 with its 0150, 0190 and 0200, 0900 of a late one), C010, C100, C170 and C175, M100 to M810 (M210 and M610 in the leiaute of 2019, with the base's adjustments) and 1100 and 1500; `Version.for` gives COD_VER 006 for 2020 to 2026 and refuses a period after PIS and COFINS end.
