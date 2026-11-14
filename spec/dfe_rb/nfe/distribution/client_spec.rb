@@ -164,12 +164,14 @@ RSpec.describe DfeRb::Nfe::Distribution::Client do
     expect { client.distribute! }.to raise_error(DfeRb::Nfe::ConsumptionBlocked) { |e| expect(e.result).to be_blocked }
   end
 
-  [108, 109, 489, 589, 9999].each do |code|
+  {108 => :unavailable, 109 => :unavailable, 280 => :certificate, 286 => :certificate, 593 => :certificate,
+   472 => :certificate, 489 => :rejected, 589 => :rejected, 9999 => :rejected}.each do |code, status|
     it "returns ordinary SEFAZ outcome #{code} and raises only through bang methods" do
       transport.answer(:distribution, distribution_response([], code: code, last: nil, max: nil))
       result = client.distribute
       expect(result.code).to eq(code)
-      expect(result.status).to eq([108, 109].include?(code) ? :unavailable : :rejected)
+      expect(result.status).to eq(status)
+      expect(result.certificate_refused?).to eq(status == :certificate)
       expect(result.retry_at).to be_nil
       expect { client.fetch_key!(key) }.to raise_error(DfeRb::Nfe::Rejected)
     end

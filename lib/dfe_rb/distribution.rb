@@ -10,6 +10,26 @@ module DfeRb
     # Consumo indevido: 656 at the NF-e's service, 678 at the MDF-e's.
     BLOCKED = [656, 678].freeze
     COOLDOWN = 3600
+    # Paralisado momentaneamente or sem previsão, at both services.
+    UNAVAILABLE = [108, 109].freeze
+    # The certificate the request went with, refused: its own checks (group A, 280 to 287)
+    # or a holder other than the one asked about (593 and 472 at the NF-e's service, 491
+    # and 492 at the MDF-e's). Only a new certificate gets past them.
+    CERTIFICATE_REFUSED = [280, 281, 282, 283, 284, 285, 286, 287, 472, 491, 492, 593].freeze
+
+    # What a cStat of the distribution means: :documents (138), :empty (137), :blocked,
+    # :unavailable, :certificate or :rejected. Result#status for an answer at hand; this for
+    # one kept only by its code.
+    def self.status(code)
+      case code.to_i
+      when 138 then :documents
+      when 137 then :empty
+      when *BLOCKED then :blocked
+      when *UNAVAILABLE then :unavailable
+      when *CERTIFICATE_REFUSED then :certificate
+      else :rejected
+      end
+    end
 
     # An unusable answer, not an ordinary SEFAZ rejection. It keeps the raw response, so a
     # consumer can diagnose corruption without discarding it or advancing its cursor.
@@ -28,20 +48,13 @@ module DfeRb
     # parser made of each docZip.
     Result = Data.define(:query, :code, :message, :environment, :application_version,
       :responded_at, :last_nsu, :max_nsu, :documents, :request_xml, :response_xml, :retry_at) do
-      def status
-        case code
-        when 138 then :documents
-        when 137 then :empty
-        when *BLOCKED then :blocked
-        when 108, 109 then :unavailable
-        else :rejected
-        end
-      end
+      def status = Distribution.status(code)
 
       def success? = [137, 138].include?(code)
       def empty? = status == :empty
       def blocked? = status == :blocked
       def unavailable? = status == :unavailable
+      def certificate_refused? = status == :certificate
       def rejected? = !success?
       def more? = query == :dist_nsu && code == 138 && !last_nsu.nil? && !max_nsu.nil? && last_nsu < max_nsu
     end
