@@ -86,14 +86,16 @@ RSpec.describe DfeRb::Transport do
     stub_request(:post, endpoint.url).to_return(status: 403, body: "<html>Forbidden</html>")
 
     expect { transport.post(endpoint, request_xml) }
-      .to raise_error(DfeRb::TransportError, /HTTP 403/) { |error| expect(error.maybe_processed?).to be(false) }
+      .to raise_error(DfeRb::TransportError, /HTTP 403/) { |error|
+        expect(error).to have_attributes(maybe_processed?: false, http_status: 403, certificate_refused?: true)
+      }
   end
 
   it "flags a 5xx as possibly processed" do
     stub_request(:post, endpoint.url).to_return(status: 502, body: "bad gateway")
 
     expect { transport.post(endpoint, request_xml) }
-      .to raise_error(DfeRb::TransportError) { |error| expect(error.maybe_processed?).to be(true) }
+      .to raise_error(DfeRb::TransportError) { |error| expect(error).to have_attributes(maybe_processed?: true, http_status: 502, certificate_refused?: false) }
   end
 
   it "reports a read timeout as possibly processed and a connect failure as not" do
@@ -103,7 +105,7 @@ RSpec.describe DfeRb::Transport do
 
     stub_request(:post, endpoint.url).to_raise(Net::OpenTimeout)
     expect { transport.post(endpoint, request_xml) }
-      .to raise_error(DfeRb::TransportError, /could not connect/) { |error| expect(error.maybe_processed?).to be(false) }
+      .to raise_error(DfeRb::TransportError, /could not connect/) { |error| expect(error).to have_attributes(maybe_processed?: false, http_status: nil) }
   end
 
   it "raises when the body is not a SEFAZ answer" do

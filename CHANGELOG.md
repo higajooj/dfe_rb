@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.0
+
+- A distribution answer that refuses the certificate is `:certificate` (`certificate_refused?`): its own checks, 280 to 287, or a holder other than the one asked about, 593 and 472 at the NF-e's service, 491 and 492 at the MDF-e's. `DfeRb::Distribution.status(code)` tells what a cStat kept on its own means, as `Result#status` does.
+- `TransportError#http_status` is the HTTP status of an answer that wasn't a SOAP one, and `certificate_refused?` tells a 403, SEFAZ refusing the client certificate at the TLS layer.
+
 ## 0.15.1
 
 - `DfeRb::Mdfe::Validator` refuses a route (`infPercurso`) whose first state is the loading one (`UFIni`), whose last is the unloading one (`UFFim`), or that lists a state twice in a row (F90, rej. 663): SEFAZ rejects them, a trip within one state included.
