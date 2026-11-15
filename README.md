@@ -82,7 +82,7 @@ The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procE
   - `vCredICMSSN` = operation value x `pCredSN` (CSOSN 101, 201, 900).
 - **Invoice-level amounts spread over the items**: `nfe.freight`, `nfe.insurance`, `nfe.discount` and `nfe.other_expenses` are split in proportion to each item's `vProd`, to the cent (the shares always add up), before any tax is computed. An item that sets its own takes no share.
 - **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from `vBCST`, `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
-- **Rates fixed by law**, on a normal operation (`finNFe` 1). That covers the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is left for you to give), and `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when you give `i.ipi` a base without a rate (an NT line and a per-unit IPI get none). A return, complement or adjustment carries the rates of the operation it refers to, so you give them. So does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
+- **Rates fixed by law**, on a normal operation (`finNFe` 1). That covers the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is yours to give, and the note is refused without it: see [2027](#2027)), and `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when you give `i.ipi` a base without a rate (an NT line and a per-unit IPI get none; zero from 2027 but on a product of the Zona Franca de Manaus). A return, complement or adjustment carries the rates of the operation it refers to, so you give them. So does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
 - **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`):
   - the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`
   - an address's `xMun` from `cMun`, `cMun` from `xMun` + `UF`, or `UF` from `cMun` (IBGE)
@@ -149,12 +149,42 @@ The layout gives the credit no base, and each state's regulation says what the r
 DfeRb::Nfe::Rates.pis_cofins(:non_cumulative)                                  # => {pis: 1.65, cofins: 7.6}; :cumulative is 0.65 and 3.0
 DfeRb::Nfe::Rates.simples_icms_credit(revenue_12m: "1000000.00")               # => 2.83, the pCredSN of LC 123/2006 (Anexo I)
 DfeRb::Nfe::Rates.simples_icms_credit(revenue_12m: 1_000_000, annex: :industry) # => 2.86 (Anexo II); nil above the ICMS sublimit
+DfeRb::Nfe::Rates.ibs_cbs(2027)                                                # => {uf: 0.05, municipal: 0.05, cbs: nil} until the reference rate applies
+DfeRb::Nfe::Rates.pis_cofins_charged?(Date.new(2027, 1, 1))                    # => false
+DfeRb::Nfe::Rates.ipi_applies?(2027, zfm_product: false)                       # => false
 DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
 ```
 
 The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except returns (RV UB12-10, NT 2025.002 v1.53). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. Nothing is asked of the Simples Nacional and the MEI, who fill it from 2027 under rules an NT has yet to bring. The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
+
+### 2027
+
+On 1 January 2027 the CBS starts being charged at its reference rate, PIS/Pasep and COFINS end, and the IPI goes to zero on almost every product (EC 132/2023, ADCT arts. 126 and 127; LC 214/2025). The gem goes by the issue year of `dhEmi`, in its own offset: `2026-12-31T23:30:00-04:00` is still 2026.
+
+| | Up to 31/12/2026 | From 01/01/2027 |
+|---|---|---|
+| CBS (`pCBS`) | 0.9% | the reference rate less 0.1 point (LC 214, art. 347), filled once `Rates::CBS_REFERENCE` has it |
+| IBS (`pIBSUF`, `pIBSMun`) | 0.1% and 0 | 0.05% and 0.05% (art. 344), in 2027 and 2028 |
+| IBS, CBS and IS in `vItem` | no | yes (RV VB01-10) |
+| PIS and COFINS | charged | not charged; the groups stay mandatory (RV Q01-20, S01-20) |
+| IPI from the TIPI | the TIPI rate | zero, unless the item says `zfm_product: true` |
+
+What callers pass on a normal note (`finNFe` 1) dated 2027:
+
+- **The CBS rate, until the gem has it.** The Senate fixes the reference rate by 31 October of the year before (LC 214, art. 349, § 1º), but for 2027 it has until 15/12/2026 (art. 353, § 2º gives the first cycle 45 more days). The TCU calculated 11.3% (28/10/2026), which applies while the Senate hasn't fixed a rate past 22/12/2026 (art. 349, § 2º). Until a release of the gem fills `Rates::CBS_REFERENCE`, give `cbs: {rate: ...}` on each item taxed in `gIBSCBS`, or the note is refused: `issues` names the item ("the CBS reference rate for 2027 isn't published yet (alíquota de referência da CBS para 2027 não publicada): give pCBS"), `to_xml` raises `ValidationError`, and `Calculator.call` raises `DfeRb::Nfe::RateNotPublished`. Nothing is asked of a classification taxed in `gTribRegular` (zero rates) or a CBS with `gALCZFMCBS` (zero, UB56-20). On a return, complement or adjustment the gem fills no rate, so you give them all; the validator still holds a complement or adjustment to the issue year's rates (UB18-10 and UB37-10 don't spare them), so a 2027 complement of a 2026 sale carries the IBS at 0.05% + 0.05%, not 0.1% + 0. After 2028 every rate is yours to give.
+- **PIS and COFINS with a CST that charges nothing.** No NT says which one yet, nor drops the groups. The gem flags any rate or amount of PIS, COFINS or their ST on a normal note dated 2027 ("PIS/Pasep and COFINS are not charged on a note issued from 2027"). A return or complement of a 2026 sale may carry them.
+- **`zfm_product: true` on the IPI of a product whose IPI goes on**: one with incentivized industrialization in the Zona Franca de Manaus, unless LC 214, art. 454 zeroes it too (a TIPI rate below 6.5% on 31/12/2023; ICT goods excepted). The Union is to publish the list (§ 3º). `i.ipi cst: "50", base: "100.00", zfm_product: true` keeps the TIPI rate; without the flag the gem fills `pIPI` 0. A rate you give is kept.
+
+The validator also checks every note's IBS/CBS rates against the issue year (UB18-10, UB37-10, UB56-10, UB56-20, rej. 1026, 1036, 1037), so a 2026 rate on a 2027 note is flagged. It leaves out a return, the credit notes of a refusal or a reduction (`tpNFCredito` 03, 04, 06), a government purchase, and a CBS of zero in 2026, whose conditions SEFAZ checks.
+
+Still waiting on publications:
+
+- the 2027 reference rate, the Senate's (due 15/12/2026) or else the TCU's 11.3% (11.2% charged), which goes into `Rates::CBS_REFERENCE` in a new release;
+- an NT on the PIS/COFINS groups of 2027 notes (NT 2025.002 v1.53 still requires them) and on the IBS/CBS of the Simples Nacional and the MEI (RV UB12-10 sets 04/01/2027 for them in production, under rules still to come);
+- the Union's list of the products whose IPI goes to zero (LC 214, art. 454, § 3º), or a new TIPI;
+- the Imposto Seletivo rates of MP 1.399/2026, in force from 02/02/2027, which the gem doesn't fill (`i.selective_tax` takes them).
 
 ## Other ways to describe an invoice
 
@@ -728,7 +758,7 @@ Edited by hand:
 | Dates a rule starts | `Validator::IBS_CBS_SINCE` | NT 2025.002 and its successors | an NT moves a date |
 | States barred from the EPEC | `States::EPEC_BARRED` | NT 2014.001 (RV 2P10-20) | an Ajuste SINIEF adds or removes a state |
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
-| IBS/CBS standard rates by year | `Rates::IBS_CBS` (2027 and 2028 have no CBS rate yet; nothing after 2028) | IT 2025.002 §05 and the laws that set each year's rates | yearly, before the first issue of the year |
+| IBS/CBS standard rates by year | `Rates::IBS_CBS`, and the CBS reference rate of 2027 and 2028 in `Rates::CBS_REFERENCE` (less `CBS_TRANSITION_DISCOUNT`); nothing after 2028 | IT 2025.002 §05, the Senate's resolution or the TCU's rate (LC 214/2025, art. 349), and the laws that set each year's rates | yearly, before the first issue of the year; for 2027, on 22/12/2026 at the latest |
 | Interstate ICMS rates and the DIFAL partition | `Rates::SOUTH_SOUTHEAST`, `IMPORTED_ORIGINS`, `PARTITION` | Senate Resolutions 22/1989 and 13/2012, EC 87/2015 | a new resolution (rare) |
 | NFC-e web services and each state's NFC-e authorizer | `nfce/endpoints.rb` (`AUTHORIZERS`, `PATHS`), `Nfce::States::OWN_AUTHORIZER` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfce/Servicos`) | a state moves to or from the SVRS, or an address changes |
 | NFC-e QR code and consultation addresses | `Nfce::Endpoints::QR_CODE`, `CONSULT` | Portal Nacional da NFC-e, "URL por UF utilizada QR code" and "... para consulta chave" | a state moves its consultation |

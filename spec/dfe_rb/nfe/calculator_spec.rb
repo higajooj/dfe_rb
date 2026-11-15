@@ -286,10 +286,44 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(ibs_cbs({"cClassTrib" => "410001"})).not_to have_key("gIBSCBS")
     end
 
-    it "leaves the CBS rate empty in a year it is not law yet" do
-      later = context.dup.tap { |c| c.year = 2027 }
+    describe "from 2027" do
+      let(:later) { context.dup.tap { |copy| copy.year = 2027 } }
 
-      expect(ibs_cbs({"cClassTrib" => "000001"}, later)["gIBSCBS"]["gCBS"]).not_to have_key("pCBS")
+      it "refuses to leave out a CBS rate that isn't law yet, naming the item" do
+        expect { described_class.call(item({"IBSCBS" => {"cClassTrib" => "000001"}}).merge("@nItem" => 2), later) }
+          .to raise_error(DfeRb::Nfe::RateNotPublished, "det[2]: the CBS reference rate for 2027 isn't published yet " \
+            "(alíquota de referência da CBS para 2027 não publicada): give pCBS")
+        expect { ibs_cbs({"cClassTrib" => "000001"}, later) }.to raise_error(DfeRb::Error)
+      end
+
+      it "takes the rate the item gives, with the IBS's of the year" do
+        group = {"cClassTrib" => "000001", "gIBSCBS" => {"vBC" => "82.00", "gCBS" => {"pCBS" => "8.70"}}}
+        ibs = ibs_cbs(group, later)["gIBSCBS"]
+
+        expect([ibs["gIBSUF"]["pIBSUF"], ibs["gIBSMun"]["pIBSMun"]].map { |rate| decimal(rate) }).to eq(%w[0.05 0.05])
+        expect([ibs["vIBS"], ibs["gCBS"]["vCBS"]].map { |value| decimal(value) }).to eq(%w[0.08 7.13])
+      end
+
+      it "charges the reference rate less 0.1 point once it is published (LC 214/2025, art. 347)" do
+        stub_const("DfeRb::Nfe::Rates::CBS_REFERENCE", {2027 => "8.80", 2028 => nil})
+
+        expect(decimal(ibs_cbs({"cClassTrib" => "000001"}, later)["gIBSCBS"]["gCBS"]["pCBS"])).to eq("8.7")
+      end
+
+      it "needs no rate for a classification taxed in gTribRegular, a sale within the ZFM, or a return" do
+        regular = ibs_cbs({"cClassTrib" => "550001", "gIBSCBS" => {"vBC" => "1000.00"}}, later)["gIBSCBS"]
+        zone = ibs_cbs({"cClassTrib" => "000001", "gIBSCBS" => {"gCBS" => {"gALCZFMCBS" => {}}}}, later)["gIBSCBS"]
+        devolution = ibs_cbs({"cClassTrib" => "000001"}, later.dup.tap { |copy| copy.purpose = 4 })["gIBSCBS"]
+
+        expect([regular["gIBSUF"]["pIBSUF"], regular["gCBS"]["pCBS"]].map { |rate| decimal(rate) }).to eq(%w[0.0 0.0])
+        expect(decimal(zone["gCBS"]["pCBS"])).to eq("0.0")
+        expect(devolution["gCBS"]).not_to have_key("pCBS")
+      end
+
+      it "asks for every rate after 2028, when each is set by a law still to come" do
+        expect { ibs_cbs({"cClassTrib" => "000001"}, later.dup.tap { |copy| copy.year = 2029 }) }
+          .to raise_error(DfeRb::Nfe::RateNotPublished, "dfe_rb has no rate of the state IBS for 2029 (set by law yet to come): give pIBSUF")
+      end
     end
   end
 
@@ -303,6 +337,18 @@ RSpec.describe DfeRb::Nfe::Calculator do
 
     it "is kept when given" do
       expect(ipi({"vBC" => "100.00", "pIPI" => "10.00"})).to include("pIPI" => "10.00", "vIPI" => BigDecimal(10))
+    end
+
+    it "is zero from 2027 but on a product also made in the Zona Franca de Manaus (ADCT art. 126, III, a; LC 214/2025, art. 454)" do
+      later = context.dup.tap { |copy| copy.year = 2027 }
+      zfm = {"prod" => {"vProd" => "100.00", "NCM" => "22030000"}, "imposto" => {"IPI" => {"IPITrib" => {"vBC" => "100.00"}}},
+             described_class::ZFM_PRODUCT => true}
+
+      expect(ipi({"vBC" => "100.00"}, {"NCM" => "22030000"}, later).transform_values { |value| decimal(value) })
+        .to eq("vBC" => "100.00", "pIPI" => "0.0", "vIPI" => "0.0")
+      expect(decimal(described_class.call(zfm, later)["imposto"]["IPI"]["IPITrib"]["pIPI"])).to eq("3.9")
+      expect(zfm).not_to have_key(described_class::ZFM_PRODUCT)
+      expect(ipi({"vBC" => "100.00", "pIPI" => "3.90"}, {"NCM" => "22030000"}, later)["vIPI"].to_s("F")).to eq("3.9")
     end
 
     it "is left out for an NT line, an NCM the TIPI lacks, a per-unit IPI and a note that isn't normal" do

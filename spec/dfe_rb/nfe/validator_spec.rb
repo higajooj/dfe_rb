@@ -33,6 +33,67 @@ RSpec.describe DfeRb::Nfe::Validator do
       a_string_matching(%r{gCBS/pCBS: must be 0 .*\(rej. 1037\)}))
   end
 
+  describe "the IBS/CBS rates of the issue year (UB18-10, UB37-10, UB56-10, UB56-20)" do
+    def rates_issues(uf:, municipal:, cbs:, year: 2026, ide: {}, zone: false)
+      gcbs = {"pCBS" => cbs}.merge(zone ? {"gALCZFMCBS" => {}} : {})
+      group = {"gIBSUF" => {"pIBSUF" => uf}, "gIBSMun" => {"pIBSMun" => municipal}, "gCBS" => gcbs}
+      item_issues({"IBSCBS" => {"cClassTrib" => "000001", "gIBSCBS" => group}}, ide: {"dhEmi" => "#{year}-06-01T10:00:00-03:00"}.merge(ide))
+    end
+
+    it "flags a rate that isn't the year's, and the CBS while its 2027 reference rate is unknown to the gem" do
+      expect(rates_issues(uf: "0.10", municipal: "0", cbs: "0.90")).to eq([])
+      expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "0.90")).to contain_exactly(
+        "det[1]/imposto/IBSCBS/gIBSCBS/gIBSUF/pIBSUF: 0.05 is not the rate the law fixes for 2026 (0.1) (rej. 1026)",
+        "det[1]/imposto/IBSCBS/gIBSCBS/gIBSMun/pIBSMun: 0.05 is not the rate the law fixes for 2026 (0.0) (rej. 1036)"
+      )
+      expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "8.70", year: 2027)).to eq([])
+    end
+
+    it "compares a rate as the XML writes it, to 4 places" do
+      expect(rates_issues(uf: BigDecimal("0.10004"), municipal: 0, cbs: 0.3 * 3)).to eq([])
+      expect(rates_issues(uf: "0.1001", municipal: "0", cbs: "0.90").size).to eq(1)
+    end
+
+    it "holds a complement of an earlier sale to the issue year's IBS rates (UB18-10, UB37-10)" do
+      expect(rates_issues(uf: "0.10", municipal: "0", cbs: "8.70", year: 2027, ide: {"finNFe" => "2"}).size).to eq(2)
+    end
+
+    it "checks the 2027 CBS once its reference rate is published" do
+      stub_const("DfeRb::Nfe::Rates::CBS_REFERENCE", {2027 => "8.80", 2028 => nil})
+
+      expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "8.70", year: 2027)).to eq([])
+      expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "8.80", year: 2027))
+        .to eq(["det[1]/imposto/IBSCBS/gIBSCBS/gCBS/pCBS: 8.80 is not the rate the law fixes for 2027 (8.7) (rej. 1037)"])
+    end
+
+    it "wants a CBS of zero with gALCZFMCBS, and leaves a zero CBS of 2026 to SEFAZ" do
+      expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "8.70", year: 2027, zone: true))
+        .to eq(["det[1]/imposto/IBSCBS/gIBSCBS/gCBS/pCBS: 8.70 is not the rate the law fixes for 2027 (0.0) (rej. 1037)"])
+      expect(rates_issues(uf: "0.10", municipal: "0", cbs: "0")).to eq([])
+    end
+
+    it "leaves alone a return, the credit notes of a refusal or a reduction, and a government purchase" do
+      stale = {uf: "0.10", municipal: "0", cbs: "0.90", year: 2027}
+
+      expect(rates_issues(**stale, ide: {"finNFe" => "4"})).to eq([])
+      expect(rates_issues(**stale, ide: {"finNFe" => "5", "tpNFCredito" => "4"})).to eq([])
+      expect(rates_issues(**stale, ide: {"gCompraGov" => {"tpEnteGov" => "1", "pRedutor" => "10.0000"}})).to eq([])
+    end
+  end
+
+  it "flags PIS and COFINS charged on a normal note issued from 2027, but not on a return" do
+    taxed = {"PIS" => {"PISAliq" => {"CST" => "01", "vBC" => "100.00", "pPIS" => "1.65", "vPIS" => "1.65"}},
+             "COFINS" => {"COFINSNT" => {"CST" => "08"}},
+             "COFINSST" => {"vBC" => "100.00", "pCOFINS" => "7.60", "vCOFINS" => "7.60"}}
+
+    expect(item_issues(taxed, ide: {"dhEmi" => "2026-12-31T23:59:59-03:00"})).to eq([])
+    expect(item_issues(taxed, ide: {"dhEmi" => "2027-01-01T00:00:00-03:00"})).to contain_exactly(
+      "det[1]/imposto/PIS/pPIS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126, II; LC 214/2025, art. 542)",
+      "det[1]/imposto/COFINSST/pCOFINS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126, II; LC 214/2025, art. 542)"
+    )
+    expect(item_issues(taxed, ide: {"dhEmi" => "2027-01-01T00:00:00-03:00", "finNFe" => "4"})).to eq([])
+  end
+
   it "requires gDif where the CST calls for deferral and refuses it elsewhere (UB59-10, UB59-20)" do
     deferred = item_issues({"IBSCBS" => {"cClassTrib" => "510001", "gIBSCBS" => {"vBC" => "100.00", "gCBS" => {"pCBS" => "0.90"}}}})
     regular = item_issues({"IBSCBS" => {"cClassTrib" => "000001",

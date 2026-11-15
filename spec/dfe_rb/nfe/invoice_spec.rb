@@ -976,6 +976,80 @@ RSpec.describe DfeRb::Nfe::Invoice do
     end
   end
 
+  describe "the switch of 2027 (EC 132/2023, ADCT arts. 126 and 127; LC 214/2025)" do
+    def note_at(issued_at, contribution: {cst: "01", rate: "1.65"}, cbs: nil, zfm_product: nil)
+      normal_regime(client) { |nfe|
+        nfe.issued_at issued_at
+        nfe.item do |i|
+          i.code "A1"
+          i.description "Cerveja"
+          i.ncm "22030000"   # TIPI 3.9%
+          i.cfop "5102"
+          i.unit "UN"
+          i.quantity 1
+          i.unit_price "100.00"
+          i.icms cst: "00", origin: 0, base_mode: 3, rate: "18.00"
+          i.ipi cst: "50", base: "100.00", zfm_product: zfm_product
+          i.pis(**contribution)
+          i.cofins(**contribution, rate: contribution[:rate] && "7.60")
+          i.ibs_cbs(**{class_code: "000001", cbs: cbs && {rate: cbs}}.compact)
+        end
+        nfe.payment :pix
+      }
+    end
+
+    def values(invoice, *tags) = tags.map { |tag| text(doc(invoice), tag.include?("/") ? tag : "//nfe:det//nfe:#{tag}") }
+
+    it "charges PIS, COFINS, the IPI and the 2026 IBS/CBS up to the last second of 2026, in the note's own offset" do
+      [note_at("2026-12-31T23:59:59-03:00"), note_at("2026-12-31T23:30:00-04:00")].each do |invoice|
+        expect(invoice.issues).to eq([])
+        expect(values(invoice, "vPIS", "vCOFINS", "pIPI", "pIBSUF", "pIBSMun", "pCBS"))
+          .to eq(%w[1.35 6.23 3.90 0.10 0.00 0.90])
+      end
+    end
+
+    it "refuses a note of 2027 without the CBS rate while the reference rate is unpublished" do
+      invoice = note_at("2027-01-01T00:00:00-03:00", contribution: {cst: "08"})
+      message = "det[1]: the CBS reference rate for 2027 isn't published yet (alíquota de referência da CBS para 2027 não publicada): give pCBS"
+
+      expect(invoice.issues).to include(message)
+      expect { invoice.to_xml }.to raise_error(DfeRb::ValidationError, /alíquota de referência da CBS para 2027 não publicada/)
+    end
+
+    it "computes a 2027 note with the rate given: no PIS/COFINS, IPI zero but in the ZFM, the IBS of 2027" do
+      invoice = note_at("2027-01-01T00:00:00-03:00", contribution: {cst: "08"}, cbs: "8.70")
+
+      expect(invoice.issues).to eq([])
+      # The base takes out the ICMS of 18.00 alone: 82.00 x 8.70% = 7.13; IBS 0.04 + 0.04. From
+      # 2027 vItem adds the IBS and the CBS (VB01-10).
+      expect(values(invoice, "pIPI", "vIPI", "//nfe:gIBSCBS/nfe:vBC", "pIBSUF", "pIBSMun", "vIBS", "vCBS", "vItem"))
+        .to eq(%w[0.00 0.00 82.00 0.05 0.05 0.08 7.13 107.21])
+      expect(values(note_at("2027-01-01T00:00:00-03:00", contribution: {cst: "08"}, cbs: "8.70", zfm_product: true), "pIPI"))
+        .to eq(["3.90"])
+    end
+
+    it "flags PIS and COFINS rates on a normal note of 2027, and a rate that isn't the year's" do
+      invoice = note_at("2027-01-01T00:00:00-03:00", cbs: "8.70")
+
+      expect(invoice.issues).to contain_exactly(
+        a_string_matching(%r{det\[1\]/imposto/PIS/pPIS: PIS/Pasep and COFINS are not charged on a note issued from 2027}),
+        a_string_matching(%r{det\[1\]/imposto/COFINS/pCOFINS: PIS/Pasep and COFINS are not charged})
+      )
+      stale = normal_regime(client) { |nfe|
+        nfe.issued_at "2027-01-04T10:00:00-03:00"
+        taxed_item(nfe) do |i|
+          i.pis cst: "08"
+          i.cofins cst: "08"
+        end
+        nfe.payment :pix
+      }
+      expect(stale.issues).to include(
+        "det[1]/imposto/IBSCBS/gIBSCBS/gIBSUF/pIBSUF: 0.10 is not the rate the law fixes for 2027 (0.05) (rej. 1026)",
+        "det[1]/imposto/IBSCBS/gIBSCBS/gIBSMun/pIBSMun: 0 is not the rate the law fixes for 2027 (0.05) (rej. 1036)"
+      )
+    end
+  end
+
   describe "value formats" do
     it "reports every bad value at once" do
       invoice = simples_invoice(client) { |nfe|
