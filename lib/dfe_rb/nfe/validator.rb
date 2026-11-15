@@ -463,8 +463,9 @@ module DfeRb
       # RV UB14-10: the cClassTrib is in the table and in force on the issue date (rej. 1023);
       # UB14-20: it opens with the CST (1024); UB14-25: it may go on the note's model (1025).
       # A revoked code is accepted on a note issued before its end, and its model indicators,
-      # which the table clears on revoking it, aren't consulted. Returns the Classification
-      # the other rules may consult, nil when there's none.
+      # which the table clears on revoking it, aren't consulted; nor are any code's on a note
+      # issued before the tables' version (Tables::IBS_CBS_INDICATORS_SINCE). Returns the
+      # Classification the other rules may consult, nil when there's none.
       def check_classification(path, ibscbs)
         code = ibscbs["cClassTrib"] or return
         klass = Tables.classification(code)
@@ -481,7 +482,7 @@ module DfeRb
         if cst && !code.to_s.start_with?(cst.to_s)
           add "#{path}/cClassTrib: #{code} doesn't belong to CST #{cst}, its first three digits are its CST (rej. 1024)"
         end
-        if klass.valid_until.nil? && !klass.model?(@ide["mod"] || "55")
+        if klass.valid_until.nil? && current_ibs_cbs_indicators? && !klass.model?(@ide["mod"] || "55")
           add "#{path}/cClassTrib: #{code} can't go on a modelo #{@ide["mod"] || "55"} note (#{nfce? ? "indNFCe" : "indNFe"} 0, IT 2025.002) (rej. 1025)"
         end
         klass
@@ -489,22 +490,24 @@ module DfeRb
 
       # The operation's presumed credit on an NF-e (NT 2025.002 UB120-20 to UB130-10). An
       # NFC-e can't carry it at all (UB120-10, Nfce::Validator).
+      # The indicator rules (UB120-20, UB123, UB127) consult the tables' current indicators, so
+      # they hold for notes issued from Tables::IBS_CBS_INDICATORS_SINCE.
       # One row per tax: its group, then the rejections for the group given where the cCredPres
       # bars it, left out where it requires it, a used good's credit above vProd, and an amount
-      # in suspensive condition given when it can't be.
+      # in suspensive condition given when it can't be, with the first year it can (the IBS
+      # from 2033, UB126-10; the CBS from 2027, UB130-10).
       PRESUMED_CREDIT_TAXES = [
-        ["gIBSCredPres", :ibs, {barred: 1053, required: 1054, above_value: 1107, suspended: 1056}],
-        ["gCBSCredPres", :cbs, {barred: 1050, required: 1058, above_value: 1124, suspended: 1060}]
+        ["gIBSCredPres", :ibs, {barred: 1053, required: 1054, above_value: 1107, suspended: 1056, suspended_since: 2033}],
+        ["gCBSCredPres", :cbs, {barred: 1050, required: 1058, above_value: 1124, suspended: 1060, suspended_since: 2027}]
       ].freeze
       # cCredPres 4: used movable goods bought from a non-taxpayer individual for resale.
       USED_GOODS_CREDIT = "04"
-      # The first year a credit in suspensive condition may be given (UB126-10, UB130-10).
-      SUSPENDED_CREDIT_SINCE = 2033
 
       def check_presumed_credit(path, item, credit, klass)
         return if nfce?
 
-        if klass && !klass.presumed_credit? && item.dig("prod", "indBemMovelUsado").to_s != "1"
+        indicators = current_ibs_cbs_indicators?
+        if indicators && klass && !klass.presumed_credit? && item.dig("prod", "indBemMovelUsado").to_s != "1"
           add "#{path}: not allowed for cClassTrib #{klass.code}, whose ind_gCredPresOper is 0 (rej. 1175)"
         end
         code = credit["cCredPres"] or return
@@ -516,9 +519,9 @@ module DfeRb
 
         PRESUMED_CREDIT_TAXES.each do |tag, tax, codes|
           group = credit[tag]
-          if group && row.public_send(tax) == false
+          if indicators && group && row.public_send(tax) == false
             add "#{path}/#{tag}: not allowed for cCredPres #{row.code} (rej. #{codes[:barred]})"
-          elsif group.nil? && row.public_send(tax)
+          elsif indicators && group.nil? && row.public_send(tax)
             add "#{path}/#{tag}: required for cCredPres #{row.code} (rej. #{codes[:required]})"
           end
           next unless group
@@ -526,12 +529,15 @@ module DfeRb
           if row.code == USED_GOODS_CREDIT && Totals.number(group["vCredPres"]) > Totals.number(item.dig("prod", "vProd"))
             add "#{path}/#{tag}/vCredPres: a used good's credit can't exceed vProd (rej. #{codes[:above_value]})"
           end
-          if group["vCredPresCondSus"] && (row.code != USED_GOODS_CREDIT || (issued_at && issued_at.year < SUSPENDED_CREDIT_SINCE))
-            add "#{path}/#{tag}/vCredPresCondSus: only for cCredPres #{USED_GOODS_CREDIT} from #{SUSPENDED_CREDIT_SINCE} " \
+          if group["vCredPresCondSus"] && (row.code != USED_GOODS_CREDIT || (issued_at && issued_at.year < codes[:suspended_since]))
+            add "#{path}/#{tag}/vCredPresCondSus: only for cCredPres #{USED_GOODS_CREDIT} from #{codes[:suspended_since]} " \
               "(rej. #{codes[:suspended]})"
           end
         end
       end
+
+      # Whether the note is issued when the tables' indicators hold (an undated one is taken as now).
+      def current_ibs_cbs_indicators? = issued_at.nil? || Tables.day(issued_at) >= Tables::IBS_CBS_INDICATORS_SINCE
 
       def check_ibs_cbs_item(where, ibscbs)
         group = ibscbs&.dig("gIBSCBS") or return

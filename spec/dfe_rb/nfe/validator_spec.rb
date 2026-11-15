@@ -61,19 +61,28 @@ RSpec.describe DfeRb::Nfe::Validator do
     end
 
     it "refuses a code under another CST (UB14-20) or barred from the note's model (UB14-25)" do
+      now = {"dhEmi" => "2026-11-16T10:00:00-03:00"}
+
       expect(item_issues({"IBSCBS" => {"CST" => "200", "cClassTrib" => "000001"}}))
         .to eq(["det[1]/imposto/IBSCBS/cClassTrib: 000001 doesn't belong to CST 200, its first three digits are its CST (rej. 1024)"])
-      expect(item_issues({"IBSCBS" => {"CST" => "000", "cClassTrib" => "000002"}}))
+      expect(item_issues({"IBSCBS" => {"CST" => "000", "cClassTrib" => "000002"}}, ide: now))
         .to eq(["det[1]/imposto/IBSCBS/cClassTrib: 000002 can't go on a modelo 55 note (indNFe 0, IT 2025.002) (rej. 1025)"])
-      expect(item_issues({"IBSCBS" => {"CST" => "000", "cClassTrib" => "000003"}}, ide: {"mod" => "65"}))
+      expect(item_issues({"IBSCBS" => {"CST" => "000", "cClassTrib" => "000003"}}, ide: now.merge("mod" => "65")))
         .to eq(["det[1]/imposto/IBSCBS/cClassTrib: 000003 can't go on a modelo 65 note (indNFCe 0, IT 2025.002) (rej. 1025)"])
+    end
+
+    it "consults the model indicators only on a note issued since the tables' version took effect" do
+      # IT 2025.002 v1.60 barred 550002 from the NF-e; a note issued before v1.71 is left alone.
+      expect(item_issues({"IBSCBS" => {"CST" => "550", "cClassTrib" => "550002"}}, ide: {"dhEmi" => "2026-03-02T10:00:00-03:00"})).to eq([])
+      expect(item_issues({"IBSCBS" => {"CST" => "550", "cClassTrib" => "550002"}}, ide: {"dhEmi" => "2026-10-30T10:00:00-03:00"}))
+        .to eq(["det[1]/imposto/IBSCBS/cClassTrib: 550002 can't go on a modelo 55 note (indNFe 0, IT 2025.002) (rej. 1025)"])
     end
   end
 
   describe "the operation's presumed credit (cCredPres, IT 2025.002)" do
     def credit_issues(credit, classification: "000003", prod: {}, ide: {})
       item_issues({"IBSCBS" => {"CST" => classification[0, 3], "cClassTrib" => classification, "gCredPresOper" => credit}},
-        prod: prod, ide: ide)
+        prod: prod, ide: {"dhEmi" => "2027-01-04T10:00:00-03:00"}.merge(ide))
     end
 
     let(:both) { {"gIBSCredPres" => {"pCredPres" => "1.00", "vCredPres" => "1.00"}, "gCBSCredPres" => {"pCredPres" => "1.00", "vCredPres" => "1.00"}} }
@@ -89,6 +98,14 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(credit_issues(credit, classification: "000001"))
         .to eq(["det[1]/imposto/IBSCBS/gCredPresOper: not allowed for cClassTrib 000001, whose ind_gCredPresOper is 0 (rej. 1175)"])
       expect(credit_issues(credit, classification: "000001", prod: {"indBemMovelUsado" => "1"})).to eq([])
+    end
+
+    it "consults the indicators only on a note issued since the tables' version took effect" do
+      # IT 2025.002 v1.70 stopped 410014 allowing the credit.
+      expect(credit_issues({"vBCCredPres" => "100.00", "cCredPres" => "01"}, classification: "410014",
+        ide: {"dhEmi" => "2026-09-29T10:00:00-03:00"})).to eq([])
+      expect(credit_issues({"vBCCredPres" => "100.00", "cCredPres" => "01"}.merge(both), classification: "410014"))
+        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper: not allowed for cClassTrib 410014, whose ind_gCredPresOper is 0 (rej. 1175)"])
     end
 
     it "requires and refuses each tax's group as the code's indicators say (UB123-10 to UB127-20)" do
@@ -112,16 +129,20 @@ RSpec.describe DfeRb::Nfe::Validator do
         .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gIBSCredPres/vCredPres: a used good's credit can't exceed vProd (rej. 1107)"])
     end
 
-    it "takes a credit in suspensive condition only for used goods from 2033 (UB126-10, UB130-10)" do
-      suspended = ->(code) do
-        {"vBCCredPres" => "100.00", "cCredPres" => code}.merge(both).tap { |credit| credit["gCBSCredPres"] = credit["gCBSCredPres"].merge("vCredPresCondSus" => "1.00") }
+    it "takes a credit in suspensive condition only for used goods, the CBS's from 2027 and the IBS's from 2033 (UB126-10, UB130-10)" do
+      suspended = ->(code, tag) do
+        {"vBCCredPres" => "100.00", "cCredPres" => code}.merge(both).tap { |credit| credit[tag] = credit[tag].merge("vCredPresCondSus" => "1.00") }
       end
+      in2026 = {"dhEmi" => "2026-12-30T10:00:00-03:00"}
 
-      expect(credit_issues(suspended.call("04")))
-        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gCBSCredPres/vCredPresCondSus: only for cCredPres 04 from 2033 (rej. 1060)"])
-      expect(credit_issues(suspended.call("04"), ide: {"dhEmi" => "2033-01-03T10:00:00-03:00"})).to eq([])
-      expect(credit_issues(suspended.call("01"), ide: {"dhEmi" => "2033-01-03T10:00:00-03:00"}))
-        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gCBSCredPres/vCredPresCondSus: only for cCredPres 04 from 2033 (rej. 1060)"])
+      expect(credit_issues(suspended.call("04", "gCBSCredPres"))).to eq([])
+      expect(credit_issues(suspended.call("04", "gCBSCredPres"), ide: in2026))
+        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gCBSCredPres/vCredPresCondSus: only for cCredPres 04 from 2027 (rej. 1060)"])
+      expect(credit_issues(suspended.call("04", "gIBSCredPres")))
+        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gIBSCredPres/vCredPresCondSus: only for cCredPres 04 from 2033 (rej. 1056)"])
+      expect(credit_issues(suspended.call("04", "gIBSCredPres"), ide: {"dhEmi" => "2033-01-03T10:00:00-03:00"})).to eq([])
+      expect(credit_issues(suspended.call("01", "gCBSCredPres")))
+        .to eq(["det[1]/imposto/IBSCBS/gCredPresOper/gCBSCredPres/vCredPresCondSus: only for cCredPres 04 from 2027 (rej. 1060)"])
     end
   end
 

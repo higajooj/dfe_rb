@@ -11,6 +11,11 @@ module DfeRb
     # tBand). Loaded on first use.
     module Tables
       DATA = File.expand_path("data", __dir__)
+      # The shipped IT 2025.002 tables are v1.71's, in production since this day. The tables
+      # keep each code's current indicators only (models, presumed credit, the credit's tax
+      # groups), so the rules that consult them hold for notes issued from then on; an older
+      # note may carry a code an earlier version allowed.
+      IBS_CBS_INDICATORS_SINCE = "2026-10-30"
 
       # One cClassTrib row: its CST, the rate reductions in percent, the CST's indicators,
       # whether it calls for the regular taxation group (ind_gTribRegular), whether it allows
