@@ -348,4 +348,62 @@ RSpec.describe DfeRb::Nfe::Validator do
       .to eq(["pag/detPag[1]/tPag: 23 (Pagamento Instantâneo (PIX) - Automático) is only accepted from 04/05/2026"])
     expect(issues.call("23") + issues.call("01") + issues.call("90")).to eq([])
   end
+
+  describe "what a note references (NT 2026.002 v1.11)" do
+    let(:nfce_key) { "50261111444777000161650010000000011000000019" }
+    let(:sat_key) { "35261111444777000161590010000000011000000010" }
+    let(:nfe_key) { "50261111444777000161550010000000011000000014" }
+
+    def reference_issues(references = [], ide: {}, item: {}, cfop: "5102")
+      tree = {"ide" => {"mod" => "55", "tpNF" => "1", "finNFe" => "1", "tpAmb" => "1", "dhEmi" => "2026-12-14T09:00:00-03:00",
+                        "NFref" => references}.merge(ide),
+              "det" => [{"prod" => {"CFOP" => cfop}}.merge(item)]}
+      described_class.new(tree).issues.grep(/rej\. (679|375|681|682)\)/)
+    end
+
+    it "bars an exit note from referencing an NFC-e or a CF-e SAT, but for a complement or a return (BA02-35)" do
+      expect(reference_issues([{"refNFe" => nfce_key}, {"refNFe" => sat_key}, {"refNFe" => nfe_key}])).to eq([
+        "ide/NFref[1]/refNFe: an exit note can't reference an NFC-e (modelo 65), unless it complements or returns it (finNFe 2 or 4) (RV BA02-35, rej. 679)",
+        "ide/NFref[2]/refNFe: an exit note can't reference a CF-e SAT (modelo 59), unless it complements or returns it (finNFe 2 or 4) (RV BA02-35, rej. 679)"
+      ])
+      expect(reference_issues([{"refNFe" => nfce_key}], ide: {"finNFe" => "2"})).to eq([])
+      expect(reference_issues([{"refNFe" => nfce_key}], ide: {"finNFe" => "4"})).to eq([])
+      expect(reference_issues([{"refNFe" => nfce_key}], ide: {"tpNF" => "0"})).to eq([])
+    end
+
+    it "bars the same on an item's referenced document, but for a debit note of types 03 and 04 (VC02-40)" do
+      item = {"DFeReferenciado" => {"chaveAcesso" => nfce_key}}
+
+      expect(reference_issues(item: item)).to contain_exactly(a_string_matching(
+        %r{\Adet\[1\]/DFeReferenciado/chaveAcesso: an exit note's item can't reference an NFC-e \(modelo 65\).*\(RV VC02-40, rej\. 679\)\z}
+      ))
+      expect(reference_issues(item: item, ide: {"finNFe" => "6", "tpNFDebito" => "04"})).to eq([])
+      expect(reference_issues(item: item, ide: {"finNFe" => "6", "tpNFDebito" => "01"})).not_to eq([])
+    end
+
+    it "bars a note for a sale a cupom fiscal covered from referencing an NFC-e (I08-180)" do
+      expect(reference_issues([{"refNFe" => nfce_key}], ide: {"finNFe" => "2"}, cfop: "5929"))
+        .to eq(["det[1]/prod/CFOP: a note for a sale a cupom fiscal covered (5929) can't reference an NFC-e (RV I08-180, rej. 375)"])
+      expect(reference_issues([{"refNFe" => nfe_key}], cfop: "6929")).to eq([])
+    end
+
+    it "applies them from 14/12/2026 in production and 01/09/2026 in homologação, as v1.11 dates them" do
+      references = [{"refNFe" => nfce_key}]
+
+      expect(reference_issues(references, ide: {"dhEmi" => "2026-12-13T23:59:00-03:00"})).to eq([])
+      expect(reference_issues(references, ide: {"tpAmb" => "2", "dhEmi" => "2026-09-01T00:00:00-03:00"}).size).to eq(1)
+      expect(reference_issues(references, ide: {"tpAmb" => "2", "dhEmi" => "2026-08-31T23:59:00-03:00"})).to eq([])
+    end
+
+    it "bars a paper note and a rural producer's paper note from 05/10/2026 (BA03-10, BA10-10)" do
+      references = [{"refNF" => {"cUF" => "50", "AAMM" => "2609", "CNPJ" => "11444777000161", "mod" => "01", "serie" => "1", "nNF" => "1"}},
+        {"refNFP" => {"cUF" => "50", "AAMM" => "2609", "CPF" => "52998224725", "IE" => "ISENTO", "mod" => "04", "serie" => "1", "nNF" => "1"}}]
+
+      expect(reference_issues(references, ide: {"dhEmi" => "2026-10-05T08:00:00-03:00"})).to eq([
+        "ide/NFref[1]/refNF: an NF-e can't reference a paper note, modelo 1 or 2 (RV BA03-10, rej. 681)",
+        "ide/NFref[2]/refNFP: an NF-e can't reference a rural producer's paper note (RV BA10-10, rej. 682)"
+      ])
+      expect(reference_issues(references, ide: {"dhEmi" => "2026-10-04T08:00:00-03:00"})).to eq([])
+    end
+  end
 end
