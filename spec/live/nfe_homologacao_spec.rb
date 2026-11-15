@@ -198,6 +198,60 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       expect(result.proc_xml).to include("<tpEvento>110140</tpEvento>")
     end
 
+    # NT 2026.002: an NF-e for a counter sale, printed as the DANFE Simplificado Tipo 2 with
+    # the NFC-e's QR code. One goes on-line; another, issued off-line, signs its QR code.
+    it "authorizes and cancels an NF-e printed as the DANFE Simplificado Tipo 2, on-line and off-line" do
+      number = Integer(Time.now.to_i.to_s[-7..], 10)
+      [nil, :offline].each_with_index do |contingency, index|
+        invoice = simplified_invoice(number + index, contingency)
+        signed = client.sign(invoice)
+        expect(signed.qr_code).to start_with(DfeRb::Nfce::Endpoints.qr_code(uf: uf, environment: :homologacao))
+
+        result = client.authorize(signed)
+        expect(result).to be_authorized, "#{result.code} #{result.message}\n#{signed.xml}"
+        expect(result.proc_xml).to include("<infNFeSupl>")
+
+        cancellation = client.cancel(signed.key, protocol: result.protocol, reason: "Cancelamento de teste do ambiente de homologacao")
+        expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
+      end
+    end
+
+    def simplified_invoice(number, contingency)
+      address = {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: ENV.fetch("DFE_RB_LIVE_STREET_NUMBER", "100"),
+                 district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), zip: ENV.fetch("DFE_RB_LIVE_ZIP")}
+      regime = ENV.fetch("DFE_RB_LIVE_REGIME", "simples").to_sym
+      client.build_invoice do |nfe|
+        nfe.print_format :simplified_type_2
+        nfe.series 4   # apart from the other examples' series, whose numbers also come from the clock
+        nfe.number number
+        nfe.nature_of_operation "Venda no balcao"
+        nfe.issuer tax_id: certificate.cnpj, name: ENV.fetch("DFE_RB_LIVE_NAME", "EMPRESA DE TESTE LTDA"),
+          state_registration: ENV.fetch("DFE_RB_LIVE_IE"), tax_regime: regime, address: address
+        nfe.recipient cnpj: certificate.cnpj, name: "CLIENTE", state_registration: ENV.fetch("DFE_RB_LIVE_IE"), address: address
+        nfe.item do |i|
+          i.code "1"
+          i.description "Produto"
+          i.ncm "84713012"
+          i.cfop "5102"
+          i.unit "UN"
+          i.quantity 1
+          i.unit_price "10.00"
+          if regime == :normal
+            i.icms cst: "00", origin: :domestic, base_mode: 3, base: "10.00", rate: icms_rate, amount: DfeRb::Nfe::Totals.money(BigDecimal(icms_rate) / 10).to_s("F")
+            i.ibs_cbs cst: "000", class_code: "000001", base: "10.00", ibs_uf: {rate: "0.10", amount: "0.01"},
+              ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "0.09"}
+          else
+            i.icms csosn: "102", origin: :domestic
+          end
+          i.pis cst: "07"
+          i.cofins cst: "07"
+        end
+        nfe.payment :money, "10.00"
+        nfe.technical_contact cnpj: certificate.cnpj, contact: "Responsavel Tecnico", email: "teste@example.com", phone: "1133333333"
+        nfe.contingency contingency, since: Time.now - 300, reason: "Teste de contingencia do ambiente de homologacao" if contingency
+      end
+    end
+
     def contingency_invoice(number, kind)
       address = {street: ENV.fetch("DFE_RB_LIVE_STREET", "Rua Teste"), number: ENV.fetch("DFE_RB_LIVE_STREET_NUMBER", "100"),
                  district: ENV.fetch("DFE_RB_LIVE_DISTRICT", "Centro"), city_code: ENV.fetch("DFE_RB_LIVE_CITY_CODE"), zip: ENV.fetch("DFE_RB_LIVE_ZIP")}
