@@ -124,7 +124,13 @@ module DfeRb
       # only the issuer knows.
       def ipi_applies?(year, zfm_product: false) = year_of(year) < CBS_CHARGED_SINCE || zfm_product == true
 
-      def year_of(value) = value.respond_to?(:year) ? value.year : Integer(value)
+      # An Integer is the year itself, even where ActiveSupport gives it #year (a Duration of so
+      # many years, which would compare as later than any year).
+      def year_of(value)
+        return value if value.is_a?(Integer)
+
+        value.respond_to?(:year) ? value.year : Integer(value)
+      end
 
       # The ST margin (MVA, percent) adjusted when the interstate ICMS rate is below the
       # destination's internal one (Conv. ICMS 142/2018, cl. 11):
