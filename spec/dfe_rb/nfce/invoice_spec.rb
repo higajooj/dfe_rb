@@ -124,6 +124,16 @@ RSpec.describe DfeRb::Nfce::Invoice do
       expect(identified).to eq([])
     end
 
+    it "reaches SEFAZ within 5 minutes of dhEmi when issued on-line (B09-40)" do
+      invoice = nfce_invoice(clock: clock)
+      invoice.to_xml
+      clock.now += 5 * 60
+
+      expect(invoice.issues).to eq([])
+      clock.now += 1
+      expect(invoice.issues).to contain_exactly(a_string_matching(/ide\/dhEmi: .* an NFC-e issued on-line reaches SEFAZ within 5 minutes.*\(RV B09-40, rej\. 704\)/))
+    end
+
     it "bars payments an NFC-e can't take and asks card and PIX payments for the card group" do
       expect(issues_of(payment: [:other, "8.50"])).to include(a_string_matching(/tPag: an NFC-e can't be paid with tPag 99 .*\(rej. 436\)/))
       expect(issues_of(payment: [:pix, "8.50"])).to include(a_string_matching(/detPag\[1\]\/card: a card or PIX payment \(tPag 17\).*\(rej. 391\)/))

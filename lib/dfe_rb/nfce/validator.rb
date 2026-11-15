@@ -15,6 +15,10 @@ module DfeRb
       HOMOLOGACAO = "2"
       OFFLINE = QrCode::OFFLINE
       NFCE = Supplement::NFCE
+      # tpEmis of a note issued on-line, which must reach SEFAZ within 5 minutes of dhEmi
+      # (RV B09-40): normal, SVC-AN and SVC-RS.
+      ONLINE_EMISSION_TYPES = %w[1 6 7].freeze
+      ONLINE_DELAY = 5 * 60
       # tpEmis an NFC-e may take: normal, EPEC (at the state's discretion, NT 2014.003) and
       # off-line contingency (RV B22-34, B22-70).
       EMISSION_TYPES = %w[1 4 9].freeze
@@ -106,13 +110,15 @@ module DfeRb
       # its infNFeSupl ({"qrCode", "urlChave"}), when there is one to check. signer: the
       # OpenSSL certificate that signs the note, to check an off-line QR code's signature.
       # qr_address: the state's QR code consultation address (Endpoints.qr_code), to check the
-      # QR code's against.
-      def initialize(infnfe, supplement: nil, signer: nil, qr_address: nil)
+      # QR code's against. now: the time the note is about to be sent, to check that a note
+      # issued on-line is still on time (RV B09-40); nil skips it.
+      def initialize(infnfe, supplement: nil, signer: nil, qr_address: nil, now: nil)
         @inf = infnfe
         @ide = infnfe["ide"] || {}
         @supplement = supplement
         @signer = signer
         @qr_address = qr_address
+        @now = now
         @nfce = @ide["mod"].to_s == NFCE
         @subject = @nfce ? "an NFC-e" : "an NF-e with DANFE Simplificado Tipo 2"
         @issues = []
@@ -141,6 +147,7 @@ module DfeRb
         unless PRESENCE.include?(presence)
           add "ide/indPres: #{@subject} is an in-person sale (1), a home delivery (4) or in person outside the establishment (5) (rej. 717)"
         end
+        check_delay
         emission = @ide["tpEmis"].to_s
         unless @nfce
           # The schema's QR code of a note issued on-line takes tpEmis 1, 3 or 4 in its key, so
@@ -163,6 +170,18 @@ module DfeRb
         elsif @ide["cMunFGIBS"].nil? && presence == OFF_PREMISES
           add "ide/cMunFGIBS: required for a sale in person outside the establishment, indPres 5 (rej. 1005)"
         end
+      end
+
+      # RV B09-40: a note issued on-line reaches SEFAZ within 5 minutes of dhEmi (rej. 704).
+      # A note in contingency (EPEC or off-line) may arrive later.
+      def check_delay
+        return unless @now && ONLINE_EMISSION_TYPES.include?(@ide["tpEmis"].to_s)
+
+        issued = time_of(@ide["dhEmi"])
+        return unless issued && @now.to_time - issued > ONLINE_DELAY
+
+        add "ide/dhEmi: #{issued.iso8601} is more than 5 minutes ago, and #{@subject} issued on-line reaches SEFAZ within " \
+          "5 minutes of it (RV B09-40, rej. 704); build the note again, or issue it off-line (contingency :offline)"
       end
 
       def check_barred

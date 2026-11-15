@@ -133,6 +133,20 @@ RSpec.describe "An NF-e printed as the DANFE Simplificado Tipo 2 (NT 2026.002, N
         "ide/tpEmis: an NF-e with DANFE Simplificado Tipo 2 can't be issued at the SVC, since the schema's QR code takes no SVC key; " \
         "issue it off-line (contingency :offline)")
     end
+
+    it "flags a note issued on-line more than 5 minutes before it is sent, but not one off-line (B09-40, 704)" do
+      invoice = simplified
+      invoice.to_xml
+      clock.now += 5 * 60 + 1
+
+      expect(invoice.issues).to eq(["ide/dhEmi: 2026-11-16T10:00:00-04:00 is more than 5 minutes ago, and an NF-e with DANFE Simplificado " \
+        "Tipo 2 issued on-line reaches SEFAZ within 5 minutes of it (RV B09-40, rej. 704); build the note again, or issue it off-line " \
+        "(contingency :offline)"])
+      offline = simplified { |nfe| nfe.contingency :offline, since: clock.now - 120, reason: "Sem comunicacao com a SEFAZ" }
+      offline.to_xml
+      clock.now += 3600
+      expect(offline.issues).to eq([])
+    end
   end
 
   describe "through the client" do
@@ -164,6 +178,15 @@ RSpec.describe "An NF-e printed as the DANFE Simplificado Tipo 2 (NT 2026.002, N
       xml = simplified.to_xml.sub("|3|2<", "|2|2|1|#{"a" * 40}<")
 
       expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /takes QR code version 3, not 2 \(RV ZX02-220, rej\. 672\)/)
+    end
+
+    it "holds an unsigned note handed in late to the 5 minutes, and lets a signed one through, which may be a retry (704)" do
+      xml = simplified.to_xml
+      signed = client.sign(xml)
+      clock.now += 600
+
+      expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /\(RV B09-40, rej\. 704\)/)
+      expect(client.sign(signed.xml).xml).to eq(signed.xml)
     end
   end
 end
