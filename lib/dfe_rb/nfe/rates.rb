@@ -23,10 +23,10 @@ module DfeRb
         2028 => {uf: "0.05", municipal: "0.05", cbs: nil}
       }.freeze
       # The CBS reference rate (alíquota de referência) in percent, by year: the Senate's
-      # resolution, due by 31 October of the year before, or, if none is in force by 22
+      # resolution, due by 31 October of the year before, or, while none is fixed past 22
       # December, the rate the TCU calculated (LC 214/2025, art. 349, §§ 1º and 2º). nil until
-      # one of them applies. For 2027 the TCU calculated 11.3% (TC 006.529/2026-7, 28/10/2026),
-      # but the Senate may still fix its own until 22/12/2026.
+      # one of them applies. For 2027 the Senate has until 15/12/2026 (art. 353, § 2º, 45 more
+      # days), and the TCU calculated 11.3% (TC 006.529/2026-7, 28/10/2026).
       CBS_REFERENCE = {2027 => nil, 2028 => nil}.freeze
       # In 2027 and 2028 the CBS is charged at its reference rate less 0.1 point, the IBS's
       # 0.05% + 0.05% (LC 214/2025, art. 347; EC 132/2023, ADCT art. 127). A reduced rate takes
