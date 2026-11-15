@@ -9,6 +9,8 @@ module DfeRb
       INFO = "infNFe"
       NAMESPACE = Signature::NFE
       ID_PREFIX = "NFe"
+      # tpEmis of the Regime Especial NFF (NT 2021.002).
+      NFF = "3"
 
       # infNFe as the tag-keyed Hash the Validator reads, following the schema.
       def to_infnfe = tree(Schema.nfe.find("infNFe"))
@@ -16,7 +18,16 @@ module DfeRb
       # ide/mod: "55", or "65" for an NFC-e.
       def model = text("ide/mod")
 
-      # infNFeSupl ({"qrCode" => ..., "urlChave" => ...}), which an NFC-e carries; nil without it.
+      # Whether the note carries infNFeSupl: an NFC-e, or an NF-e printed as the DANFE
+      # Simplificado Tipo 2 (tpImp 6).
+      def qr_code? = Nfce::Supplement.carried_by?("mod" => model, "tpImp" => text("ide/tpImp"))
+
+      # Whether it must carry one (RV ZX02-10): a note of the Regime Especial NFF (tpEmis 3)
+      # needn't.
+      def qr_code_required? = qr_code? && text("ide/tpEmis") != NFF
+
+      # infNFeSupl ({"qrCode" => ..., "urlChave" => ...}), which an NFC-e and an NF-e printed
+      # as the DANFE Simplificado Tipo 2 carry; nil without it.
       def supplement
         node = @root.at_xpath("doc:infNFeSupl", namespaces) or return
 

@@ -67,9 +67,10 @@ RSpec.describe DfeRb::Nfce::Client do
       nfce.model 65
       nfce.presence :internet
     end
-    expect(invoice.issues).to eq([])
+    expect(invoice.issues).to include(a_string_matching(/in-person sale.*\(rej. 717\)/))
 
     expect { client.sign(invoice) }.to raise_error(DfeRb::ValidationError, /in-person sale.*\(rej. 717\)/)
+    expect { client.sign(invoice.to_xml(strict: false)) }.to raise_error(DfeRb::ValidationError, /in-person sale.*\(rej. 717\)/)
   end
 
   it "flags a handed-in QR code that points at another site (rej. 395)" do

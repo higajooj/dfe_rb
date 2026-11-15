@@ -11,11 +11,14 @@ module DfeRb
     # Anything the developer set explicitly is kept.
     class Resolver
       HOMOLOGACAO_RECIPIENT_NAME = "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
-      # The first item of an NFC-e in homologação is described so (RV I04-10, rej. 373).
+      # The first item of an NFC-e, or of an NF-e printed as the DANFE Simplificado Tipo 2, in
+      # homologação is described so (RV I04-10, NT 2026.002, rej. 373).
       HOMOLOGACAO_ITEM_DESCRIPTION = "NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
       NFCE = "65"
       # tpImp of the DANFE NFC-e (RV B21-10).
       NFCE_DANFE = 4
+      # tpImp of the DANFE Simplificado Tipo 2, an NF-e printed like an NFC-e (NT 2026.002).
+      SIMPLIFIED_TYPE_2 = "6"
       # First CFOP digit by tpNF and idDest (RVs I08-*, rej. 731-733).
       CFOP_PREFIX = {
         "0" => {"1" => "1", "2" => "2", "3" => "3"},
@@ -139,15 +142,19 @@ module DfeRb
 
       def nfce?(ide) = ide["mod"].to_s == NFCE
 
+      # An NFC-e, or an NF-e printed as the DANFE Simplificado Tipo 2, which follows its rules.
+      def consumer_note?(ide) = nfce?(ide) || ide["tpImp"].to_s == SIMPLIFIED_TYPE_2
+
       def now_in(state)
         state ? States.now(state, @clock) : @clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
       end
 
       # An NFC-e is a sale to a final consumer who isn't an ICMS taxpayer (RV B25a-10,
-      # E16a-10), whoever it names.
+      # E16a-10), whoever it names. An NF-e printed as the DANFE Simplificado Tipo 2 is a sale
+      # to a final consumer too (B25a-10, NT 2026.002), who may be a taxpayer.
       def recipient(inf, ide, state)
         dest = inf["dest"]
-        ide["indFinal"] ||= 1 if nfce?(ide)
+        ide["indFinal"] ||= 1 if consumer_note?(ide)
         unless dest
           ide["idDest"] ||= 1
           ide["indFinal"] ||= 0
@@ -187,7 +194,7 @@ module DfeRb
         det.each_with_index do |item, index|
           item["@nItem"] ||= index + 1
           prod = (item["prod"] ||= {})
-          prod["xProd"] = HOMOLOGACAO_ITEM_DESCRIPTION if index.zero? && nfce?(ide) && @environment == Environment::HOMOLOGACAO
+          prod["xProd"] = HOMOLOGACAO_ITEM_DESCRIPTION if index.zero? && consumer_note?(ide) && @environment == Environment::HOMOLOGACAO
           prod["cEAN"] ||= "SEM GTIN"
           prod["cEANTrib"] ||= prod["cEAN"]
           prod["uTrib"] ||= prod["uCom"]

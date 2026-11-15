@@ -23,6 +23,9 @@ module DfeRb
       # transport:   anything with #post(endpoint, xml); defaults to the mTLS SOAP client.
       # technical_contact: the software house's infRespTec for every invoice built here
       #              ({cnpj:, contact:, email:, phone:, csrt_id:, csrt:}); see Invoice.
+      #
+      # `endpoints:` also takes :qr_code and :consult_url, the state's addresses the QR code
+      # of a note printed as the DANFE Simplificado Tipo 2 and its urlChave point to.
       def initialize(certificate:, uf:, environment: Environment::HOMOLOGACAO, endpoints: {}, transport: nil,
         timeouts: {}, logger: nil, clock: Time, sleeper: Kernel.method(:sleep), technical_contact: nil)
         @certificate = certificate
@@ -37,9 +40,12 @@ module DfeRb
 
       def production? = environment == Environment::PRODUCTION
 
-      # A new invoice for this client's environment. Fill it with a block and/or a hash.
+      # A new invoice for this client's environment. Fill it with a block and/or a hash. One
+      # printed as the DANFE Simplificado Tipo 2 and issued off-line has its QR code signed
+      # with this client's certificate.
       def build_invoice(attributes = nil, **fields, &block)
-        Invoice.new(attributes, environment: environment, clock: @clock, technical_contact: @technical_contact, **fields, &block)
+        Invoice.new(attributes, environment: environment, clock: @clock, technical_contact: @technical_contact,
+          certificate: certificate, endpoints: @endpoints, **fields, &block)
       end
 
       # Asks whether the authorizer is up (cStat 107). With `contingency: true` it asks the
@@ -94,13 +100,22 @@ module DfeRb
       #
       # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so do
       # #resume, #consult and #cancel for them.
+      #
+      # An NFC-e or a DANFE Simplificado Tipo 2 issued on-line reaches SEFAZ within 5 minutes
+      # of its dhEmi (RV B09-40, rej. 704). With `recover`, one that late is looked up first:
+      # SEFAZ may hold it from an earlier try, and then that result comes back; if it holds
+      # nothing, ValidationError says so before anything is sent.
       def authorize(input, lot_id: nil, recover: true, polling: {}, strict: true)
         many = input.is_a?(Array)
         signed = Array(input).map { |item| sign(item, strict: strict) }
         raise ArgumentError, "nothing to authorize" if signed.empty?
         raise ArgumentError, "a lot holds at most #{MAX_LOT} notes (got #{signed.size})" if signed.size > MAX_LOT
 
-        results = transmit(signed, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
+        found = recover ? held_late_notes(signed) : {}
+        unsent = signed.reject { |note| found.key?(note.key) }
+        sent = unsent.empty? ? [] : transmit(unsent, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
+        answers = found.merge(unsent.map(&:key).zip(sent).to_h)
+        results = signed.map { |note| answers[note.key] }
         many ? results : results.first
       end
 
@@ -259,13 +274,37 @@ module DfeRb
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
 
       # Checks the schema, and the business rules unless `strict: false`, for XML that didn't
-      # come from an Invoice.
+      # come from an Invoice. A note with a QR code (an NFC-e, or an NF-e printed as the DANFE
+      # Simplificado Tipo 2) gets the NFC-e's rules too, and a signed one must carry its QR
+      # code (RV ZX02-10), which no one may add after the signature, unless it is a note of
+      # the Regime Especial NFF (tpEmis 3), which ZX02-10 exempts.
       def validated(document, strict:)
         problems = Schemas.nfe_issues(document.xml)
         problems += Validator.new(document.to_infnfe).issues if strict && problems.empty?
         raise ValidationError, problems unless problems.empty?
+        return document unless document.qr_code?
+
+        supplement = document.supplement
+        if document.signed? && supplement.nil? && document.qr_code_required?
+          raise ValidationError, ["infNFeSupl: a signed #{(document.model == "65") ? "NFC-e" : "NF-e with DANFE Simplificado Tipo 2"} " \
+            "carries its QR code (rej. 394); it can't be added after signing"]
+        end
+        return document unless strict
+
+        tree = document.to_infnfe
+        problems = Nfce::Validator.new(tree, supplement: supplement, signer: document.signer || certificate.certificate,
+          qr_address: qr_address(tree)).issues
+        raise ValidationError, problems unless problems.empty?
 
         document
+      end
+
+      # The QR code address of the note's state and environment, or nil when they aren't known.
+      def qr_address(tree)
+        ide = tree["ide"] || {}
+        Nfce::Endpoints.qr_code(uf: ide["cUF"], environment: ide["tpAmb"].to_s, overrides: @endpoints)
+      rescue ArgumentError, KeyError
+        nil
       end
 
       # A client issues one model: an NFC-e goes through DfeRb::Nfce::Client.
@@ -280,8 +319,37 @@ module DfeRb
       # An invoice of this client's model has passed its rules already; any other gets them here.
       def built_here?(input) = input.is_a?(Invoice) && input.class::MODEL == self.class::MODEL
 
-      # What an unsigned note gets before it is signed: nothing, for an NF-e.
-      def supplemented(document) = document
+      # An unsigned note with a QR code handed in without infNFeSupl gets it: the QR code and
+      # urlChave of its state, signed with this client's certificate when issued off-line. One
+      # that has it keeps it, but an off-line QR code must be signed by the certificate that
+      # signs the note (NT 2026.003 §4.3.2, rej. 583). Any other note gets nothing.
+      def supplemented(document)
+        return document unless document.qr_code?
+
+        if (supplement = document.supplement)
+          check_qr_signer(supplement)
+          return document
+        end
+
+        supplement, problems = Nfce::Supplement.build(document.to_infnfe, certificate: certificate, overrides: @endpoints)
+        raise ValidationError, problems unless problems.empty?
+        raise ValidationError, ["infNFe/@Id: the note has no access key to build its QR code from"] unless supplement
+
+        supplied = document.with_supplement(supplement)
+        problems = Schemas.nfe_issues(supplied.xml)
+        raise ValidationError, problems unless problems.empty?
+
+        supplied
+      end
+
+      def check_qr_signer(supplement)
+        parsed = Nfce::QrCode.parse(supplement["qrCode"])
+        return unless parsed&.dig(:signature)
+        return if Nfce::QrCode.signed_by?(parsed[:signed_content], parsed[:signature], certificate.certificate)
+
+        raise ValidationError, ["infNFeSupl/qrCode: its signature isn't this client's certificate's, which signs the note " \
+          "(rej. 583); build the note with this client, or rebuild its QR code if it wasn't printed yet"]
+      end
 
       def check_environment(document)
         declared = document.environment
@@ -396,6 +464,28 @@ module DfeRb
           alerts: protocol&.alerts || [], digest_value: protocol&.digest_value, signed_xml: note.xml,
           protocol_xml: protocol&.xml, response_xml: response_xml, receipt: receipt, recovered: recovered
         )
+      end
+
+      # {key => result} of the notes past RV B09-40's 5 minutes that SEFAZ already holds. One
+      # it doesn't hold is refused here; one the lookup can't settle is sent for SEFAZ to judge.
+      def held_late_notes(signed)
+        found = {}
+        problems = []
+        signed.each do |note|
+          document = Document.new(note.xml)
+          next unless document.qr_code?
+
+          message = Nfce::Validator.late(document.to_infnfe, @clock.now) or next
+          begin
+            result = recovered(note, cause: StandardError.new(message))
+          rescue TransportError
+            next
+          end
+          result ? found[note.key] = result : problems << "#{message}. SEFAZ doesn't hold #{note.key}, so nothing was sent"
+        end
+        raise ValidationError, problems unless problems.empty?
+
+        found
       end
 
       # Looks the key up after a lost answer or a duplicate report. Returns the result when SEFAZ

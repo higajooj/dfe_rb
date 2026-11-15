@@ -60,6 +60,20 @@ module DfeRb
       CONTRIBUTION_GROUPS = %w[PIS PISST COFINS COFINSST].freeze
       # Length of the xJust of a note in contingency (B29).
       CONTINGENCY_REASON_LENGTH = (15..256)
+      # The rules on what a note references (NT 2026.002), by tpAmb: when BA03-10, BA10-10 and
+      # BA20-30 bar a paper note, a rural producer's note and a cupom fiscal (v1.10), and when
+      # BA02-35, VC02-40 and I08-180 bar a consumer's note (v1.11 moved them to 14/12/2026 in
+      # production).
+      PAPER_REFERENCES_BARRED_SINCE = {"2" => Time.new(2026, 9, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 10, 5, 0, 0, 0, "-03:00")}.freeze
+      CONSUMER_REFERENCES_BARRED_SINCE = {"2" => Time.new(2026, 9, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+      # The models an exit note may not reference (BA02-35, VC02-40): the NFC-e and the CF-e SAT.
+      CONSUMER_MODELS = {"65" => "an NFC-e (modelo 65)", "59" => "a CF-e SAT (modelo 59)"}.freeze
+      # A complement and a return may still reference them, and so may a debit note of
+      # unprocessed notes (03) or of fines and interest (04), on an item (VC02-40).
+      CONSUMER_REFERENCE_PURPOSES = %w[2 4].freeze
+      CONSUMER_REFERENCE_DEBIT_NOTES = %w[03 04].freeze
+      # The CFOPs of a note issued for a sale a cupom fiscal covered (I08-180).
+      RETAIL_DOCUMENT_CFOPS = %w[5929 6929].freeze
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
@@ -133,6 +147,7 @@ module DfeRb
 
         check_purpose_direction
         check_contingency
+        check_references
 
         presence = [2, 3, 4, 9].include?(@ide["indPres"].to_i)
         if presence && @ide["indIntermed"].nil?
@@ -196,6 +211,72 @@ module DfeRb
         when "6"
           add "ide/tpNF: a debit note (finNFe 6) is an exit, tpNF 1 (rej. 1162)" unless direction == "1"
         end
+      end
+
+      # What an NF-e may reference (NT 2026.002). An NFC-e references nothing at all
+      # (Nfce::Validator), so these hold for modelo 55.
+      def check_references
+        return if nfce?
+
+        references = Array(@ide["NFref"])
+        if in_force?(PAPER_REFERENCES_BARRED_SINCE)
+          references.each_with_index do |reference, index|
+            path = "ide/NFref[#{index + 1}]"
+            add "#{path}/refNF: an NF-e can't reference a paper note, modelo 1 or 2 (RV BA03-10, rej. 681)" if reference["refNF"]
+            add "#{path}/refNFP: an NF-e can't reference a rural producer's paper note (RV BA10-10, rej. 682)" if reference["refNFP"]
+            add "#{path}/refECF: an NF-e can't reference a cupom fiscal (RV BA20-30, rej. 924)" if reference["refECF"]
+          end
+        end
+        return unless in_force?(CONSUMER_REFERENCES_BARRED_SINCE)
+
+        check_consumer_references(references)
+        check_retail_document_references(references)
+      end
+
+      # RV BA02-35 and VC02-40: an exit note other than a complement or a return can't
+      # reference a consumer's note, by its key (rej. 679); its items may still on a debit
+      # note of types 03 and 04 (VC02-40's exception). An NF-e printed as the DANFE
+      # Simplificado Tipo 2 is barred too, but its key doesn't tell, so SEFAZ checks that one.
+      def check_consumer_references(references)
+        return unless @ide["tpNF"].to_s == "1" && !CONSUMER_REFERENCE_PURPOSES.include?(@ide["finNFe"].to_s)
+
+        references.each_with_index do |reference, index|
+          model = CONSUMER_MODELS[model_of(reference["refNFe"])] or next
+
+          add "ide/NFref[#{index + 1}]/refNFe: an exit note can't reference #{model}, unless it complements or returns " \
+            "it (finNFe 2 or 4) (RV BA02-35, rej. 679)"
+        end
+        return if CONSUMER_REFERENCE_DEBIT_NOTES.include?(@ide["tpNFDebito"].to_s)
+
+        Array(@inf["det"]).each_with_index do |item, index|
+          model = CONSUMER_MODELS[model_of(item.dig("DFeReferenciado", "chaveAcesso"))] or next
+
+          add "det[#{index + 1}]/DFeReferenciado/chaveAcesso: an exit note's item can't reference #{model}, unless the " \
+            "note complements or returns it (finNFe 2 or 4) (RV VC02-40, rej. 679)"
+        end
+      end
+
+      # RV I08-180: a note for a sale a cupom fiscal covered (CFOP 5929 or 6929) can't
+      # reference an NFC-e (rej. 375).
+      def check_retail_document_references(references)
+        return unless references.any? { |reference| model_of(reference["refNFe"]) == Resolver::NFCE }
+
+        Array(@inf["det"]).each_with_index do |item, index|
+          cfop = item.dig("prod", "CFOP").to_s
+          next unless RETAIL_DOCUMENT_CFOPS.include?(cfop)
+
+          add "det[#{index + 1}]/prod/CFOP: a note for a sale a cupom fiscal covered (#{cfop}) can't reference an NFC-e " \
+            "(RV I08-180, rej. 375)"
+        end
+      end
+
+      # ide/mod of an access key: its 21st and 22nd characters.
+      def model_of(key) = key.to_s[20, 2]
+
+      # Whether a rule dated by tpAmb applies to the note's issue date.
+      def in_force?(since_by_environment)
+        since = since_by_environment[@ide["tpAmb"].to_s]
+        since && issued_at && issued_at >= since
       end
 
       def check_item(item, number)

@@ -15,6 +15,13 @@ module DfeRb
     # `technical_contact:` is the software house's infRespTec ({cnpj:, contact:, email:,
     # phone:, csrt_id:, csrt:}); with `csrt:` the hashCSRT is computed for each key. The CSRT
     # itself never goes into the XML.
+    #
+    # A note printed as the DANFE Simplificado Tipo 2 (`nfe.print_format :simplified_type_2`,
+    # tpImp 6), an NF-e for a sale an NFC-e would cover (NT 2026.002), carries the NFC-e's
+    # QR code in infNFeSupl and follows the NFC-e's rules (Nfce::Validator). `certificate:`
+    # signs its QR code when it is issued off-line; Client#build_invoice passes its own.
+    # `endpoints:` may override the state's QR code and consultation addresses (:qr_code,
+    # :consult_url).
     class Invoice
       # The mod the note gets (DfeRb::Nfce::Invoice is 65).
       MODEL = 55
@@ -22,8 +29,11 @@ module DfeRb
       attr_reader :environment
 
       # `attributes` (or plain keywords) may hold any field: Invoice.new(number: 1, issuer: {...}).
-      def initialize(attributes = nil, environment: Environment::HOMOLOGACAO, clock: Time, technical_contact: nil, **fields)
+      def initialize(attributes = nil, environment: Environment::HOMOLOGACAO, clock: Time, technical_contact: nil,
+        certificate: nil, endpoints: {}, **fields)
         @environment = Environment.normalize(environment)
+        @certificate = certificate
+        @addresses = endpoints
         @clock = clock
         @infnfe = {}
         @memo = Resolver::Memo.new
@@ -68,6 +78,14 @@ module DfeRb
         self
       end
 
+      # infNFeSupl/qrCode: the URL the QR code of the DANFE NFC-e or the DANFE Simplificado
+      # Tipo 2 holds. Nil for a note printed otherwise, while the key can't be built, or
+      # off-line without a certificate to sign it.
+      def qr_code = supplement_of(resolved).first&.fetch("qrCode")
+
+      # infNFeSupl/urlChave: where the buyer looks the note up by its key; nil without a QR code.
+      def consult_url = supplement_of(resolved).first&.fetch("urlChave")
+
       private
 
       # [the resolved tree, the problems met while resolving it]
@@ -88,10 +106,20 @@ module DfeRb
         [xml, found]
       end
 
-      # [infNFeSupl, problems building it]: none for an NF-e.
-      def supplement_of(_tree) = [nil, []]
+      # [infNFeSupl, problems building it]: none for a note without a QR code.
+      def supplement_of(tree)
+        return [nil, []] unless Nfce::Supplement.carried_by?(tree["ide"])
 
-      def rule_issues(tree, _supplement) = Validator.new(tree, csrt: @csrt).issues
+        Nfce::Supplement.build(tree, certificate: @certificate, overrides: @addresses)
+      end
+
+      # The NF-e's rules, and the NFC-e's for a note that prints like one (NT 2026.002).
+      def rule_issues(tree, supplement)
+        found = Validator.new(tree, csrt: @csrt).issues
+        return found unless Nfce::Supplement.carried_by?(tree["ide"])
+
+        found + Nfce::Validator.new(tree, supplement: supplement, signer: @certificate&.certificate).issues
+      end
     end
   end
 end
