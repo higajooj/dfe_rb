@@ -49,6 +49,15 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(rates_issues(uf: "0.05", municipal: "0.05", cbs: "8.70", year: 2027)).to eq([])
     end
 
+    it "compares a rate as the XML writes it, to 4 places" do
+      expect(rates_issues(uf: BigDecimal("0.10004"), municipal: 0, cbs: 0.3 * 3)).to eq([])
+      expect(rates_issues(uf: "0.1001", municipal: "0", cbs: "0.90").size).to eq(1)
+    end
+
+    it "holds a complement of an earlier sale to the issue year's IBS rates (UB18-10, UB37-10)" do
+      expect(rates_issues(uf: "0.10", municipal: "0", cbs: "8.70", year: 2027, ide: {"finNFe" => "2"}).size).to eq(2)
+    end
+
     it "checks the 2027 CBS once its reference rate is published" do
       stub_const("DfeRb::Nfe::Rates::CBS_REFERENCE", {2027 => "8.80", 2028 => nil})
 
@@ -69,7 +78,6 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(rates_issues(**stale, ide: {"finNFe" => "4"})).to eq([])
       expect(rates_issues(**stale, ide: {"finNFe" => "5", "tpNFCredito" => "4"})).to eq([])
       expect(rates_issues(**stale, ide: {"gCompraGov" => {"tpEnteGov" => "1", "pRedutor" => "10.0000"}})).to eq([])
-      expect(rates_issues(**stale, ide: {"finNFe" => "2"}).size).to eq(2)
     end
   end
 

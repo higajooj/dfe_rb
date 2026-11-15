@@ -584,7 +584,8 @@ module DfeRb
         return if @ide["finNFe"].to_s == "4" || (@ide["tpNFCredito"] && STANDARD_RATE_EXEMPT_CREDIT_NOTES.include?(credit_note_type))
 
         year = issued_at.year
-        given = Totals.number(sphere[rate_tag])
+        # As the XML writes it: 4 places at most.
+        given = Calculator.percentage(sphere[rate_tag])
         expected = (rate_tag == "pCBS" && sphere["gALCZFMCBS"]) ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
         return if expected.nil? || given == expected
         return if rate_tag == "pCBS" && given.zero? && year < Rates::CBS_CHARGED_SINCE
