@@ -109,17 +109,16 @@ def write_tsv(file, rows, diff: false)
   removed = old - new
   added = new - old
   puts "#{file}: #{(removed.empty? && added.empty?) ? "unchanged" : "#{added.size} added, #{removed.size} removed"}"
-  keys = ->(lines) { lines.to_h { |line| [line.split("\t", 2).first, line] } }
+  # Every row is printed: several may share a key (a CEST's wordings, an NCM's EX lines).
+  keys = ->(lines) { lines.group_by { |line| line.split("\t", 2).first } }
   before = keys.call(removed)
   after = keys.call(added)
   (before.keys | after.keys).sort.each do |key|
-    if before[key] && after[key]
-      puts "  ~ #{before[key]}", "    #{after[key]}"
-    elsif before[key]
-      puts "  - #{before[key]}"
-    else
-      puts "  + #{after[key]}"
-    end
+    old_rows = before.fetch(key, [])
+    new_rows = after.fetch(key, [])
+    old_rows.zip(new_rows).each { |was, now| puts "  ~ #{was}", "    #{now}" if was && now }
+    old_rows.drop(new_rows.size).each { |was| puts "  - #{was}" }
+    new_rows.drop(old_rows.size).each { |now| puts "  + #{now}" }
   end
 end
 
@@ -184,18 +183,20 @@ def cred_pres_name(html)
   CGI.unescapeHTML(names.first)
 end
 
-# The cCredPres .xlsx (downloaded unless given) saved to a temporary file, since unzip reads a path.
-def cred_pres_file(path)
-  return path if path
+# Yields the path of the cCredPres .xlsx, downloaded to a temporary file unless given (unzip
+# reads a path), and removes the download once the block returns.
+def with_cred_pres_file(path)
+  return yield(path) if path
 
   name = cred_pres_name(source(nil, SVRS_DOCUMENTS_URL))
   query = URI.encode_www_form(sistema: "DFE", tipoArquivo: 12, nomeArquivo: name)
-  file = Tempfile.new(["cCredPres", ".xlsx"])
-  file.binmode
-  file.write(download(nil, "#{SVRS_DOWNLOAD_URL}?#{query}"))
-  file.close
-  warn "cCredPres: #{name}"
-  file.path
+  Tempfile.create(["cCredPres", ".xlsx"]) do |file|
+    file.binmode
+    file.write(download(nil, "#{SVRS_DOWNLOAD_URL}?#{query}"))
+    file.close
+    warn "cCredPres: #{name}"
+    yield file.path
+  end
 end
 
 # The cCredPres rows: the indicators as given (blank where the table leaves one blank, as
@@ -374,7 +375,7 @@ if wanted?(options, "classifications")
 end
 
 if wanted?(options, "cred_pres")
-  credits = cred_pres_rows(cred_pres_file(options[:cred_pres]))
+  credits = with_cred_pres_file(options[:cred_pres]) { |path| cred_pres_rows(path) }
   write_tsv("cred_pres.tsv", [CRED_PRES_COLUMNS.values] + credits, diff: diff)
   summary << "#{credits.size} presumed credits"
 end
