@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0
+
+- 2027, by the issue year of `dhEmi` in its own offset (see the README's "2027"). `Rates::CBS_REFERENCE` takes the CBS reference rate of 2027 and 2028 once it applies, and `Rates.ibs_cbs` charges it less 0.1 point (LC 214/2025, art. 347). Until then a normal note of 2027 taxed in `gIBSCBS` must give `pCBS`: without it `issues` names the item ("alíquota de referência da CBS para 2027 não publicada"), `to_xml` raises `ValidationError`, and `Calculator.call` raises `DfeRb::Nfe::RateNotPublished`. The same goes for every rate after 2028.
+- A classification taxed in `gTribRegular` gets zero main rates in 2027 and 2028 too, and a CBS with `gALCZFMCBS` gets zero (UB56-20).
+- From 2027 `pIPI` from the TIPI is zero but on a product whose IPI the law keeps, marked `i.ipi ..., zfm_product: true` (ADCT art. 126, III, a; LC 214/2025, art. 454). `Rates.ipi_applies?(year, zfm_product:)` and `Rates.pis_cofins_charged?(year)` tell either by year.
+- The validator flags PIS, COFINS or their ST charged on a normal note issued from 2027 (ADCT art. 126, II; LC 214/2025, art. 542), and an IBS/CBS rate that isn't the issue year's (UB18-10, UB37-10, UB56-10, UB56-20; rej. 1026, 1036, 1037), but on a return, the credit notes 03, 04 and 06 and a government purchase.
+
 ## 0.17.0
 
 - The cClassTrib table follows IT 2025.002 v1.71 (production 30/10/2026): v1.70 added 000006, 200055, 200056, 400003, 400004 and 550026 to 550029, and v1.71 only rewrote texts and indicators. Revoked codes stay with their end (220001 to 220003 end on 01/01/2026). `Classification` gains `presumed_credit?` (ind_gCredPresOper), `nfe?`, `nfce?`, `model?` and `valid_on?`; `Tables.classification_list` lists them all.
