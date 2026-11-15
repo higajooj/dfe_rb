@@ -43,6 +43,15 @@ RSpec.describe DfeRb::Nfe::Rates do
     expect(described_class.ipi_applies?(Date.new(2027, 1, 1), zfm_product: true)).to be(true)
   end
 
+  it "takes an Integer as the year where ActiveSupport gives it #year, a Duration" do
+    Integer.class_eval { def year = self * 31_556_952 }
+
+    expect([2026, 2027].map { |year| described_class.pis_cofins_charged?(year) }).to eq([true, false])
+    expect([2026, 2027].map { |year| described_class.ipi_applies?(year) }).to eq([true, false])
+  ensure
+    Integer.send(:remove_method, :year)
+  end
+
   describe ".adjusted_mva" do
     it "adjusts the margin for an interstate rate below the internal one (Conv. ICMS 142/2018)" do
       adjusted = [4, 7, 12].map { |rate| described_class.adjusted_mva("50.00", interstate: rate, internal: "17.00").to_s("F") }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.1
+
+- `Rates.pis_cofins_charged?` and `Rates.ipi_applies?` take an Integer as the year where ActiveSupport gives Integer#year (a Duration of so many years, which compared as later than any year): under Rails every note was taken as issued from 2027, its IPI zeroed and its PIS and COFINS flagged.
+
 ## 0.18.0
 
 - 2027, by the issue year of `dhEmi` in its own offset (see the README's "2027"). `Rates::CBS_REFERENCE` takes the CBS reference rate of 2027 and 2028 once it applies, and `Rates.ibs_cbs` charges it less 0.1 point (LC 214/2025, art. 347). Until then a normal note of 2027 taxed in `gIBSCBS` must give `pCBS`: without it `issues` names the item ("alíquota de referência da CBS para 2027 não publicada"), `to_xml` raises `ValidationError`, and `Calculator.call` raises `DfeRb::Nfe::RateNotPublished`. The same goes for every rate after 2028.
