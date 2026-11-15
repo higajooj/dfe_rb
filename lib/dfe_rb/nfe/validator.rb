@@ -234,7 +234,8 @@ module DfeRb
       end
 
       # RV BA02-35 and VC02-40: an exit note other than a complement or a return can't
-      # reference a consumer's note, by its key (rej. 679). An NF-e printed as the DANFE
+      # reference a consumer's note, by its key (rej. 679); its items may still on a debit
+      # note of types 03 and 04 (VC02-40's exception). An NF-e printed as the DANFE
       # Simplificado Tipo 2 is barred too, but its key doesn't tell, so SEFAZ checks that one.
       def check_consumer_references(references)
         return unless @ide["tpNF"].to_s == "1" && !CONSUMER_REFERENCE_PURPOSES.include?(@ide["finNFe"].to_s)
