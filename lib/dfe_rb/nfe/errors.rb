@@ -27,5 +27,10 @@ module DfeRb
     # The state has no web service for what was asked (consulta cadastro is offered by some
     # states only).
     class Unsupported < Error; end
+
+    # A normal note is calculated in a year whose rate fixed by law the gem doesn't have yet
+    # (the CBS reference rate for 2027 until the Senate or the TCU publishes it) and the item
+    # doesn't give it either.
+    class RateNotPublished < Error; end
   end
 end

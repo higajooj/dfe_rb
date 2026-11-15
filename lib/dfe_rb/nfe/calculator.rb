@@ -14,11 +14,12 @@ module DfeRb
     module Calculator
       # What an item's taxes depend on beyond the item: the states of the operation, idDest,
       # the issue year, the government purchase reducer (ide/gCompraGov/pRedutor), finNFe,
-      # tpNF, indFinal and the item's CFOP (set by `call`). Rates fixed by law are filled in
+      # tpNF, indFinal, and the item's CFOP and whether it is a product also made in the Zona
+      # Franca de Manaus (both set by `call`). Rates fixed by law are filled in
       # only for a normal operation (finNFe 1). A return, adjustment or complement carries the
       # rates of the operation it refers to, which only the issuer knows.
       Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction,
-        :final_consumer, :cfop) do
+        :final_consumer, :cfop, :zfm_product) do
         def law_rates? = purpose.to_s == NORMAL
 
         # The IPI joins the ICMS base for a final consumer, but not for a contributor who buys
@@ -56,13 +57,21 @@ module DfeRb
       MARGIN_MODE = 4
       INTERSTATE = 2
       RATE_PLACES = 4
+      # Where the builder marks an item whose product is also made in the Zona Franca de Manaus,
+      # whose IPI goes on from 2027 (`i.ipi ..., zfm_product: true`); never written.
+      ZFM_PRODUCT = "#zfm_product"
+      SPHERE_NAMES = {"pIBSUF" => "the state IBS", "pIBSMun" => "the municipal IBS", "pCBS" => "the CBS"}.freeze
 
       module_function
 
       # Fills the derivable values of one resolved <det> hash, in dependency order.
       def call(item, context)
+        zfm_product = item.delete(ZFM_PRODUCT)
         imposto = item["imposto"] or return item
-        context = context.dup.tap { |copy| copy.cfop = item.dig("prod", "CFOP") }
+        context = context.dup.tap do |copy|
+          copy.cfop = item.dig("prod", "CFOP")
+          copy.zfm_product = zfm_product == true
+        end
 
         ipi(item, imposto, context)
         icms(item, imposto, context)
@@ -74,12 +83,14 @@ module DfeRb
       end
 
       # A taxed IPI's rate is the TIPI's for the item's NCM and EXTIPI, unless the IPI is per
-      # unit or the line is NT.
+      # unit or the line is NT. From 2027 it is zero but on a product also made in the Zona
+      # Franca de Manaus (EC 132/2023, ADCT art. 126, III).
       def ipi(item, imposto, context)
         group = imposto.dig("IPI", "IPITrib") or return
         fill(group, "vBC") { operation_value(item) } if %w[qUnid vUnid].all? { |tag| group[tag].nil? }
         if context.law_rates? && group.key?("vBC") && %w[pIPI qUnid vUnid].all? { |tag| group[tag].nil? }
           rate = Tables.ipi_rate(item.dig("prod", "NCM"), item.dig("prod", "EXTIPI"))&.rate
+          rate &&= BigDecimal(0) if context.year && !Rates.ipi_applies?(context.year, zfm_product: context.zfm_product)
           group["pIPI"] = rate if rate
         end
         fill(group, "vIPI") { per_unit_or_percent(group, "vBC", "pIPI", "qUnid", "vUnid") }
@@ -201,10 +212,11 @@ module DfeRb
         group = ibscbs["gIBSCBS"] or return
 
         fill(group, "vBC") { ibs_cbs_base(item) }
-        rates = (context.law_rates? && context.year) ? Rates.ibs_cbs(context.year) : {}
+        law_rates = context.law_rates? && context.year
+        rates = law_rates ? Rates.ibs_cbs(context.year) : {}
         # A classification under the regular taxation group is charged nothing in the main
         # one (UB18-10, UB37-10, UB56-10, exception 1).
-        rates = rates.transform_values { |rate| rate && BigDecimal(0) } if klass&.regular_taxation?
+        rates = {uf: BigDecimal(0), municipal: BigDecimal(0), cbs: BigDecimal(0)} if klass&.regular_taxation?
         spheres = [
           ["gIBSUF", "pIBSUF", "vIBSUF", rates[:uf], klass&.ibs_reduction],
           ["gIBSMun", "pIBSMun", "vIBSMun", rates[:municipal], klass&.ibs_reduction],
@@ -212,6 +224,12 @@ module DfeRb
         ]
         spheres.each do |tag, rate_tag, amount_tag, standard, reduction|
           sphere = (group[tag] ||= {})
+          # The CBS of a sale within one incentive area (ZFM or an ALC) is zero (UB56-20,
+          # exception 3; LC 214/2025, arts. 451 and 466).
+          standard = BigDecimal(0) if sphere["gALCZFMCBS"]
+          if sphere[rate_tag].nil? && standard.nil? && law_rates && context.year >= Rates::IBS_CBS.keys.min
+            raise RateNotPublished, unpublished_rate(item, rate_tag, context.year)
+          end
           sphere[rate_tag] = standard if sphere[rate_tag].nil? && standard
           reduce(sphere, rate_tag, klass, reduction, context.purchase_reduction)
           fill(sphere["gDif"], "vDif") { expected_deferral(group, sphere, rate_tag) } if sphere["gDif"]
@@ -224,6 +242,16 @@ module DfeRb
           amounts = [group.dig("gIBSUF", "vIBSUF"), group.dig("gIBSMun", "vIBSMun")]
           amounts.sum(BigDecimal(0)) { |amount| money(amount) } if amounts.none?(&:nil?)
         end
+      end
+
+      def unpublished_rate(item, rate_tag, year)
+        where = "det[#{item["@nItem"]}]" if item["@nItem"]
+        reason = if rate_tag == "pCBS" && Rates::CBS_REFERENCE.key?(year)
+          "the CBS reference rate for #{year} isn't published yet (alíquota de referência da CBS para #{year} não publicada)"
+        else
+          "dfe_rb has no rate of #{SPHERE_NAMES.fetch(rate_tag)} for #{year} (set by law yet to come)"
+        end
+        [where, "#{reason}: give #{rate_tag}"].compact.join(": ")
       end
 
       # Adds gRed when the classification reduces the rate or the purchase is governmental

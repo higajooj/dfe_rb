@@ -203,6 +203,8 @@ module DfeRb
         det.each do |item|
           Calculator.call(item, context)
           item["vItem"] ||= Totals.item_amount(item, year) if item_amounts
+        rescue RateNotPublished => e
+          @issues << e.message
         end
       end
 
