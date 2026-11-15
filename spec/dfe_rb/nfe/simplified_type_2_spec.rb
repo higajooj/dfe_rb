@@ -174,6 +174,13 @@ RSpec.describe "An NF-e printed as the DANFE Simplificado Tipo 2 (NT 2026.002, N
       expect { client.sign(bare) }.to raise_error(DfeRb::ValidationError, /a signed NF-e with DANFE Simplificado Tipo 2 carries its QR code \(rej\. 394\)/)
     end
 
+    it "takes a signed note of the Regime Especial NFF without a QR code, which ZX02-10 exempts" do
+      xml = simplified { |nfe| nfe.emission_type 3 }.to_xml(strict: false).sub(%r{<infNFeSupl>.*</infNFeSupl>}, "")
+      bare = DfeRb::Nfe::Signature.sign_nfe(xml, certificate)
+
+      expect(client.sign(bare, strict: false).xml).to eq(bare)
+    end
+
     it "refuses a QR code version other than 3 (ZX02-220, 672)" do
       xml = simplified.to_xml.sub("|3|2<", "|2|2|1|#{"a" * 40}<")
 

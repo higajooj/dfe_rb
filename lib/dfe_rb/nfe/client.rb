@@ -267,8 +267,8 @@ module DfeRb
       # Checks the schema, and the business rules unless `strict: false`, for XML that didn't
       # come from an Invoice. A note with a QR code (an NFC-e, or an NF-e printed as the DANFE
       # Simplificado Tipo 2) gets the NFC-e's rules too, and a signed one must carry its QR
-      # code (RV ZX02-10), which no one may add after the signature. Only an unsigned note is
-      # held to the 5 minutes between dhEmi and SEFAZ (B09-40): a signed one may be a retry.
+      # code (RV ZX02-10), which no one may add after the signature, unless it is a note of
+      # the Regime Especial NFF (tpEmis 3), which ZX02-10 exempts.
       def validated(document, strict:)
         problems = Schemas.nfe_issues(document.xml)
         problems += Validator.new(document.to_infnfe).issues if strict && problems.empty?
@@ -276,7 +276,7 @@ module DfeRb
         return document unless document.qr_code?
 
         supplement = document.supplement
-        if document.signed? && supplement.nil?
+        if document.signed? && supplement.nil? && document.qr_code_required?
           raise ValidationError, ["infNFeSupl: a signed #{(document.model == "65") ? "NFC-e" : "NF-e with DANFE Simplificado Tipo 2"} " \
             "carries its QR code (rej. 394); it can't be added after signing"]
         end
