@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0
+
+- The cClassTrib table follows IT 2025.002 v1.71 (production 30/10/2026): v1.70 added 000006, 200055, 200056, 400003, 400004 and 550026 to 550029, and v1.71 only rewrote texts and indicators. Revoked codes stay with their end (220001 to 220003 end on 01/01/2026). `Classification` gains `presumed_credit?` (ind_gCredPresOper), `nfe?`, `nfce?`, `model?` and `valid_on?`; `Tables.classification_list` lists them all.
+- The cCredPres table of IT 2025.002 ships as `cred_pres.tsv`: `Tables.presumed_credit("04")` gives whether the credit is taken on the note or by event, deducted, which tax groups it requires or bars, the payment declaration, the models, the cClassTrib of the referenced note and each tax's days (`valid_on?(date, tax:)`).
+- `DfeRb::Nfe::Validator` checks an item's `cClassTrib`: in the table and in force on the issue date (UB14-10, rej. 1023), under its CST (UB14-20, 1024), allowed on the note's model (UB14-25, 1025). It checks the operation's presumed credit (`gCredPresOper`) against both tables: the cClassTrib allows it (UB120-20, 1175), the `cCredPres` exists (UB122-10, 1055), the IBS and CBS groups are given as the code requires (UB123-10 to UB127-20), a used good's credit stays within `vProd` (UB125-10, UB129-10) and an amount in suspensive condition comes only with cCredPres 04, the CBS's from 2027 and the IBS's from 2033 (UB126-10, UB130-10). The rules on the tables' indicators apply to notes issued from 30/10/2026, when v1.71's took effect (`Tables::IBS_CBS_INDICATORS_SINCE`).
+- `lib/dfe_rb/data/manifest.yml` lists every document the gem follows, with its version, the newest published, publication and production dates, where it's implemented and the SHA-256 of the file read, and what the gem is waiting for; a spec fails when a table or schema package has no row. CONTRIBUTING.md has the release checklist.
+- `script/update_tables` writes `cred_pres.tsv` from the cCredPres `.xlsx` the SVRS portal lists, and takes `--only` and `--diff`; `rake tables:check` prints what the current IT 2025.002 tables would change, without writing.
+- The IBS/CBS rules cite NT 2025.002 v1.53; UB12-10 is unchanged for notes issued before 2027.
+
 ## 0.16.0
 
 - A distribution answer that refuses the certificate is `:certificate` (`certificate_refused?`): its own checks, 280 to 287, or a holder other than the one asked about, 593 and 472 at the NF-e's service, 491 and 492 at the MDF-e's. `DfeRb::Distribution.status(code)` tells what a cStat kept on its own means, as `Result#status` does.

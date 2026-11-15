@@ -3,28 +3,46 @@
 #
 #   municipalities.tsv   IBGE (servicodados.ibge.gov.br), the table DF-e city codes follow
 #   classifications.tsv  cClassTrib table of IT 2025.002, as the SVRS DF-e portal publishes it
+#   cred_pres.tsv        cCredPres table of IT 2025.002, the .xlsx the SVRS "Conformidade Fácil" portal lists
 #   cfop.tsv             CFOP table of IT 2023.002, the .xlsx the Portal Nacional da NF-e publishes
 #   tipi.tsv             IPI rates of the TIPI, the Tipi.xlsx the Receita Federal publishes
 #   cests.tsv            CESTs of Conv. ICMS 142/2018 (Anexos II to XXVI), as the CONFAZ page publishes it
 #
-# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--confaz CV142_18.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]
+# Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cred-pres cCredPres.xlsx] [--confaz CV142_18.html]
+#                             [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx] [--only classifications,cred_pres] [--diff]
 #
-# IBGE, SVRS and CONFAZ are downloaded when not given. The CFOP table and the TIPI have no stable
+# IBGE, SVRS (with the cCredPres .xlsx) and CONFAZ are downloaded when not given. --only regenerates
+# just the tables named; --diff prints what would change in each table instead of writing it. The CFOP table and the TIPI have no stable
 # address, so cfop.tsv and tipi.tsv are regenerated only from a given .xlsx (read with the
 # unzip command). payment_methods.tsv and card_brands.tsv are edited by hand, from the tables
 # of the Portal Nacional da NF-e.
 
 require "bigdecimal"
+require "cgi"
 require "date"
 require "json"
 require "net/http"
 require "nokogiri"
 require "open3"
 require "optparse"
+require "tempfile"
 require "uri"
 
 IBGE_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado"
 SVRS_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/ClassificacaoTributaria"
+# The documents page lists the current IT 2025.002 files, whose names carry the version; a file
+# is downloaded by name.
+SVRS_DOCUMENTS_URL = "https://dfe-portal.svrs.rs.gov.br/CFF/Documentos"
+SVRS_DOWNLOAD_URL = "https://dfe-portal.svrs.rs.gov.br/DFE/DownloadArquivoEstatico/"
+# The cCredPres .xlsx column headers, in the order cred_pres.tsv writes them under its own names.
+CRED_PRES_COLUMNS = {
+  "cCredPres" => "cCredPres", "Apropria via NF?" => "ind_apropriaNF", "Apropria via evento?" => "ind_apropriaEvento",
+  "indDeduzCredPres" => "indDeduzCredPres", "ind_gCBSCredPres" => "ind_gCBSCredPres", "ind_gIBSCredPres" => "ind_gIBSCredPres",
+  "indDecPag" => "indDecPag", "indNFe" => "indNFe", "indNFCe" => "indNFCe", "indCTe" => "indCTe", "indNFSe" => "indNFSe",
+  "cClassTrib nota referenciada" => "cClassTribRef", "dIniVigCBS" => "dIniVigCBS", "dFimVigCBS" => "dFimVigCBS",
+  "dIniVigIBS" => "dIniVigIBS", "dFimVigIBS" => "dFimVigIBS", "Descrição" => "xDescricao"
+}.freeze
+TABLES = %w[municipalities classifications cred_pres cests cfop tipi].freeze
 CONFAZ_URL = "https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18"
 # The annexes of Conv. ICMS 142/2018 that list CESTs, one segment each (Anexo XV four); the
 # ones after them are lists of other kinds.
@@ -44,31 +62,65 @@ EXCEL_EPOCH = Date.new(1899, 12, 30)
 
 options = {}
 OptionParser.new do |parser|
-  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--confaz CV142_18.html] [--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx]"
+  parser.banner = "Usage: script/update_tables [--ibge ibge.json] [--svrs svrs.html] [--cred-pres cCredPres.xlsx] [--confaz CV142_18.html] " \
+    "[--cfop tabela_cfop.xlsx] [--tipi Tipi.xlsx] [--only classifications,cred_pres] [--diff]"
   parser.on("--ibge FILE", "IBGE municipalities JSON (downloaded if not given)") { |file| options[:ibge] = file }
   parser.on("--svrs FILE", "SVRS cClassTrib page HTML (downloaded if not given)") { |file| options[:svrs] = file }
+  parser.on("--cred-pres FILE", "IT 2025.002 cCredPres .xlsx (downloaded if not given)") { |file| options[:cred_pres] = file }
   parser.on("--confaz FILE", "CONFAZ page of Conv. ICMS 142/2018 (downloaded if not given)") { |file| options[:confaz] = file }
   parser.on("--cfop FILE", "IT 2023.002 CFOP table .xlsx (cfop.tsv is left alone if not given)") { |file| options[:cfop] = file }
   parser.on("--tipi FILE", "TIPI .xlsx of the Receita Federal (tipi.tsv is left alone if not given)") { |file| options[:tipi] = file }
+  parser.on("--only LIST", Array, "Regenerate only these tables (#{TABLES.join(", ")})") { |names| options[:only] = names }
+  parser.on("--diff", "Print what would change instead of writing") { options[:diff] = true }
 end.parse!
+unknown = Array(options[:only]) - TABLES
+abort "unknown tables: #{unknown.join(", ")} (known: #{TABLES.join(", ")})" unless unknown.empty?
 
-def source(path, url, redirects = 3)
-  return File.read(path, encoding: "UTF-8") if path
+def wanted?(options, table) = options[:only].nil? || options[:only].include?(table)
+
+def source(path, url, redirects = 3) = download(path, url, redirects).force_encoding("UTF-8")
+
+# The bytes of `path`, or of `url` when no path is given.
+def download(path, url, redirects = 3)
+  return File.binread(path) if path
 
   response = Net::HTTP.get_response(URI(url))
   if response.is_a?(Net::HTTPRedirection) && redirects.positive?
-    return source(nil, URI.join(url, response["location"]).to_s, redirects - 1)
+    return download(nil, URI.join(url, response["location"]).to_s, redirects - 1)
   end
   raise "#{url}: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
-  response.body.force_encoding("UTF-8")
+  response.body
 end
 
 def date(value) = value && value[0, 10]
 
 def flag(value) = value ? "1" : "0"
 
-def write_tsv(file, rows) = File.write(File.join(DATA, file), rows.map { |row| row.join("\t") }.join("\n") + "\n")
+# Writes a table, or with --diff prints the rows it would add and remove, keyed by the first
+# column (a row whose key stays is shown as changed).
+def write_tsv(file, rows, diff: false)
+  path = File.join(DATA, file)
+  text = rows.map { |row| row.join("\t") }.join("\n") + "\n"
+  return File.write(path, text) unless diff
+
+  old = File.exist?(path) ? File.readlines(path, chomp: true) : []
+  new = text.lines(chomp: true)
+  removed = old - new
+  added = new - old
+  puts "#{file}: #{(removed.empty? && added.empty?) ? "unchanged" : "#{added.size} added, #{removed.size} removed"}"
+  # Every row is printed: several may share a key (a CEST's wordings, an NCM's EX lines).
+  keys = ->(lines) { lines.group_by { |line| line.split("\t", 2).first } }
+  before = keys.call(removed)
+  after = keys.call(added)
+  (before.keys | after.keys).sort.each do |key|
+    old_rows = before.fetch(key, [])
+    new_rows = after.fetch(key, [])
+    old_rows.zip(new_rows).each { |was, now| puts "  ~ #{was}", "    #{now}" if was && now }
+    old_rows.drop(new_rows.size).each { |was| puts "  - #{was}" }
+    new_rows.drop(old_rows.size).each { |now| puts "  + #{now}" }
+  end
+end
 
 # One part of an .xlsx (a zip), namespaces removed.
 def xlsx_part(path, part)
@@ -79,9 +131,9 @@ def xlsx_part(path, part)
 end
 
 # The first sheet's rows as arrays of cell texts, by column.
-def xlsx_rows(path)
+def xlsx_rows(path, sheet = "sheet1")
   strings = xlsx_part(path, "xl/sharedStrings.xml").xpath("//si").map { |si| si.xpath(".//t").map(&:text).join }
-  xlsx_part(path, "xl/worksheets/sheet1.xml").xpath("//sheetData/row").map do |row|
+  xlsx_part(path, "xl/worksheets/#{sheet}.xml").xpath("//sheetData/row").map do |row|
     row.xpath("c").each_with_object([]) do |cell, values|
       column = cell["r"][/\A[A-Z]+/].each_char.reduce(0) { |sum, letter| sum * 26 + letter.ord - 64 } - 1
       values[column] = case cell["t"]
@@ -119,6 +171,54 @@ def cfop_rows(path)
     raise "#{path}: CFOP #{code} has an unexpected indicator in #{flags.inspect}" unless flags.all? { |value| value.match?(/\A[0-2]\z/) }
 
     [code, xlsx_date(from), xlsx_date(to), *flags, title.gsub(/\s+/, " ")]
+  end.sort
+end
+
+# The name of the current cCredPres .xlsx on the SVRS documents page ("IT 2025.002 v.1.70 -
+# cCredPres.xlsx"), whose version moves with the IT.
+def cred_pres_name(html)
+  names = html.scan(/download_arquivo_estatico\('DFE',\s*12,\s*'([^']*cCredPres[^']*\.xlsx)'\)/i).flatten.uniq
+  raise "the SVRS documents page lists #{names.size} cCredPres tables (#{names.join(", ")}), expected one" unless names.size == 1
+
+  CGI.unescapeHTML(names.first)
+end
+
+# Yields the path of the cCredPres .xlsx, downloaded to a temporary file unless given (unzip
+# reads a path), and removes the download once the block returns.
+def with_cred_pres_file(path)
+  return yield(path) if path
+
+  name = cred_pres_name(source(nil, SVRS_DOCUMENTS_URL))
+  query = URI.encode_www_form(sistema: "DFE", tipoArquivo: 12, nomeArquivo: name)
+  Tempfile.create(["cCredPres", ".xlsx"]) do |file|
+    file.binmode
+    file.write(download(nil, "#{SVRS_DOWNLOAD_URL}?#{query}"))
+    file.close
+    warn "cCredPres: #{name}"
+    yield file.path
+  end
+end
+
+# The cCredPres rows: the indicators as given (blank where the table leaves one blank, as
+# for a tax the code doesn't cover), the days each tax may take the credit, and the
+# description on one line.
+def cred_pres_rows(path)
+  header, *rows = xlsx_rows(path)
+  header = header.map { |name| name.to_s.strip }
+  missing = CRED_PRES_COLUMNS.keys - header
+  raise "#{path}: the cCredPres table no longer has the columns #{missing.join(", ")}" unless missing.empty?
+
+  indexes = CRED_PRES_COLUMNS.keys.map { |name| header.index(name) }
+  rows.filter_map do |row|
+    values = indexes.map { |index| row[index].to_s.strip }
+    next if values.all?(&:empty?)
+
+    code, *flags, reference, cbs_from, cbs_to, ibs_from, ibs_to, description = values
+    raise "#{path}: #{code.inspect} is not a cCredPres" unless code.match?(/\A\d{2}\z/)
+    raise "#{path}: cCredPres #{code} has an unexpected indicator in #{flags.inspect}" unless flags.all? { |value| value.match?(/\A[01]?\z/) }
+
+    [code, *flags, reference.gsub(/\s+/, " "), *[cbs_from, cbs_to, ibs_from, ibs_to].map { |day| xlsx_date(day) },
+      description.gsub(/\s+/, " ")]
   end.sort
 end
 
@@ -244,35 +344,56 @@ def cest_ncms(text)
   end
 end
 
-municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
-  .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
-  .sort
-write_tsv("../../data/municipalities.tsv", municipalities)
+summary = []
+diff = options[:diff]
 
-page = source(options[:svrs], SVRS_URL)
-json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"
-header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono ind_gDif ind_gTribRegular dIniVig dFimVig]
-rows = JSON.parse(json).flat_map do |cst|
-  Array(cst["ClassificacoesTributarias"]).map do |klass|
-    [klass.fetch("CodClassTrib"), cst.fetch("Cst"), format("%.2f", klass.fetch("PercRedIbs")), format("%.2f", klass.fetch("PercRedCbs")),
-      flag(cst["IndExigeTrib"]), flag(cst["IndReducaoAliq"]), flag(cst["IndMonofasica"]), flag(cst["IndDiferimento"]),
-      flag(klass["IndTribRegular"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s]
-  end
-end.sort
-write_tsv("classifications.tsv", [header] + rows)
+if wanted?(options, "municipalities")
+  municipalities = JSON.parse(source(options[:ibge], IBGE_URL))
+    .map { |city| [city.fetch("municipio-id").to_s, city.fetch("municipio-nome")] }
+    .sort
+  write_tsv("../../data/municipalities.tsv", municipalities, diff: diff)
+  summary << "#{municipalities.size} municipalities"
+end
 
-cests = cest_rows(source(options[:confaz], CONFAZ_URL))
-write_tsv("cests.tsv", [%w[CEST dIniVig dFimVig NCM xDescricao]] + cests)
+# ind_gCredPresOper is IndPermiteCredPres on the SVRS page; indNFe and indNFCe whether the
+# code may go on a modelo 55 or 65 note (RV UB14-25).
+if wanted?(options, "classifications")
+  page = source(options[:svrs], SVRS_URL)
+  json = page[/var dadosOriginais = (\[.*\]);\s*$/, 1] or raise "the SVRS page no longer embeds dadosOriginais"
+  header = %w[cClassTrib CST pRedIBS pRedCBS ind_exige_trib ind_red_aliq ind_mono ind_gDif ind_gTribRegular dIniVig dFimVig
+    ind_gCredPresOper indNFe indNFCe]
+  rows = JSON.parse(json).flat_map do |cst|
+    Array(cst["ClassificacoesTributarias"]).map do |klass|
+      [klass.fetch("CodClassTrib"), cst.fetch("Cst"), format("%.2f", klass.fetch("PercRedIbs")), format("%.2f", klass.fetch("PercRedCbs")),
+        flag(cst["IndExigeTrib"]), flag(cst["IndReducaoAliq"]), flag(cst["IndMonofasica"]), flag(cst["IndDiferimento"]),
+        flag(klass["IndTribRegular"]), date(klass["DthIniVig"]), date(klass["DthFimVig"]).to_s,
+        flag(klass["IndPermiteCredPres"]), flag(klass["IndNfe"]), flag(klass["IndNfce"])]
+    end
+  end.sort
+  write_tsv("classifications.tsv", [header] + rows, diff: diff)
+  summary << "#{rows.size} classifications"
+end
 
-summary = "#{municipalities.size} municipalities, #{rows.size} classifications, #{cests.map(&:first).uniq.size} CESTs (#{cests.size} wordings)"
-if options[:cfop]
+if wanted?(options, "cred_pres")
+  credits = with_cred_pres_file(options[:cred_pres]) { |path| cred_pres_rows(path) }
+  write_tsv("cred_pres.tsv", [CRED_PRES_COLUMNS.values] + credits, diff: diff)
+  summary << "#{credits.size} presumed credits"
+end
+
+if wanted?(options, "cests")
+  cests = cest_rows(source(options[:confaz], CONFAZ_URL))
+  write_tsv("cests.tsv", [%w[CEST dIniVig dFimVig NCM xDescricao]] + cests, diff: diff)
+  summary << "#{cests.map(&:first).uniq.size} CESTs (#{cests.size} wordings)"
+end
+
+if options[:cfop] && wanted?(options, "cfop")
   cfops = cfop_rows(options[:cfop])
-  write_tsv("cfop.tsv", [CFOP_COLUMNS.values] + cfops)
-  summary += ", #{cfops.size} CFOPs"
+  write_tsv("cfop.tsv", [CFOP_COLUMNS.values] + cfops, diff: diff)
+  summary << "#{cfops.size} CFOPs"
 end
-if options[:tipi]
+if options[:tipi] && wanted?(options, "tipi")
   tipi = tipi_rows(options[:tipi])
-  write_tsv("tipi.tsv", [%w[NCM EX pIPI]] + tipi)
-  summary += ", #{tipi.size} TIPI lines"
+  write_tsv("tipi.tsv", [%w[NCM EX pIPI]] + tipi, diff: diff)
+  summary << "#{tipi.size} TIPI lines"
 end
-puts summary
+puts summary.join(", ")

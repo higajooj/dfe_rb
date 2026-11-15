@@ -10,13 +10,15 @@ module DfeRb
     # RVs and the NTs that amend them). Rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by
+      # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.53), by
       # tpAmb. Homologação has rejected a note without it (1115) since 01/07/2026. In
       # production the rule has no date yet ("implementação futura"; v1.51 struck out
       # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
       # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
       # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
-      # yet to bring, so nothing is asked of them.
+      # yet to bring, so nothing is asked of them. Returns and complements are left out:
+      # v1.53 exempts only those referencing a note issued before 2027, which until then is
+      # every one, so the exception needs the referenced key's date from 2027 on.
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
       PRODUCTION = "1"
       NORMAL_REGIME = "3"
@@ -298,7 +300,7 @@ module DfeRb
       end
 
       # RV NA01-20: an interstate sale to a final consumer who isn't an ICMS taxpayer carries
-      # the DIFAL group, with the rule's exceptions (NT 2025.002 v1.51).
+      # the DIFAL group, with the rule's exceptions (NT 2025.002 v1.32, unchanged through v1.53).
       def check_destination_group(where, item, row)
         imposto = item["imposto"] || {}
         return if imposto["ICMSUFDest"] || imposto["ISSQN"]
@@ -431,6 +433,7 @@ module DfeRb
         if (selective = imposto["IS"])
           check_amount("#{where}/imposto/IS/vIS", selective["vIS"], Calculator.expected_selective(selective), "base x rate", 1019)
         end
+        check_ibs_cbs_codes(where, item, imposto["IBSCBS"])
         check_ibs_cbs_item(where, imposto["IBSCBS"])
         return unless item["vItem"] && issued_at
 
@@ -446,6 +449,95 @@ module DfeRb
         ["gIBSMun", "pIBSMun", "vIBSMun", {amount: 1052, effective: 1035, rate: 1036, deferral: 1044, no_deferral: 1083}],
         ["gCBS", "pCBS", "vCBS", {amount: 1069, effective: 1064, rate: 1037, deferral: 1061, no_deferral: 1090}]
       ].freeze
+
+      # The rules that consult the IT 2025.002 tables (NT 2025.002): the item's cClassTrib,
+      # then the operation's presumed credit (gCredPresOper).
+      def check_ibs_cbs_codes(where, item, ibscbs)
+        return unless ibscbs
+
+        path = "#{where}/imposto/IBSCBS"
+        klass = check_classification(path, ibscbs)
+        check_presumed_credit("#{path}/gCredPresOper", item, ibscbs["gCredPresOper"], klass) if ibscbs["gCredPresOper"]
+      end
+
+      # RV UB14-10: the cClassTrib is in the table and in force on the issue date (rej. 1023);
+      # UB14-20: it opens with the CST (1024); UB14-25: it may go on the note's model (1025).
+      # A revoked code is accepted on a note issued before its end, and its model indicators,
+      # which the table clears on revoking it, aren't consulted; nor are any code's on a note
+      # issued before the tables' version (Tables::IBS_CBS_INDICATORS_SINCE). Returns the
+      # Classification the other rules may consult, nil when there's none.
+      def check_classification(path, ibscbs)
+        code = ibscbs["cClassTrib"] or return
+        klass = Tables.classification(code)
+        unless klass
+          add "#{path}/cClassTrib: #{code} is not in the cClassTrib table (IT 2025.002) (rej. 1023)"
+          return
+        end
+        if issued_at && !klass.valid_on?(issued_at)
+          span = klass.valid_until ? "from #{klass.valid_from} until the day before #{klass.valid_until}" : "from #{klass.valid_from}"
+          add "#{path}/cClassTrib: #{code} is not in force on #{Tables.day(issued_at)}, only #{span} (IT 2025.002) (rej. 1023)"
+          return
+        end
+        cst = ibscbs["CST"]
+        if cst && !code.to_s.start_with?(cst.to_s)
+          add "#{path}/cClassTrib: #{code} doesn't belong to CST #{cst}, its first three digits are its CST (rej. 1024)"
+        end
+        if klass.valid_until.nil? && current_ibs_cbs_indicators? && !klass.model?(@ide["mod"] || "55")
+          add "#{path}/cClassTrib: #{code} can't go on a modelo #{@ide["mod"] || "55"} note (#{nfce? ? "indNFCe" : "indNFe"} 0, IT 2025.002) (rej. 1025)"
+        end
+        klass
+      end
+
+      # The operation's presumed credit on an NF-e (NT 2025.002 UB120-20 to UB130-10). An
+      # NFC-e can't carry it at all (UB120-10, Nfce::Validator).
+      # The indicator rules (UB120-20, UB123, UB127) consult the tables' current indicators, so
+      # they hold for notes issued from Tables::IBS_CBS_INDICATORS_SINCE.
+      # One row per tax: its group, then the rejections for the group given where the cCredPres
+      # bars it, left out where it requires it, a used good's credit above vProd, and an amount
+      # in suspensive condition given when it can't be, with the first year it can (the IBS
+      # from 2033, UB126-10; the CBS from 2027, UB130-10).
+      PRESUMED_CREDIT_TAXES = [
+        ["gIBSCredPres", :ibs, {barred: 1053, required: 1054, above_value: 1107, suspended: 1056, suspended_since: 2033}],
+        ["gCBSCredPres", :cbs, {barred: 1050, required: 1058, above_value: 1124, suspended: 1060, suspended_since: 2027}]
+      ].freeze
+      # cCredPres 4: used movable goods bought from a non-taxpayer individual for resale.
+      USED_GOODS_CREDIT = "04"
+
+      def check_presumed_credit(path, item, credit, klass)
+        return if nfce?
+
+        indicators = current_ibs_cbs_indicators?
+        if indicators && klass && !klass.presumed_credit? && item.dig("prod", "indBemMovelUsado").to_s != "1"
+          add "#{path}: not allowed for cClassTrib #{klass.code}, whose ind_gCredPresOper is 0 (rej. 1175)"
+        end
+        code = credit["cCredPres"] or return
+        row = Tables.presumed_credit(code)
+        unless row
+          add "#{path}/cCredPres: #{code} is not in the cCredPres table (IT 2025.002) (rej. 1055)"
+          return
+        end
+
+        PRESUMED_CREDIT_TAXES.each do |tag, tax, codes|
+          group = credit[tag]
+          if indicators && group && row.public_send(tax) == false
+            add "#{path}/#{tag}: not allowed for cCredPres #{row.code} (rej. #{codes[:barred]})"
+          elsif indicators && group.nil? && row.public_send(tax)
+            add "#{path}/#{tag}: required for cCredPres #{row.code} (rej. #{codes[:required]})"
+          end
+          next unless group
+
+          if row.code == USED_GOODS_CREDIT && Totals.number(group["vCredPres"]) > Totals.number(item.dig("prod", "vProd"))
+            add "#{path}/#{tag}/vCredPres: a used good's credit can't exceed vProd (rej. #{codes[:above_value]})"
+          end
+          if group["vCredPresCondSus"] && (row.code != USED_GOODS_CREDIT || (issued_at && issued_at.year < codes[:suspended_since]))
+            add "#{path}/#{tag}/vCredPresCondSus: only for cCredPres #{USED_GOODS_CREDIT} from #{codes[:suspended_since]} " \
+              "(rej. #{codes[:suspended]})"
+          end
+        end
+      end
+
+      # Whether the note is issued when the tables' indicators hold (an undated one is taken as now).
+      def current_ibs_cbs_indicators? = issued_at.nil? || Tables.day(issued_at) >= Tables::IBS_CBS_INDICATORS_SINCE
 
       def check_ibs_cbs_item(where, ibscbs)
         group = ibscbs&.dig("gIBSCBS") or return

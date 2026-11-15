@@ -1,0 +1,674 @@
+# Every official document dfe_rb follows, one row each (see CONTRIBUTING.md).
+#
+#   id              a stable key
+#   document        its name as published
+#   kind            moc, nt, it, schema, table (a table published outside an NT or IT), law, guide, certificate
+#   status          implemented; pending: published and not followed yet (note says what's left);
+#                   out_of_scope: published, but about something the gem doesn't do (note says why)
+#   dfe             what it touches: nfe, nfce, mdfe, events, distribution, ibs_cbs, efd
+#   version         the version the gem follows
+#   current         the newest version published, when the gem follows an older one
+#   published       publication, as the document dates it (yyyy-mm or yyyy-mm-dd); null if it doesn't
+#   production      production start of that version, as its schedule gives it; null if it gives none
+#   implemented_in  the files that follow it
+#   tables, schemas the shipped tables and schema packages copied from it (a spec checks each has a row)
+#   source          where it's published
+#   sha256          SHA-256 of the PDF, ZIP or XLSX read (attachments: other files of the same
+#                   version); null when no such file was kept (a page, an API, a folder copy)
+#   note            anything a reader of the row needs
+#   issue           the GitHub issue tracking what's left
+#
+# Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal on 2026-11-15.
+
+documents:
+  # ---------------------------------------------------------------- NF-e and NFC-e: manuals
+  - id: moc-7.0
+    document: Manual de Orientação ao Contribuinte, versão 7.0 (Visão Geral)
+    kind: moc
+    status: implemented
+    dfe: [nfe, nfce, events]
+    version: "7.00"
+    published: "2020-11"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfe/requests.rb, lib/dfe_rb/nfe/registry.rb, lib/dfe_rb/access_key.rb]
+    source: Portal Nacional da NF-e, Documentos > Manuais
+    sha256: f664dcf94b77cabb32311620d85a7eb02cdf86adb2d4632ce178af2572dd2ad1
+    note: Where the MOC and later NTs disagree, the NTs and the schema win (README, Legislation).
+  - id: moc-anexo-i
+    document: MOC Anexo I, Leiaute e Regras de Validação da NF-e e da NFC-e
+    kind: moc
+    status: implemented
+    dfe: [nfe, nfce]
+    version: "7.03"
+    published: "2020-11"
+    production: "2021-09-01"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/resolver.rb, lib/dfe_rb/nfe/status_codes.rb]
+    source: Portal Nacional da NF-e, Documentos > Manuais
+    sha256: 5eb4cf2010b10b0b62f78197c4eb64025f24535d4c6e61158bc7806dd008f55d
+    note: The file is the 7.00 document whose history runs to 7.03; production is the last 7.03 item's.
+  - id: moc-anexo-iii
+    document: MOC Anexo III, Manual de Contingência da NF-e
+    kind: moc
+    status: implemented
+    dfe: [nfe]
+    version: "7.00"
+    published: "2020-11"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfe/endpoints.rb, lib/dfe_rb/nfe/states.rb]
+    source: Portal Nacional da NF-e, Documentos > Manuais
+    sha256: e1cfb9b6c5adc6a67062f66fd1699495fdec5dfdb93025768f87fe3782918dde
+    note: Each state's SVC comes from the "Relação de Serviços Web", which has changed since.
+  - id: moc-anexo-iv
+    document: MOC Anexo IV, Manual de Contingência da NFC-e
+    kind: moc
+    status: implemented
+    dfe: [nfce]
+    version: "7.00"
+    published: "2020-11"
+    production: null
+    implemented_in: [lib/dfe_rb/nfce/client.rb, lib/dfe_rb/nfce/qr_code.rb]
+    source: Portal Nacional da NF-e, Documentos > Manuais
+    sha256: 0b5ae1e88ae60b57d4f1d752316289ff55f7e10c7e1d405905325e9de2666b0e
+
+  # ---------------------------------------------------------------- NF-e and NFC-e: notas técnicas
+  - id: nt-2014.001
+    document: NT 2014.001, Evento Prévio de Emissão em Contingência (EPEC)
+    kind: nt
+    status: implemented
+    dfe: [nfe, events]
+    version: "1.41"
+    published: "2026-08"
+    production: "2026-10-05"
+    implemented_in: [lib/dfe_rb/nfe/epec.rb, lib/dfe_rb/nfe/states.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: fa9218ddadcb35ca1233434a4dfd040243360d983c0d3f6b85e7756284a6fd19
+  - id: nt-2014.002
+    document: NT 2014.002, Web Service NFeDistribuicaoDFe
+    kind: nt
+    status: implemented
+    dfe: [nfe, distribution]
+    version: "1.40"
+    published: "2026-07"
+    production: "2026-07-08"
+    implemented_in: [lib/dfe_rb/distribution.rb, lib/dfe_rb/nfe/distribution]
+    schemas: [lib/dfe_rb/xml/schemas/PL_NFeDistDFe_104]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 156dcb170e205c076a6da86aedf56a04afcec3aef8e373dd7fbf7ccb068da029
+  - id: nt-2018.004
+    document: NT 2018.004, Cancelamento por substituição da NFC-e (evento 110112)
+    kind: nt
+    status: implemented
+    dfe: [nfce, events]
+    version: null
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/nfce/client.rb, lib/dfe_rb/nfe/requests.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: null
+    note: No copy kept in the legislation library; version and dates to be recorded on the next read.
+  - id: nt-2018.005
+    document: NT 2018.005, Alteração de leiaute (responsável técnico, CSRT)
+    kind: nt
+    status: implemented
+    dfe: [nfe, nfce]
+    version: "1.52"
+    published: "2025-07"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/resolver.rb, lib/dfe_rb/nfe/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: c2c299ee59397a495c88b7b83826f39ca44e0d070bfeebbb9d9ff61d32a58ec7
+  - id: nt-2019.001
+    document: NT 2019.001, Regras de validação (cBenef, gCred)
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.70"
+    published: "2025-08"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/names.rb, lib/dfe_rb/nfe/scope.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 8c03e1d53893f211b4967a5f6da0a1a5f9c46b0862e23ee5b63816657e79ff00
+    note: Only the gCred layout; cBenef x CST is each state's table and stays with SEFAZ.
+  - id: nt-2020.001
+    document: NT 2020.001, Manifestação do destinatário
+    kind: nt
+    status: implemented
+    dfe: [nfe, events, distribution]
+    version: "1.60"
+    published: "2026-04"
+    production: "2026-06-01"
+    implemented_in: [lib/dfe_rb/nfe/distribution/schemas.rb, lib/dfe_rb/nfe/distribution]
+    schemas: [lib/dfe_rb/xml/schemas/Evento_ManifestaDest_PL_v1.01]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: f610878ad54708086aaa20dc668d714adf89cf109b8afbea687f69ef733efe46
+  - id: nt-2022.002
+    document: NT 2022.002, Equiparação à exportação e outras alterações (indDeduzDeson)
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.30a"
+    published: "2026-03"
+    production: "2026-04-06"
+    implemented_in: [lib/dfe_rb/nfe/totals.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 45b96f11d192afafba1d061b4f08eb1047c2609a60b940217a8a37921348b54f
+  - id: nt-2023.001
+    document: NT 2023.001, Tributação monofásica dos combustíveis
+    kind: nt
+    status: implemented
+    dfe: [nfe, nfce]
+    version: "1.60"
+    published: "2025-06"
+    production: "2025-10-01"
+    implemented_in: [lib/dfe_rb/nfe/totals.rb, lib/dfe_rb/nfce/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 2b18d99fdb4989a12044cd491c176a2199ab19bb2462406a6ac03376b7701fe5
+  - id: nt-2023.002
+    document: NT 2023.002, Emitente pessoa física na NFC-e
+    kind: nt
+    status: implemented
+    dfe: [nfce]
+    version: "1.01"
+    current: "1.02"
+    published: "2025-11"
+    production: "2026-02-02"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfce/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: b0cb9528bfaa6e0b5ac2986c879898eebcbb9457e97fcf0af985a00659649031
+    note: >-
+      v1.02 (2026-10-27, SHA-256 e375b487fdb38c0f114dbc9fd4a0b109151d0a21e1770d738f5c5f9597758202)
+      switches off inutilização in AC, BA and SP (production 2026-11-11, rej. 998) and ends
+      asynchronous authorization for the NF-e and the NFC-e (GAP03a-6, rej. 129, production 2027-04-05).
+    issue: https://github.com/higajooj/dfe_rb/issues/11
+  - id: nt-2023.003
+    document: NT 2023.003, CFOP na NFC-e
+    kind: nt
+    status: implemented
+    dfe: [nfce]
+    version: "1.40"
+    published: "2026-09"
+    production: "2026-10-05"
+    implemented_in: [lib/dfe_rb/nfce/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 18b8ce0d3f5fdf46b32bce5588f9f7bef88e123b07ac3bb1adf855339971f7f8
+  - id: nt-2025.001
+    document: NT 2025.001, QR code versão 3 da NFC-e
+    kind: nt
+    status: implemented
+    dfe: [nfce]
+    version: "1.03"
+    published: "2025-09"
+    production: "2025-11-03"
+    implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/supplement.rb, lib/dfe_rb/nfce/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 333b69f71debe5040585b677b574bb13b39362aa7934b904edc59cdf83cded02
+  - id: nt-2025.002
+    document: NT 2025.002-RTC, Reforma Tributária do Consumo (IBS, CBS, IS)
+    kind: nt
+    status: implemented
+    dfe: [nfe, nfce, ibs_cbs, events]
+    version: "1.53"
+    published: "2026-10-30"
+    production: "2026-11-16"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/calculator.rb, lib/dfe_rb/nfe/totals.rb, lib/dfe_rb/nfe/rates.rb, lib/dfe_rb/nfce/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: d62445d7429806b0403b44818e252fea16107794319a029ac7025017e5f4e34c
+    attachments:
+      - {file: NT_2025.002_v1.51_RTC.pdf, sha256: a4aaaa181522b43cd90b502f8ccb9e4bdabea30fed838e2d0790be5ba77254a4}
+    note: >-
+      The rules were read at v1.51 and checked against v1.53. v1.52 and v1.53 changed UB12-10,
+      VC02-14 to VC02-50, VC03-20, 3BA02-50 to 3BA02-68 and B25-40. Of those the gem checks
+      only UB12-10, whose return exception it applies to every return; from 2027 it needs
+      the referenced note's date. UB12-10 still has no production date ("implementação futura").
+    issue: https://github.com/higajooj/dfe_rb/issues/16
+  - id: nt-2026.001
+    document: NT 2026.001, Programa de Aquisição de Alimentos (PAA) na NF-e
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.02b"
+    published: "2026-07"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 703310f95bff855aad9a4a7004515ce29ffff343334c53f0c45e9b32390296cd
+  - id: nt-2026.002
+    document: NT 2026.002, DANFE Simplificado Tipo 2, emissão off-line e autorização com alerta
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.10a"
+    current: "1.11"
+    published: "2026-08"
+    production: "2026-10-05"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 705f771830565c209d815659347ac4ea251901c77064cc163ce5c93f311e6e64
+    note: v1.11 (2026-10-01) moves I08-180, BA02-35 and VC02-40 to 2026-12-14 in production.
+    issue: https://github.com/higajooj/dfe_rb/issues/2
+  - id: nt-2026.003
+    document: NT 2026.003, DANFE Simplificado Tipo 2 (parâmetros do QR code)
+    kind: nt
+    status: implemented
+    dfe: [nfce]
+    version: "1.00"
+    published: "2026-05"
+    production: "2026-08-03"
+    implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/client.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 2ef826027e0e8423ba9dc2f53ee7197f8bfdcc399a30459b72da977528600f13
+  - id: nt-2026.004
+    document: NT 2026.004, Schema da NF-e e da NFC-e para o CNPJ alfanumérico
+    kind: nt
+    status: implemented
+    dfe: [nfe, nfce, events]
+    version: "1.01"
+    published: "2026-06"
+    production: "2026-07-01"
+    implemented_in: [lib/dfe_rb/tax_id.rb, lib/dfe_rb/access_key.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 5f24a25351e790692754b07bbefac42ac67e70167a62a7806395d880f56675be
+  - id: ntcj-2025.001
+    document: NT Conjunta 2025.001, CNPJ alfanumérico nos DF-e
+    kind: nt
+    status: implemented
+    dfe: [nfe, nfce, mdfe, events, distribution]
+    version: "1.00"
+    published: "2025-04-25"
+    production: "2026-07-06"
+    implemented_in: [lib/dfe_rb/tax_id.rb, lib/dfe_rb/access_key.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 671d546b24ad4682e267fc76a9eeca8f14ad15ead2be20721ee2aec5438cf964
+  - id: nt-2026.006
+    document: NT 2026.006, RTC, vinculação do pagamento
+    kind: nt
+    status: pending
+    dfe: [nfe, ibs_cbs]
+    version: null
+    current: "1.01"
+    published: "2026-10-30"
+    production: "2026-12-14"
+    implemented_in: []
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: null
+    attachments:
+      - {file: "NT_2026.006_v1.00_RTC_VinculacaoPagamento[2775].pdf", sha256: 47a65abde315fed1e6a8c6085a67ca483935cb57877ae5715d365377a725e05d}
+    note: >-
+      Not applied: group YC (gPgtoVinc) and event 110300. v1.01 (SHA-256
+      2c5770b54d19b66ff61200fad20d1a4373b71a48d42f0ee5e005e808ce0eb206) only moved the dates;
+      production moved from 2026-11-16 to 2026-12-14 (Portal informe of 2026-11-13).
+    issue: https://github.com/higajooj/dfe_rb/issues/13
+  - id: nt-2026.007
+    document: NT 2026.007, Emissão de NF-e sem IE e RV de LCC
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.00"
+    current: "1.11"
+    published: "2026-07"
+    production: "2026-11-03"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 559fcd7d1b495549099498ff5c1ba4165f65d4b5ad5b34dbe802869d4619d917
+    note: >-
+      Only I08-191 is checked. The rest of v1.00 (C17-42, C17-43, C18-50, N01-10, UB12-11...)
+      isn't; v1.10 (2026-10-01) relaxed the LCC checks in homologação, and v1.11 (2026-10-30,
+      SHA-256 b13006ce48488111ac077356e137817545957db6748cdf41a3eeea21818dd4e8) only moved dates.
+    issue: https://github.com/higajooj/dfe_rb/issues/15
+  - id: nt-2026.009
+    document: NT 2026.009, Alteração de RV de CFOP
+    kind: nt
+    status: implemented
+    dfe: [nfe]
+    version: "1.00"
+    published: "2026-09"
+    production: "2026-09-17"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 50b7dec40bba8928b4d544feb4fdbd8c8bac16e37c99d926ddb2834cf246f15d
+  - id: nt-2026.005
+    document: NT 2026.005, Reforma Tributária do Consumo – Simples Nacional
+    kind: nt
+    status: pending
+    dfe: [nfe, ibs_cbs]
+    version: null
+    current: "1.00"
+    published: "2026-10-30"
+    production: "2026-12-14"
+    implemented_in: []
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 5219882256663336301c0daa36e9d4bcece49b15f100025b39c9cf913055b85e
+    note: >-
+      Not applied: tpRegimeIBSCBS (C21a), cAtivSN (I17d), gTribSN (UB115a-g), totals W59h-j
+      and event 412140; a MEI (CRT 4) sends no IBSCBS. Production moved to 2026-12-14.
+    issue: https://github.com/higajooj/dfe_rb/issues/12
+  - id: nt-2026.008
+    document: NT 2026.008, Reforma Tributária do Consumo – Valor Líquido
+    kind: nt
+    status: pending
+    dfe: [nfe]
+    version: null
+    current: "1.01"
+    published: "2026-10-30"
+    production: "2026-12-14"
+    implemented_in: []
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: 8134a3f1f460650262ce359566b7993ac3503037f24b223a4c8c53b237b50090
+    note: >-
+      Not applied: vUnComLiq, vProdLiq, vProdLiqTot and NB01; removes UB16-10. Production moved
+      to 2026-12-14 (NB01-30 2027-03-01). v1.01 contradicts itself on whether vProd carries IBS/CBS/IS.
+    issue: https://github.com/higajooj/dfe_rb/issues/14
+  - id: nt-2026.010
+    document: NT 2026.010, DANFE Reforma Tributária
+    kind: nt
+    status: out_of_scope
+    dfe: [nfe, ibs_cbs]
+    version: null
+    current: "1.00"
+    published: "2026-10-01"
+    production: "2026-12-01"
+    implemented_in: []
+    source: Portal Nacional da NF-e, Notas Técnicas
+    sha256: eadc5246235f37a55f8140ddcf84595c8ce77f2d760f111f7b85ddf389b8f484
+    note: The DANFE's IBS/CBS/IS fields; the gem prints no DANFE, so this is the application's.
+
+  # ---------------------------------------------------------------- NF-e and NFC-e: informes técnicos and tables
+  - id: it-2023.002
+    document: IT 2023.002, Tabela de CFOP
+    kind: it
+    status: implemented
+    dfe: [nfe, nfce]
+    version: "2.10"
+    published: "2026-09"
+    production: "2026-11-03"
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/validator.rb]
+    tables: [lib/dfe_rb/nfe/data/cfop.tsv]
+    source: Portal Nacional da NF-e, Informes Técnicos (and the table's .xlsx under Documentos > Diversos)
+    sha256: dd47206ec74040b391cf015ef1f1e55e158c0d3f8b339153667e64f379092b86
+    attachments:
+      - {file: IT_2023_002_v2_10_Tabela_CFOP_Descrição.xlsx, sha256: 577e05eec452294945d0e9df1f9bb9b21a4af115938e75ec74cf6a541ae4dacf}
+    note: v2.10 says "não aplicável" for production; the date is v2.00's.
+  - id: it-2024.002
+    document: IT 2024.002, Tabela de meios de pagamento
+    kind: it
+    status: implemented
+    dfe: [nfe, nfce]
+    version: "1.11"
+    published: "2026-03"
+    production: "2026-05-04"
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/names.rb, lib/dfe_rb/nfe/validator.rb]
+    tables: [lib/dfe_rb/nfe/data/payment_methods.tsv]
+    source: Portal Nacional da NF-e, Informes Técnicos
+    sha256: 19953feb5695e728cf15a91be144b7115b3079a31be5ba0fa6eb46af58db1172
+    attachments:
+      - {file: Tabela_de_meios_de_pagamento - 04032026.xlsx, sha256: f85d4a6d50390f824921703d166d3f2f4ec637b7244fa922248ef14e782d8a2d}
+  - id: it-2025.002
+    document: IT 2025.002, Tabelas de Classificação do IBS e da CBS (CST, cClassTrib, cCredPres, alíquotas padrão)
+    kind: it
+    status: implemented
+    dfe: [nfe, nfce, ibs_cbs]
+    version: "1.71"
+    published: "2026-10-30"
+    production: "2026-10-30"
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/calculator.rb, lib/dfe_rb/nfe/rates.rb]
+    tables: [lib/dfe_rb/nfe/data/classifications.tsv, lib/dfe_rb/nfe/data/cred_pres.tsv]
+    source: Portal Nacional da NF-e, Informes Técnicos; tables at dfe-portal.svrs.rs.gov.br/CFF/Documentos
+    sha256: 96fb4d462e5973096534e7c3cfef77b2ca1054bff5a4237a2c2a74726e162da1
+    attachments:
+      - {file: Tabela IT 2025.002 v.1.71 - cClassTrib.xlsx, sha256: d104ce4df4d2fd8ea6329ce794d8d8ce03855f3adc1692b99f5446d87c4c71f8}
+      - {file: IT 2025.002 v.1.70 - cCredPres.xlsx, sha256: 5afee01483e532b342700f8c2786f95ba6cf91a4e23ceccfbeb34bf1afef9ee1}
+    note: >-
+      classifications.tsv is read from the SVRS page (DFE/ClassificacaoTributaria), which
+      matches the v1.71 .xlsx in every code, CST, reduction, indicator and end date; its dIniVig
+      is the day SVRS registered each code, where the .xlsx gives 2026-01-01 for all. The
+      cCredPres .xlsx still carries v1.70 in its name, as v1.71 didn't change it.
+
+  # ---------------------------------------------------------------- MDF-e
+  - id: moc-mdfe-3.00b
+    document: MOC MDF-e, Visão Geral
+    kind: moc
+    status: implemented
+    dfe: [mdfe, events]
+    version: "3.00b"
+    published: "2022-08"
+    production: "2023-06"
+    implemented_in: [lib/dfe_rb/mdfe/client.rb, lib/dfe_rb/mdfe/requests.rb, lib/dfe_rb/mdfe/endpoints.rb]
+    source: Portal MDF-e (dfe-portal.svrs.rs.gov.br/Mdfe), Documentos
+    sha256: f8501acf8880c6b6705d286ee56acf59657de491c92e9d45aba7c666119932d7
+  - id: moc-mdfe-anexo-i
+    document: MOC MDF-e Anexo I, Leiaute e Regras de Validação
+    kind: moc
+    status: implemented
+    dfe: [mdfe, events]
+    version: "3.00b"
+    published: "2022-08"
+    production: "2023-06"
+    implemented_in: [lib/dfe_rb/mdfe/validator.rb, lib/dfe_rb/mdfe/resolver.rb, lib/dfe_rb/mdfe/status_codes.rb]
+    source: Portal MDF-e, Documentos
+    sha256: 823ca492144eb928821c8ac6d5440f7625397d7b90a770003256559c6d6abe78
+  - id: nt-mdfe-2015.002
+    document: NT MDF-e 2015.002, Web Service de distribuição de DF-e
+    kind: nt
+    status: implemented
+    dfe: [mdfe, distribution]
+    version: "1.03"
+    published: "2022-04"
+    production: "2022-04"
+    implemented_in: [lib/dfe_rb/mdfe/distribution.rb, lib/dfe_rb/mdfe/distribution]
+    source: Portal MDF-e, Documentos
+    sha256: 37b5f94e07911391e2908d2d51d03a4edae2a2cb8bc1c10503687f5d48af2213
+  - id: nt-mdfe-2024.001
+    document: NT MDF-e 2024.001
+    kind: nt
+    status: implemented
+    dfe: [mdfe]
+    version: "1.02"
+    published: "2024-03"
+    production: "2024-04-08"
+    implemented_in: [lib/dfe_rb/mdfe/validator.rb]
+    source: Portal MDF-e, Documentos
+    sha256: 8c4dc7667260605575fd8fc1660f3ea630b0988245bddd7b4d70d6fb3c0a3a81
+  - id: nt-mdfe-2025.001
+    document: NT MDF-e 2025.001
+    kind: nt
+    status: implemented
+    dfe: [mdfe]
+    version: "1.03"
+    published: "2025-08"
+    production: "2025-10"
+    implemented_in: [lib/dfe_rb/mdfe/validator.rb, lib/dfe_rb/mdfe/status_codes.rb]
+    source: Portal MDF-e, Documentos
+    sha256: c4b32be94eb484e7806daa280abba88738e156955a941a4ad6fe07b551f28037
+  - id: nt-mdfe-2026.001
+    document: NT MDF-e 2026.001
+    kind: nt
+    status: implemented
+    dfe: [mdfe]
+    version: "1.00"
+    published: "2026-05"
+    production: "2026-11-23"
+    implemented_in: [lib/dfe_rb/mdfe/validator.rb]
+    source: Portal MDF-e, Documentos
+    sha256: cf1ecb48d9c1baf9c541d5cf5edee4e44a7b88abdeb3c9d877af5519ae58b1da
+
+  # ---------------------------------------------------------------- schema packages
+  - id: pl-010f-v1.04
+    document: Pacote de schemas PL_010f_v1.04 (NF-e e NFC-e 4.00)
+    kind: schema
+    status: implemented
+    dfe: [nfe, nfce, ibs_cbs]
+    version: "1.04"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/schema.rb, lib/dfe_rb/nfe/schemas.rb]
+    schemas: [lib/dfe_rb/xml/schemas/nfe_4.00]
+    source: Portal Nacional da NF-e, Esquemas XML
+    sha256: null
+    note: Copied from an unpacked folder; the ZIP wasn't kept.
+  - id: pl-010d-v1.03
+    document: Pacote de schemas PL_010d_v1.03 (eventos genéricos, consulta cadastro)
+    kind: schema
+    status: implemented
+    dfe: [nfe, events]
+    version: "1.03"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/schemas.rb, lib/dfe_rb/nfe/registry.rb]
+    schemas: [lib/dfe_rb/xml/schemas/event_1.00, lib/dfe_rb/xml/schemas/cad_2.00]
+    source: Portal Nacional da NF-e, Esquemas XML
+    sha256: null
+    note: Copied from an unpacked folder; the ZIP wasn't kept.
+  - id: pl-mdfe-300b-nt012025-1.05
+    document: Pacote de schemas PL_MDFe_300b_NT012025_1.05
+    kind: schema
+    status: implemented
+    dfe: [mdfe, events]
+    version: "1.05"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/mdfe/schema.rb, lib/dfe_rb/mdfe/schemas.rb]
+    schemas: [lib/dfe_rb/xml/schemas/mdfe_3.00]
+    source: Portal MDF-e, Documentos
+    sha256: fc53c880bd757d5b03b79de15dd7687259dfbfa38fed85e9ebb9c638b93854cc
+    note: The ZIP is named PL_MDFe_300b_NT012025_1.04.zip but holds the 1.05 folder, identical to the bundled one.
+  - id: pl-mdfedistdfe-100
+    document: Pacote de schemas PL_MDFeDistDFe_100
+    kind: schema
+    status: implemented
+    dfe: [mdfe, distribution]
+    version: "1.00"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/mdfe/distribution.rb]
+    schemas: [lib/dfe_rb/xml/schemas/PL_MDFeDistDFe_100]
+    source: Portal MDF-e, Documentos
+    sha256: 2dc8844ca085da8b7ebfab631425a3542b45f75e632af58e95350d2d77ee8725
+    note: Identical to the bundled folder.
+
+  # ---------------------------------------------------------------- tables published outside an NT or IT, laws and certificates
+  - id: ibge-municipalities
+    document: IBGE, API de localidades (municípios)
+    kind: table
+    status: implemented
+    dfe: [nfe, nfce, mdfe]
+    version: null
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/cities.rb]
+    tables: [lib/dfe_rb/data/municipalities.tsv]
+    source: https://servicodados.ibge.gov.br/api/v1/localidades/municipios
+    sha256: null
+    note: Downloaded on every script/update_tables run; IT 2025.001 v1.00 announces the code changes.
+  - id: card-brands
+    document: Tabela de bandeiras de cartão (tBand)
+    kind: table
+    status: implemented
+    dfe: [nfe, nfce]
+    version: null
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/tables.rb]
+    tables: [lib/dfe_rb/nfe/data/card_brands.tsv]
+    source: Portal Nacional da NF-e, Documentos > Diversos
+    sha256: null
+    note: Edited by hand.
+  - id: conv-icms-142-2018
+    document: Convênio ICMS 142/2018, Anexos II a XXVI (CEST)
+    kind: law
+    status: implemented
+    dfe: [nfe, nfce]
+    version: null
+    published: "2018-12-14"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/rates.rb]
+    tables: [lib/dfe_rb/nfe/data/cests.tsv]
+    source: https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18
+    sha256: null
+    note: The CONFAZ page, consolidated with every amendment, downloaded on every script/update_tables run.
+  - id: tipi
+    document: TIPI, Decreto 11.158/2022 and its updates
+    kind: law
+    status: implemented
+    dfe: [nfe]
+    version: null
+    published: "2022-07-29"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/calculator.rb]
+    tables: [lib/dfe_rb/nfe/data/tipi.tsv]
+    source: Receita Federal, Tipi.xlsx
+    sha256: null
+    note: The .xlsx has no stable address and wasn't kept.
+  - id: lc-214-2025
+    document: Lei Complementar 214/2025 (IBS, CBS, IS)
+    kind: law
+    status: implemented
+    dfe: [ibs_cbs]
+    version: null
+    published: "2025-01-16"
+    production: "2026-01-01"
+    implemented_in: [lib/dfe_rb/nfe/rates.rb, lib/dfe_rb/nfe/validator.rb]
+    source: https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp214.htm
+    sha256: null
+  - id: icp-brasil-roots
+    document: Certificados das AC Raiz ICP-Brasil (v5, v10, v11, v12)
+    kind: certificate
+    status: implemented
+    dfe: [nfe, nfce, mdfe, distribution]
+    version: null
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb.rb, lib/dfe_rb/transport.rb]
+    tables: [lib/dfe_rb/certs/icp-brasil.pem]
+    source: https://acraiz.icpbrasil.gov.br/credenciadas/RAIZ
+    sha256: null
+    note: v5 expires on 2029-03-02.
+
+  # ---------------------------------------------------------------- EFD
+  - id: guia-efd-icms-ipi
+    document: Guia Prático da EFD ICMS/IPI (Ato COTEPE/ICMS 44/2018)
+    kind: guide
+    status: implemented
+    dfe: [efd]
+    version: null
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/efd/icms_ipi/layout.rb, lib/dfe_rb/efd/icms_ipi/version.rb]
+    source: SPED, EFD ICMS/IPI, Documentação
+    sha256: null
+    note: No copy kept in the legislation library. Leiautes 014 to 020 (2020 to 2026).
+  - id: guia-efd-contribuicoes
+    document: Guia Prático da EFD-Contribuições
+    kind: guide
+    status: implemented
+    dfe: [efd]
+    version: "1.35"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/efd/contribuicoes/layout.rb, lib/dfe_rb/efd/contribuicoes/version.rb]
+    source: SPED, EFD-Contribuições, Documentação
+    sha256: null
+    note: No copy kept in the legislation library.
+
+# What the gem is waiting for: announced, or left open by a published document, but not yet law.
+awaiting:
+  - what: The production date of RV UB12-10 (rej. 1115, IBSCBS missing on a regime normal note)
+    affects: Validator::IBS_CBS_SINCE
+    source: NT 2025.002 v1.53, UB12-10 Observação 2 ("implementação futura para produção")
+  - what: The IBS/CBS rules for the Simples Nacional and the MEI (CRT 1, 2, 4), taxed from 2027
+    affects: Validator#check_ibs_cbs, Calculator
+    source: NT 2025.002 v1.53 ("serão publicadas em NT futura"); NT 2026.005 brings them (issue 12)
+  - what: The 2027 and 2028 CBS rates, and every rate from 2029
+    affects: Rates::IBS_CBS
+    source: IT 2025.002 v1.71 §05 ("Aguardar Legislação")
+  - what: The return and complement exception of UB12-10 from 2027, which needs the referenced note's issue date
+    affects: Validator#check_ibs_cbs
+    source: NT 2025.002 v1.53, UB12-10 Exceção 1 (issue 16)
+  - what: The day each cCredPres starts for each tax (all in 2027 or 2029; cCredPres 08's IBS start is blank on the SVRS page)
+    affects: Tables::PresumedCredit#valid_on?
+    source: IT 2025.002 v1.71 cCredPres table
+  - what: The EFD ICMS/IPI leiaute 021, in force from 2027
+    affects: Efd::IcmsIpi::Version
+    source: Nota Técnica 2026.001 of the EFD ICMS/IPI
+  - what: The start dates for mandatory issue of each document under the IBS/CBS regulations
+    affects: nothing yet (read the act)
+    source: Ato Conjunto RFB/CGIBS nº 7, de 11/11/2026, amending Ato Conjunto nº 4, de 30/07/2026 (Portal informe of 2026-11-13)

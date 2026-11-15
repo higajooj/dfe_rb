@@ -24,6 +24,52 @@ RSpec.describe DfeRb::Nfe::Tables do
     expect(described_class.classification("999999")).to be_nil
   end
 
+  it "holds the cClassTrib table of IT 2025.002 v1.71, revoked codes kept with their end" do
+    codes = described_class.classification_list
+
+    expect(codes.size).to eq(173)
+    expect(codes.count { |klass| klass.valid_on?("2026-11-15") }).to eq(170)
+    # v1.70 added these, and v1.71 only rewrote texts and indicators.
+    expect(%w[000006 200055 200056 400003 400004 550026 550027 550028 550029].map { |code| described_class.classification(code)&.cst })
+      .to eq(%w[000 200 200 400 400 550 550 550 550])
+    expect(described_class.classification("200055")).to have_attributes(ibs_reduction: 60, cbs_reduction: 60, valid_from: "2026-01-01")
+    # v1.60 revoked CST 220's codes by giving them an end.
+    expect(described_class.classification("220001")).to have_attributes(valid_until: "2026-01-01")
+    expect(described_class.classification("220001").valid_on?("2025-12-31")).to be(true)
+    expect(described_class.classification("220001").valid_on?("2026-01-01")).to be(false)
+  end
+
+  it "tells the models a cClassTrib may go on and whether it allows the operation's presumed credit" do
+    expect(described_class.classification("000001")).to have_attributes(nfe?: true, nfce?: true, presumed_credit?: false)
+    expect(described_class.classification("000003")).to have_attributes(nfe?: true, nfce?: false, presumed_credit?: true)
+    expect(described_class.classification("000002").model?("55")).to be(false)
+    expect(described_class.classification("000003").model?("65")).to be(false)
+  end
+
+  it "describes a presumed credit (cCredPres, IT 2025.002)" do
+    used = described_class.presumed_credit("04")
+
+    expect(described_class.presumed_credits.map(&:code)).to eq(%w[01 02 03 04 05 06 07 08 09 10 11 12 13])
+    expect(used).to have_attributes(on_note?: true, by_event?: false, deducted?: true, ibs: true, cbs: true,
+      payment_declaration?: true, nfe: true, nfce: true, cte: false, nfse: false, referenced_classification: "410017",
+      ibs_from: "2027-01-01", cbs_from: "2027-01-01", ibs_until: nil, cbs_until: nil)
+    expect(used.description).to start_with("Crédito presumido da aquisição de bens móveis usados de pessoa física")
+    expect(described_class.presumed_credit(4)).to eq(used)
+    expect(described_class.presumed_credit("05")).to have_attributes(ibs: false, cbs: true, referenced_classification: "Com incidência de CBS")
+    expect(described_class.presumed_credit("07").cbs).to be_nil
+    expect(described_class.presumed_credit("99")).to be_nil
+  end
+
+  it "tells the days each tax may take a presumed credit" do
+    recycling = described_class.presumed_credit("03")
+
+    expect(recycling.valid_on?("2026-12-31")).to be(false)
+    expect(recycling.valid_on?("2027-01-01")).to be(true)
+    expect(recycling.valid_on?("2027-01-01", tax: :ibs)).to be(false)
+    expect(recycling.valid_on?("2029-01-01", tax: :ibs)).to be(true)
+    expect(described_class.presumed_credit("05").valid_on?("2030-01-01", tax: :ibs)).to be(false)
+  end
+
   it "gives a CEST in its wording of a day, with the NCMs it is listed for" do
     water = described_class.cest("03.003.00", on: Date.new(2026, 10, 15))
 
