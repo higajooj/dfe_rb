@@ -118,7 +118,7 @@ module DfeRb
         found = Validator.new(tree, csrt: @csrt).issues
         return found unless Nfce::Supplement.carried_by?(tree["ide"])
 
-        found + Nfce::Validator.new(tree, supplement: supplement, signer: @certificate&.certificate, now: @clock.now).issues
+        found + Nfce::Validator.new(tree, supplement: supplement, signer: @certificate&.certificate).issues
       end
     end
   end

@@ -100,13 +100,22 @@ module DfeRb
       #
       # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so do
       # #resume, #consult and #cancel for them.
+      #
+      # An NFC-e or a DANFE Simplificado Tipo 2 issued on-line reaches SEFAZ within 5 minutes
+      # of its dhEmi (RV B09-40, rej. 704). With `recover`, one that late is looked up first:
+      # SEFAZ may hold it from an earlier try, and then that result comes back; if it holds
+      # nothing, ValidationError says so before anything is sent.
       def authorize(input, lot_id: nil, recover: true, polling: {}, strict: true)
         many = input.is_a?(Array)
         signed = Array(input).map { |item| sign(item, strict: strict) }
         raise ArgumentError, "nothing to authorize" if signed.empty?
         raise ArgumentError, "a lot holds at most #{MAX_LOT} notes (got #{signed.size})" if signed.size > MAX_LOT
 
-        results = transmit(signed, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
+        found = recover ? held_late_notes(signed) : {}
+        unsent = signed.reject { |note| found.key?(note.key) }
+        sent = unsent.empty? ? [] : transmit(unsent, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
+        answers = found.merge(unsent.map(&:key).zip(sent).to_h)
+        results = signed.map { |note| answers[note.key] }
         many ? results : results.first
       end
 
@@ -284,7 +293,7 @@ module DfeRb
 
         tree = document.to_infnfe
         problems = Nfce::Validator.new(tree, supplement: supplement, signer: document.signer || certificate.certificate,
-          qr_address: qr_address(tree), now: (@clock.now unless document.signed?)).issues
+          qr_address: qr_address(tree)).issues
         raise ValidationError, problems unless problems.empty?
 
         document
@@ -455,6 +464,28 @@ module DfeRb
           alerts: protocol&.alerts || [], digest_value: protocol&.digest_value, signed_xml: note.xml,
           protocol_xml: protocol&.xml, response_xml: response_xml, receipt: receipt, recovered: recovered
         )
+      end
+
+      # {key => result} of the notes past RV B09-40's 5 minutes that SEFAZ already holds. One
+      # it doesn't hold is refused here; one the lookup can't settle is sent for SEFAZ to judge.
+      def held_late_notes(signed)
+        found = {}
+        problems = []
+        signed.each do |note|
+          document = Document.new(note.xml)
+          next unless document.qr_code?
+
+          message = Nfce::Validator.late(document.to_infnfe, @clock.now) or next
+          begin
+            result = recovered(note, cause: StandardError.new(message))
+          rescue TransportError
+            next
+          end
+          result ? found[note.key] = result : problems << "#{message}. SEFAZ doesn't hold #{note.key}, so nothing was sent"
+        end
+        raise ValidationError, problems unless problems.empty?
+
+        found
       end
 
       # Looks the key up after a lost answer or a duplicate report. Returns the result when SEFAZ

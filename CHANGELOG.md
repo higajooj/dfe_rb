@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0
+
+- The DANFE Simplificado Tipo 2 (NT 2026.002 v1.11, NT 2026.003): an NF-e with `nfe.print_format :simplified_type_2` (`tpImp` 6), for a counter sale an NFC-e would cover, gets the NFC-e's QR code version 3 in `infNFeSupl`, at the NFC-e's addresses of its state, and `invoice.qr_code`, `consult_url` and the same on `SignedInvoice` and `AuthorizationResult`. It defaults to a final consumer (`indFinal` 1), whose IE it keeps, and in homologação to the first item's description RV I04-10 requires. `nfe.contingency :offline` issues it off-line (`tpEmis` 9), its QR code signed with the client's certificate. `Nfe::Client#sign` adds `infNFeSupl` to one handed in unsigned and refuses one signed without it (394), but a note of the Regime Especial NFF.
+- `DfeRb::Nfce::Validator` checks it with the rules NT 2026.002 gives "NFC-e or NF-e with DANFE Simplificado Tipo 2": an internal exit of a normal note to a final consumer, in person or delivered (706, 707, 715, 716, 717), the CFOPs, CSTs and CSOSNs (725, 766, 383, 382, 386), the groups it bars (708, 760, 742, 807...), freight only on a home delivery (753), the QR code's parameters and its version 3 (ZX02-220, 672), and no SVC, whose key the schema's QR code doesn't take. The NFC-e's own rules (payments, carrier, the consumer's IE, the IBS/CBS groups of modelo 65) stay with the NFC-e. Both bar a pickup place (F01-10, 669).
+- A note with a QR code issued on-line reaches SEFAZ within 5 minutes of `dhEmi` (B09-40, 704). `authorize` looks a late one up first: it returns the result SEFAZ holds from an earlier try, or raises `ValidationError` before sending when SEFAZ holds nothing. `Nfce::Validator.late(tree, now)` tells it.
+- What an NF-e references (NT 2026.002): from 14/12/2026 in production and 01/09/2026 in homologação, an exit note other than a complement or a return can't reference an NFC-e or a CF-e SAT (BA02-35, VC02-40, 679; a debit note of types 03 and 04 may on its items), nor a note for a sale a cupom fiscal covered an NFC-e (I08-180, 375). From 05/10/2026 none references a paper note, a rural producer's paper note or a cupom fiscal (BA03-10, BA10-10, BA20-30; 681, 682, 924).
+- The manifest follows NT 2026.002 v1.11, which only moved I08-180, BA02-35 and VC02-40, and says which of its rules are left to SEFAZ.
+
 ## 0.18.1
 
 - `Rates.pis_cofins_charged?` and `Rates.ipi_applies?` take an Integer as the year where ActiveSupport gives Integer#year (a Duration of so many years, which compared as later than any year): under Rails every note was taken as issued from 2027, its IPI zeroed and its PIS and COFINS flagged.

@@ -111,7 +111,8 @@ module DfeRb
       # OpenSSL certificate that signs the note, to check an off-line QR code's signature.
       # qr_address: the state's QR code consultation address (Endpoints.qr_code), to check the
       # QR code's against. now: the time the note is about to be sent, to check that a note
-      # issued on-line is still on time (RV B09-40); nil skips it.
+      # issued on-line is still on time (RV B09-40); nil skips it. A note sent before may be
+      # late and still authorized, so Client#authorize asks SEFAZ before refusing one.
       def initialize(infnfe, supplement: nil, signer: nil, qr_address: nil, now: nil)
         @inf = infnfe
         @ide = infnfe["ide"] || {}
@@ -122,6 +123,29 @@ module DfeRb
         @nfce = @ide["mod"].to_s == NFCE
         @subject = @nfce ? "an NFC-e" : "an NF-e with DANFE Simplificado Tipo 2"
         @issues = []
+      end
+
+      # The message for a note issued on-line more than 5 minutes before `now`, which SEFAZ
+      # rejects on arrival (RV B09-40, rej. 704); nil when it is on time or in contingency.
+      def self.late(infnfe, now)
+        ide = infnfe["ide"] || {}
+        return unless ONLINE_EMISSION_TYPES.include?(ide["tpEmis"].to_s)
+
+        issued = time_of(ide["dhEmi"])
+        return unless issued && now.to_time - issued > ONLINE_DELAY
+
+        subject = (ide["mod"].to_s == NFCE) ? "an NFC-e" : "an NF-e with DANFE Simplificado Tipo 2"
+        "ide/dhEmi: #{issued.iso8601} is more than 5 minutes ago, and #{subject} issued on-line reaches SEFAZ within " \
+          "5 minutes of it (RV B09-40, rej. 704); build the note again, or issue it off-line (contingency :offline)"
+      end
+
+      def self.time_of(value)
+        return value.to_time if value.is_a?(DateTime)
+        return value if value.respond_to?(:day)
+
+        Time.iso8601(value.to_s)
+      rescue ArgumentError
+        nil
       end
 
       def issues
@@ -175,13 +199,7 @@ module DfeRb
       # RV B09-40: a note issued on-line reaches SEFAZ within 5 minutes of dhEmi (rej. 704).
       # A note in contingency (EPEC or off-line) may arrive later.
       def check_delay
-        return unless @now && ONLINE_EMISSION_TYPES.include?(@ide["tpEmis"].to_s)
-
-        issued = time_of(@ide["dhEmi"])
-        return unless issued && @now.to_time - issued > ONLINE_DELAY
-
-        add "ide/dhEmi: #{issued.iso8601} is more than 5 minutes ago, and #{@subject} issued on-line reaches SEFAZ within " \
-          "5 minutes of it (RV B09-40, rej. 704); build the note again, or issue it off-line (contingency :offline)"
+        message = @now && self.class.late(@inf, @now) and add message
       end
 
       def check_barred
@@ -400,14 +418,7 @@ module DfeRb
 
       def present?(value) = !(value.nil? || value == [] || value == {} || value.to_s.empty?)
 
-      def time_of(value)
-        return value.to_time if value.is_a?(DateTime)
-        return value if value.respond_to?(:day)
-
-        Time.iso8601(value.to_s)
-      rescue ArgumentError
-        nil
-      end
+      def time_of(value) = self.class.time_of(value)
 
       def add(message)
         @issues << message unless @issues.include?(message)

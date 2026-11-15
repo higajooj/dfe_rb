@@ -125,13 +125,11 @@ RSpec.describe DfeRb::Nfce::Invoice do
     end
 
     it "reaches SEFAZ within 5 minutes of dhEmi when issued on-line (B09-40)" do
-      invoice = nfce_invoice(clock: clock)
-      invoice.to_xml
-      clock.now += 5 * 60
+      tree = nfce_invoice(clock: clock).resolved
 
-      expect(invoice.issues).to eq([])
-      clock.now += 1
-      expect(invoice.issues).to contain_exactly(a_string_matching(/ide\/dhEmi: .* an NFC-e issued on-line reaches SEFAZ within 5 minutes.*\(RV B09-40, rej\. 704\)/))
+      expect(DfeRb::Nfce::Validator.new(tree, now: clock.now + 300).issues).to eq([])
+      expect(DfeRb::Nfce::Validator.new(tree, now: clock.now + 301).issues)
+        .to contain_exactly(a_string_matching(/ide\/dhEmi: .* an NFC-e issued on-line reaches SEFAZ within 5 minutes.*\(RV B09-40, rej\. 704\)/))
     end
 
     it "bars payments an NFC-e can't take and asks card and PIX payments for the card group" do

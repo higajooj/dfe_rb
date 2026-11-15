@@ -134,18 +134,18 @@ RSpec.describe "An NF-e printed as the DANFE Simplificado Tipo 2 (NT 2026.002, N
         "issue it off-line (contingency :offline)")
     end
 
-    it "flags a note issued on-line more than 5 minutes before it is sent, but not one off-line (B09-40, 704)" do
+    it "tells a note issued on-line more than 5 minutes ago, but not one off-line (B09-40, 704)" do
       invoice = simplified
-      invoice.to_xml
-      clock.now += 5 * 60 + 1
+      tree = invoice.resolved
+      offline = simplified { |nfe| nfe.contingency :offline, since: clock.now - 120, reason: "Sem comunicacao com a SEFAZ" }.resolved
 
-      expect(invoice.issues).to eq(["ide/dhEmi: 2026-11-16T10:00:00-04:00 is more than 5 minutes ago, and an NF-e with DANFE Simplificado " \
-        "Tipo 2 issued on-line reaches SEFAZ within 5 minutes of it (RV B09-40, rej. 704); build the note again, or issue it off-line " \
-        "(contingency :offline)"])
-      offline = simplified { |nfe| nfe.contingency :offline, since: clock.now - 120, reason: "Sem comunicacao com a SEFAZ" }
-      offline.to_xml
-      clock.now += 3600
-      expect(offline.issues).to eq([])
+      expect(DfeRb::Nfce::Validator.late(tree, clock.now + 300)).to be_nil
+      expect(DfeRb::Nfce::Validator.late(tree, clock.now + 301)).to eq("ide/dhEmi: 2026-11-16T10:00:00-04:00 is more than 5 minutes ago, " \
+        "and an NF-e with DANFE Simplificado Tipo 2 issued on-line reaches SEFAZ within 5 minutes of it (RV B09-40, rej. 704); build " \
+        "the note again, or issue it off-line (contingency :offline)")
+      expect(DfeRb::Nfce::Validator.late(offline, clock.now + 3600)).to be_nil
+      clock.now += 600
+      expect(invoice.issues).to eq([])
     end
   end
 
@@ -187,13 +187,38 @@ RSpec.describe "An NF-e printed as the DANFE Simplificado Tipo 2 (NT 2026.002, N
       expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /takes QR code version 3, not 2 \(RV ZX02-220, rej\. 672\)/)
     end
 
-    it "holds an unsigned note handed in late to the 5 minutes, and lets a signed one through, which may be a retry (704)" do
-      xml = simplified.to_xml
-      signed = client.sign(xml)
-      clock.now += 600
+    describe "a note sent more than 5 minutes after dhEmi (B09-40, 704)" do
+      let(:invoice) { simplified }
+      let(:key) { invoice.key.to_s }
 
-      expect { client.sign(xml) }.to raise_error(DfeRb::ValidationError, /\(RV B09-40, rej\. 704\)/)
-      expect(client.sign(signed.xml).xml).to eq(signed.xml)
+      before do
+        invoice.to_xml   # dhEmi is fixed when it is first built
+        clock.now += 600
+      end
+
+      it "is refused before sending when SEFAZ doesn't hold it" do
+        transport.answer(:consult, ret_cons_sit_nfe(key, code: 217, message: "NF-e nao consta na base de dados da SEFAZ"))
+
+        expect { client.authorize(invoice) }.to raise_error(DfeRb::ValidationError, /\(RV B09-40, rej\. 704\).*SEFAZ doesn't hold #{key}, so nothing was sent/)
+        expect(transport.calls_to(:authorization)).to be_empty
+      end
+
+      it "comes back authorized when an earlier try reached SEFAZ, the retry after a lost answer" do
+        signed = client.sign(invoice)
+        protocol = prot_nfe(key, digest: signed.digest_value)
+        transport.answer(:consult, ret_cons_sit_nfe(key, protocol_xml: protocol))
+        result = client.authorize(invoice)
+
+        expect(result).to be_authorized.and(be_recovered)
+        expect(transport.calls_to(:authorization)).to be_empty
+      end
+
+      it "is sent for SEFAZ to judge when the lookup fails" do
+        transport.answer(:consult, DfeRb::TransportError.new("timeout"))
+        transport.answer(:authorization, ret_env_nfe_sync(prot_nfe(key, code: 704, message: "Rejeicao: NF-e com Data-Hora de emissao atrasada", protocol: nil)))
+
+        expect(client.authorize(invoice).code).to eq(704)
+      end
     end
   end
 end
