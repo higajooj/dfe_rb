@@ -53,6 +53,11 @@ module DfeRb
       CEST_ST_CODES = %w[10 30 60 70 201 202 203 500].freeze
       CEST_ST_AMOUNT_CODES = %w[90 900].freeze
       CFOP_TITLE_LENGTH = 60
+      # The notes the IBS/CBS standard rate rules leave alone (UB18-10, UB37-10, UB56-20,
+      # exception 2): a return, and the credit notes of a refusal or a reduction in value.
+      STANDARD_RATE_EXEMPT_CREDIT_NOTES = %w[03 04 06].freeze
+      STANDARD_RATE_KEYS = {"pIBSUF" => :uf, "pIBSMun" => :municipal, "pCBS" => :cbs}.freeze
+      CONTRIBUTION_GROUPS = %w[PIS PISST COFINS COFINSST].freeze
       # Length of the xJust of a note in contingency (B29).
       CONTINGENCY_REASON_LENGTH = (15..256)
 
@@ -418,6 +423,7 @@ module DfeRb
       # Values SEFAZ recomputes from the item's own bases and rates.
       def check_item_taxes(where, item)
         imposto = item["imposto"] || {}
+        check_contributions_ended(where, imposto)
         if (destination = imposto["ICMSUFDest"])
           path = "#{where}/imposto/ICMSUFDest"
           check_amount("#{path}/vFCPUFDest", destination["vFCPUFDest"], Calculator.expected_destination_fcp(destination),
@@ -551,6 +557,8 @@ module DfeRb
           check_deferral(path, sphere, klass, codes)
           if klass&.regular_taxation? && @ide["finNFe"].to_s == "1" && !Totals.number(sphere[rate_tag]).zero?
             add "#{path}/#{rate_tag}: must be 0 for cClassTrib #{klass.code}, taxed in gTribRegular (rej. #{codes[:rate]})"
+          elsif !klass&.regular_taxation?
+            check_standard_rate(path, sphere, rate_tag, codes[:rate])
           end
           red = sphere["gRed"]
           if red && !red["pAliqEfet"].nil? && !sphere[rate_tag].nil? && !red["pRedAliq"].nil?
@@ -562,6 +570,46 @@ module DfeRb
           end
           check_amount("#{path}/#{amount_tag}", sphere[amount_tag], Calculator.expected_ibs_cbs(group, sphere, rate_tag),
             "base x rate - deferral - returned tax", codes[:amount])
+        end
+      end
+
+      # The rate of each sphere is the one the law fixes for the issue year (RV UB18-10, UB37-10,
+      # UB56-10, UB56-20), when the gem knows it. A return and the credit notes of a refusal or
+      # a reduction carry the rates of the operation they refer to. A CBS of zero is the
+      # incentive areas' (ZFM and ALC): with gALCZFMCBS from 2027, and under conditions on the
+      # NCM and the parties' cities in 2026, which are left to SEFAZ. A government purchase
+      # (gCompraGov) is left to SEFAZ too.
+      def check_standard_rate(path, sphere, rate_tag, rejection)
+        return if sphere[rate_tag].nil? || issued_at.nil? || @ide["gCompraGov"]
+        return if @ide["finNFe"].to_s == "4" || (@ide["tpNFCredito"] && STANDARD_RATE_EXEMPT_CREDIT_NOTES.include?(credit_note_type))
+
+        year = issued_at.year
+        given = Totals.number(sphere[rate_tag])
+        expected = (rate_tag == "pCBS" && sphere["gALCZFMCBS"]) ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
+        return if expected.nil? || given == expected
+        return if rate_tag == "pCBS" && given.zero? && year < Rates::CBS_CHARGED_SINCE
+
+        add "#{path}/#{rate_tag}: #{sphere[rate_tag]} is not the rate the law fixes for #{year} (#{expected.to_s("F")}) (rej. #{rejection})"
+      end
+
+      # PIS/Pasep and COFINS end with 2026 (EC 132/2023, ADCT art. 126; LC 214/2025): a normal
+      # note issued later carries no rate or amount of them. Each group is still mandatory (RV
+      # Q01-20, S01-20), with a CST that charges nothing until an NT says otherwise. A return or
+      # a complement may carry those of the 2026 operation it refers to.
+      def check_contributions_ended(where, imposto)
+        return unless @ide["finNFe"].to_s == "1" && issued_at && !Rates.pis_cofins_charged?(issued_at.year)
+
+        CONTRIBUTION_GROUPS.each do |name|
+          group = imposto[name] or next
+          group = group.values.first unless name.end_with?("ST")
+          next unless group.is_a?(Hash)
+
+          tax = name.delete_suffix("ST")
+          charged = ["p#{tax}", "v#{tax}", "vAliqProd"].find { |tag| !Totals.number(group[tag]).zero? }
+          next unless charged
+
+          add "#{where}/imposto/#{name}/#{charged}: PIS/Pasep and COFINS are not charged on a note issued from 2027 " \
+            "(EC 132/2023, ADCT art. 126; LC 214/2025)"
         end
       end
 
