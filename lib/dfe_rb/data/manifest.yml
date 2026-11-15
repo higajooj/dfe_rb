@@ -236,25 +236,38 @@ documents:
     document: NT 2026.002, DANFE Simplificado Tipo 2, emissão off-line e autorização com alerta
     kind: nt
     status: implemented
-    dfe: [nfe]
-    version: "1.10a"
-    current: "1.11"
-    published: "2026-08"
+    dfe: [nfe, nfce]
+    version: "1.11"
+    published: "2026-09"
     production: "2026-10-05"
-    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfce/validator.rb, lib/dfe_rb/nfe/invoice.rb, lib/dfe_rb/nfe/resolver.rb,
+      lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfce/supplement.rb, lib/dfe_rb/nfe/status_codes.rb, lib/dfe_rb/nfe/responses.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: 705f771830565c209d815659347ac4ea251901c77064cc163ce5c93f311e6e64
-    note: v1.11 (2026-10-01) moves I08-180, BA02-35 and VC02-40 to 2026-12-14 in production.
-    issue: https://github.com/higajooj/dfe_rb/issues/2
+    sha256: 72c033b2c7490710f61488a14d0bb3d7bb54e5345aa8d33d6ff2c270c228f046
+    attachments:
+      - {file: "NT_2026.002_v1.10a_DANFE_Simpl_Tp2_Emi_Offline_Autoriz_Alerta_v2.pdf", sha256: 705f771830565c209d815659347ac4ea251901c77064cc163ce5c93f311e6e64}
+    note: >-
+      Published on the Portal on 2026-10-01. v1.11 only moves I08-180, BA02-35 and VC02-40 to
+      2026-12-14 in production (Validator::CONSUMER_REFERENCES_BARRED_SINCE); BA03-10, BA10-10
+      and BA20-30, now mandatory everywhere, went into production on 2026-10-05. Its clean copy
+      leaves out the rows v1.00 had struck (B06-10, B25b-10, B25b-30, I08-184, ZX01-10, so an
+      NF-e may carry infNFeSupl), and still prints struck the ones v1.10 removed (BA05-10,
+      BA06-10, BA12-10 to BA15-10, BA20-10, BA20-20, I08-186, VC02-50). The authorization with
+      alert (cStat 120, its codes in protNFe's cMsg) counts as authorized. W16-40 is checked at
+      its default R$ 10.000,00, though v1.00 lets each state set another limit and no table of
+      them is published. Not applied: the rules each state sets (W16-30's cap, W16-50, W16-60,
+      N12a-30, LA11-10), BA02-35's bar on a referenced DANFE Simplificado Tipo 2, which the key
+      doesn't show, G01-10 ("implementação futura") and the facultative producer's counter-note
+      rules (BA10-20 to BA10-50).
   - id: nt-2026.003
     document: NT 2026.003, DANFE Simplificado Tipo 2 (parâmetros do QR code)
     kind: nt
     status: implemented
-    dfe: [nfce]
+    dfe: [nfe, nfce]
     version: "1.00"
     published: "2026-05"
     production: "2026-08-03"
-    implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/client.rb]
+    implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/supplement.rb, lib/dfe_rb/nfe/invoice.rb, lib/dfe_rb/nfe/client.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 2ef826027e0e8423ba9dc2f53ee7197f8bfdcc399a30459b72da977528600f13
   - id: nt-2026.004
