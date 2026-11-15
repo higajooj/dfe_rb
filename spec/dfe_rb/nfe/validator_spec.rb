@@ -358,7 +358,7 @@ RSpec.describe DfeRb::Nfe::Validator do
       tree = {"ide" => {"mod" => "55", "tpNF" => "1", "finNFe" => "1", "tpAmb" => "1", "dhEmi" => "2026-12-14T09:00:00-03:00",
                         "NFref" => references}.merge(ide),
               "det" => [{"prod" => {"CFOP" => cfop}}.merge(item)]}
-      described_class.new(tree).issues.grep(/rej\. (679|375|681|682)\)/)
+      described_class.new(tree).issues.grep(/rej\. (679|375|681|682|924)\)/)
     end
 
     it "bars an exit note from referencing an NFC-e or a CF-e SAT, but for a complement or a return (BA02-35)" do
@@ -395,13 +395,15 @@ RSpec.describe DfeRb::Nfe::Validator do
       expect(reference_issues(references, ide: {"tpAmb" => "2", "dhEmi" => "2026-08-31T23:59:00-03:00"})).to eq([])
     end
 
-    it "bars a paper note and a rural producer's paper note from 05/10/2026 (BA03-10, BA10-10)" do
+    it "bars a paper note, a rural producer's paper note and a cupom fiscal from 05/10/2026 (BA03-10, BA10-10, BA20-30)" do
       references = [{"refNF" => {"cUF" => "50", "AAMM" => "2609", "CNPJ" => "11444777000161", "mod" => "01", "serie" => "1", "nNF" => "1"}},
-        {"refNFP" => {"cUF" => "50", "AAMM" => "2609", "CPF" => "52998224725", "IE" => "ISENTO", "mod" => "04", "serie" => "1", "nNF" => "1"}}]
+        {"refNFP" => {"cUF" => "50", "AAMM" => "2609", "CPF" => "52998224725", "IE" => "ISENTO", "mod" => "04", "serie" => "1", "nNF" => "1"}},
+        {"refECF" => {"mod" => "2D", "nECF" => "1", "nCOO" => "1"}}]
 
       expect(reference_issues(references, ide: {"dhEmi" => "2026-10-05T08:00:00-03:00"})).to eq([
         "ide/NFref[1]/refNF: an NF-e can't reference a paper note, modelo 1 or 2 (RV BA03-10, rej. 681)",
-        "ide/NFref[2]/refNFP: an NF-e can't reference a rural producer's paper note (RV BA10-10, rej. 682)"
+        "ide/NFref[2]/refNFP: an NF-e can't reference a rural producer's paper note (RV BA10-10, rej. 682)",
+        "ide/NFref[3]/refECF: an NF-e can't reference a cupom fiscal (RV BA20-30, rej. 924)"
       ])
       expect(reference_issues(references, ide: {"dhEmi" => "2026-10-04T08:00:00-03:00"})).to eq([])
     end

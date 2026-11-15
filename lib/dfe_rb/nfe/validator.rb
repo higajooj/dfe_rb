@@ -60,9 +60,10 @@ module DfeRb
       CONTRIBUTION_GROUPS = %w[PIS PISST COFINS COFINSST].freeze
       # Length of the xJust of a note in contingency (B29).
       CONTINGENCY_REASON_LENGTH = (15..256)
-      # The rules on what a note references (NT 2026.002), by tpAmb: when BA03-10 and BA10-10
-      # bar a paper note and a rural producer's note (v1.10), and when BA02-35, VC02-40 and
-      # I08-180 bar a consumer's note (v1.11 moved them to 14/12/2026 in production).
+      # The rules on what a note references (NT 2026.002), by tpAmb: when BA03-10, BA10-10 and
+      # BA20-30 bar a paper note, a rural producer's note and a cupom fiscal (v1.10), and when
+      # BA02-35, VC02-40 and I08-180 bar a consumer's note (v1.11 moved them to 14/12/2026 in
+      # production).
       PAPER_REFERENCES_BARRED_SINCE = {"2" => Time.new(2026, 9, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 10, 5, 0, 0, 0, "-03:00")}.freeze
       CONSUMER_REFERENCES_BARRED_SINCE = {"2" => Time.new(2026, 9, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
       # The models an exit note may not reference (BA02-35, VC02-40): the NFC-e and the CF-e SAT.
@@ -223,6 +224,7 @@ module DfeRb
             path = "ide/NFref[#{index + 1}]"
             add "#{path}/refNF: an NF-e can't reference a paper note, modelo 1 or 2 (RV BA03-10, rej. 681)" if reference["refNF"]
             add "#{path}/refNFP: an NF-e can't reference a rural producer's paper note (RV BA10-10, rej. 682)" if reference["refNFP"]
+            add "#{path}/refECF: an NF-e can't reference a cupom fiscal (RV BA20-30, rej. 924)" if reference["refECF"]
           end
         end
         return unless in_force?(CONSUMER_REFERENCES_BARRED_SINCE)
