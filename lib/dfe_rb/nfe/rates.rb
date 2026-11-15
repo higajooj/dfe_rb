@@ -16,11 +16,21 @@ module DfeRb
       FULL_PARTITION_SINCE = 2019
 
       # IBS/CBS standard rates in percent per year (IT 2025.002 §05). A nil rate isn't law yet.
+      # The CBS of 2027 and 2028 comes from CBS_REFERENCE.
       IBS_CBS = {
         2026 => {uf: "0.10", municipal: "0", cbs: "0.90"},
         2027 => {uf: "0.05", municipal: "0.05", cbs: nil},
         2028 => {uf: "0.05", municipal: "0.05", cbs: nil}
       }.freeze
+      # The CBS reference rate (alíquota de referência) in percent, by year, as the Senate's
+      # resolution fixes it (or, failing that, the rate the TCU calculates). nil until then.
+      CBS_REFERENCE = {2027 => nil, 2028 => nil}.freeze
+      # In 2027 and 2028 the CBS is charged at its reference rate less 0.1 point, the IBS's
+      # 0.05% + 0.05% (EC 132/2023, ADCT art. 127).
+      CBS_TRANSITION_DISCOUNT = {2027 => "0.10", 2028 => "0.10"}.freeze
+      # The year the CBS is charged in earnest: PIS/Pasep and COFINS end and the IPI's rates go to zero
+      # but on goods also made in the Zona Franca de Manaus (EC 132/2023, ADCT art. 126).
+      CBS_CHARGED_SINCE = 2027
 
       # PIS and COFINS rates in percent: cumulative (Lei 9.718/1998, lucro presumido) and
       # non-cumulative (Leis 10.637/2002 and 10.833/2003, lucro real).
@@ -90,8 +100,22 @@ module DfeRb
 
       # {uf:, municipal:, cbs:} standard rates for an issue year (each a BigDecimal or nil).
       def ibs_cbs(year)
-        (IBS_CBS[year] || {}).transform_values { |rate| rate && BigDecimal(rate) }
+        rates = (IBS_CBS[year] || {}).transform_values { |rate| rate && BigDecimal(rate) }
+        reference = CBS_REFERENCE[year]
+        rates[:cbs] ||= BigDecimal(reference) - BigDecimal(CBS_TRANSITION_DISCOUNT.fetch(year, "0")) if reference
+        rates
       end
+
+      # Whether PIS/Pasep and COFINS are charged on a note issued in `year` (an Integer, or
+      # anything with #year): until 2026.
+      def pis_cofins_charged?(year) = year_of(year) < CBS_CHARGED_SINCE
+
+      # Whether the IPI is charged on a note issued in `year` (an Integer, or anything with
+      # #year): until 2026 on every product, and from 2027 only on a product also made in the
+      # Zona Franca de Manaus (`zfm_product: true`), which only the issuer knows.
+      def ipi_applies?(year, zfm_product: false) = year_of(year) < CBS_CHARGED_SINCE || zfm_product == true
+
+      def year_of(value) = value.respond_to?(:year) ? value.year : Integer(value)
 
       # The ST margin (MVA, percent) adjusted when the interstate ICMS rate is below the
       # destination's internal one (Conv. ICMS 142/2018, cl. 11):

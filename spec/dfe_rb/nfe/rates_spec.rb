@@ -29,6 +29,20 @@ RSpec.describe DfeRb::Nfe::Rates do
     expect(described_class.ibs_cbs(2030)).to eq({})
   end
 
+  it "charges the CBS of 2027 and 2028 at the reference rate less 0.1 point, once the reference is published" do
+    stub_const("#{described_class}::CBS_REFERENCE", {2027 => "8.80", 2028 => "8.90"})
+
+    expect([2027, 2028].map { |year| described_class.ibs_cbs(year)[:cbs].to_s("F") }).to eq(%w[8.7 8.8])
+    expect(described_class.ibs_cbs(2026)[:cbs].to_s("F")).to eq("0.9")
+  end
+
+  it "ends PIS/COFINS and the IPI with 2026, but the IPI of a product also made in the ZFM (EC 132/2023, ADCT art. 126)" do
+    expect([2026, Date.new(2026, 12, 31), 2027, Time.new(2027, 1, 1, 0, 0, 0, "-03:00")].map { |year| described_class.pis_cofins_charged?(year) })
+      .to eq([true, true, false, false])
+    expect([2026, 2027].map { |year| described_class.ipi_applies?(year, zfm_product: false) }).to eq([true, false])
+    expect(described_class.ipi_applies?(Date.new(2027, 1, 1), zfm_product: true)).to be(true)
+  end
+
   describe ".adjusted_mva" do
     it "adjusts the margin for an interstate rate below the internal one (Conv. ICMS 142/2018)" do
       adjusted = [4, 7, 12].map { |rate| described_class.adjusted_mva("50.00", interstate: rate, internal: "17.00").to_s("F") }
