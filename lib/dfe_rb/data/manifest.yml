@@ -3,7 +3,8 @@
 #   id              a stable key
 #   document        its name as published
 #   kind            moc, nt, it, schema, table (a table published outside an NT or IT), law, guide, certificate
-#   status          implemented, or pending: published and not followed yet (note says what's left)
+#   status          implemented; pending: published and not followed yet (note says what's left);
+#                   out_of_scope: published, but about something the gem doesn't do (note says why)
 #   dfe             what it touches: nfe, nfce, mdfe, events, distribution, ibs_cbs, efd
 #   version         the version the gem follows
 #   current         the newest version published, when the gem follows an older one
@@ -15,6 +16,7 @@
 #   sha256          SHA-256 of the PDF, ZIP or XLSX read (attachments: other files of the same
 #                   version); null when no such file was kept (a page, an API, a folder copy)
 #   note            anything a reader of the row needs
+#   issue           the GitHub issue tracking what's left
 #
 # Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal on 2026-11-15.
 
@@ -173,7 +175,11 @@ documents:
     implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfce/validator.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: b0cb9528bfaa6e0b5ac2986c879898eebcbb9457e97fcf0af985a00659649031
-    note: v1.02 was published on 2026-10-27 and hasn't been read yet.
+    note: >-
+      v1.02 (2026-10-27, SHA-256 e375b487fdb38c0f114dbc9fd4a0b109151d0a21e1770d738f5c5f9597758202)
+      switches off inutilização in AC, BA and SP (production 2026-11-11, rej. 998) and ends
+      asynchronous authorization for the NF-e and the NFC-e (GAP03a-6, rej. 129, production 2027-04-05).
+    issue: https://github.com/higajooj/dfe_rb/issues/11
   - id: nt-2023.003
     document: NT 2023.003, CFOP na NFC-e
     kind: nt
@@ -214,6 +220,7 @@ documents:
       VC02-14 to VC02-50, VC03-20, 3BA02-50 to 3BA02-68 and B25-40. Of those the gem checks
       only UB12-10, whose return exception it applies to every return; from 2027 it needs
       the referenced note's date. UB12-10 still has no production date ("implementação futura").
+    issue: https://github.com/higajooj/dfe_rb/issues/16
   - id: nt-2026.001
     document: NT 2026.001, Programa de Aquisição de Alimentos (PAA) na NF-e
     kind: nt
@@ -237,7 +244,8 @@ documents:
     implemented_in: [lib/dfe_rb/nfe/validator.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 705f771830565c209d815659347ac4ea251901c77064cc163ce5c93f311e6e64
-    note: v1.11 was published on 2026-10-01 and hasn't been read yet.
+    note: v1.11 (2026-10-01) moves I08-180, BA02-35 and VC02-40 to 2026-12-14 in production.
+    issue: https://github.com/higajooj/dfe_rb/issues/2
   - id: nt-2026.003
     document: NT 2026.003, DANFE Simplificado Tipo 2 (parâmetros do QR code)
     kind: nt
@@ -285,7 +293,11 @@ documents:
     sha256: null
     attachments:
       - {file: "NT_2026.006_v1.00_RTC_VinculacaoPagamento[2775].pdf", sha256: 47a65abde315fed1e6a8c6085a67ca483935cb57877ae5715d365377a725e05d}
-    note: Not applied. Production moved from 2026-11-16 to 2026-12-14 (Portal informe of 2026-11-13).
+    note: >-
+      Not applied: group YC (gPgtoVinc) and event 110300. v1.01 (SHA-256
+      2c5770b54d19b66ff61200fad20d1a4373b71a48d42f0ee5e005e808ce0eb206) only moved the dates;
+      production moved from 2026-11-16 to 2026-12-14 (Portal informe of 2026-11-13).
+    issue: https://github.com/higajooj/dfe_rb/issues/13
   - id: nt-2026.007
     document: NT 2026.007, Emissão de NF-e sem IE e RV de LCC
     kind: nt
@@ -298,7 +310,11 @@ documents:
     implemented_in: [lib/dfe_rb/nfe/validator.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 559fcd7d1b495549099498ff5c1ba4165f65d4b5ad5b34dbe802869d4619d917
-    note: v1.10 (2026-10-01) and v1.11 (2026-10-30) haven't been read yet.
+    note: >-
+      Only I08-191 is checked. The rest of v1.00 (C17-42, C17-43, C18-50, N01-10, UB12-11...)
+      isn't; v1.10 (2026-10-01) relaxed the LCC checks in homologação, and v1.11 (2026-10-30,
+      SHA-256 b13006ce48488111ac077356e137817545957db6748cdf41a3eeea21818dd4e8) only moved dates.
+    issue: https://github.com/higajooj/dfe_rb/issues/15
   - id: nt-2026.009
     document: NT 2026.009, Alteração de RV de CFOP
     kind: nt
@@ -311,7 +327,7 @@ documents:
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 50b7dec40bba8928b4d544feb4fdbd8c8bac16e37c99d926ddb2834cf246f15d
   - id: nt-2026.005
-    document: NT 2026.005, Atualizações para o Simples Nacional
+    document: NT 2026.005, Reforma Tributária do Consumo – Simples Nacional
     kind: nt
     status: pending
     dfe: [nfe, ibs_cbs]
@@ -321,10 +337,13 @@ documents:
     production: "2026-12-14"
     implemented_in: []
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: null
-    note: Not read yet; may carry the Simples Nacional's IBS/CBS rules NT 2025.002 defers.
+    sha256: 5219882256663336301c0daa36e9d4bcece49b15f100025b39c9cf913055b85e
+    note: >-
+      Not applied: tpRegimeIBSCBS (C21a), cAtivSN (I17d), gTribSN (UB115a-g), totals W59h-j
+      and event 412140; a MEI (CRT 4) sends no IBSCBS. Production moved to 2026-12-14.
+    issue: https://github.com/higajooj/dfe_rb/issues/12
   - id: nt-2026.008
-    document: NT 2026.008, Valor líquido do produto
+    document: NT 2026.008, Reforma Tributária do Consumo – Valor Líquido
     kind: nt
     status: pending
     dfe: [nfe]
@@ -334,21 +353,24 @@ documents:
     production: "2026-12-14"
     implemented_in: []
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: null
-    note: Not read yet.
+    sha256: 8134a3f1f460650262ce359566b7993ac3503037f24b223a4c8c53b237b50090
+    note: >-
+      Not applied: vUnComLiq, vProdLiq, vProdLiqTot and NB01; removes UB16-10. Production moved
+      to 2026-12-14 (NB01-30 2027-03-01). v1.01 contradicts itself on whether vProd carries IBS/CBS/IS.
+    issue: https://github.com/higajooj/dfe_rb/issues/14
   - id: nt-2026.010
-    document: NT 2026.010
+    document: NT 2026.010, DANFE Reforma Tributária
     kind: nt
-    status: pending
-    dfe: [nfe]
+    status: out_of_scope
+    dfe: [nfe, ibs_cbs]
     version: null
     current: "1.00"
     published: "2026-10-01"
-    production: null
+    production: "2026-12-01"
     implemented_in: []
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: null
-    note: Listed on the portal; not read yet.
+    sha256: eadc5246235f37a55f8140ddcf84595c8ce77f2d760f111f7b85ddf389b8f484
+    note: The DANFE's IBS/CBS/IS fields; the gem prints no DANFE, so this is the application's.
 
   # ---------------------------------------------------------------- NF-e and NFC-e: informes técnicos and tables
   - id: it-2023.002
@@ -634,13 +656,13 @@ awaiting:
     source: NT 2025.002 v1.53, UB12-10 Observação 2 ("implementação futura para produção")
   - what: The IBS/CBS rules for the Simples Nacional and the MEI (CRT 1, 2, 4), taxed from 2027
     affects: Validator#check_ibs_cbs, Calculator
-    source: NT 2025.002 v1.53 ("serão publicadas em NT futura"); check whether NT 2026.005 is it
+    source: NT 2025.002 v1.53 ("serão publicadas em NT futura"); NT 2026.005 brings them (issue 12)
   - what: The 2027 and 2028 CBS rates, and every rate from 2029
     affects: Rates::IBS_CBS
     source: IT 2025.002 v1.71 §05 ("Aguardar Legislação")
   - what: The return and complement exception of UB12-10 from 2027, which needs the referenced note's issue date
     affects: Validator#check_ibs_cbs
-    source: NT 2025.002 v1.53, UB12-10 Exceção 1
+    source: NT 2025.002 v1.53, UB12-10 Exceção 1 (issue 16)
   - what: The day each cCredPres starts for each tax (all in 2027 or 2029; cCredPres 08's IBS start is blank on the SVRS page)
     affects: Tables::PresumedCredit#valid_on?
     source: IT 2025.002 v1.71 cCredPres table

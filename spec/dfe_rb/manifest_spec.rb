@@ -6,7 +6,7 @@ RSpec.describe "the compliance manifest" do
   manifest = YAML.safe_load_file(File.join(root, "lib/dfe_rb/data/manifest.yml"), permitted_classes: [Date])
   documents = manifest.fetch("documents")
   kinds = %w[moc nt it schema table law guide certificate]
-  statuses = %w[implemented pending]
+  statuses = %w[implemented pending out_of_scope]
   areas = %w[nfe nfce mdfe events distribution ibs_cbs efd]
 
   it "describes each document with the same fields" do
@@ -47,8 +47,8 @@ RSpec.describe "the compliance manifest" do
     expect(implemented.uniq).to include("nfe", "nfce", "mdfe", "events", "distribution", "ibs_cbs")
   end
 
-  it "keeps a pending row's work, and what the gem is waiting for, in words" do
-    documents.select { |row| row["status"] == "pending" }.each { |row| expect(row["note"].to_s).not_to be_empty, row["id"] }
+  it "keeps what a row not followed leaves out, and what the gem is waiting for, in words" do
+    documents.reject { |row| row["status"] == "implemented" }.each { |row| expect(row["note"].to_s).not_to be_empty, row["id"] }
     manifest.fetch("awaiting").each { |item| expect(item.keys).to include("what", "affects", "source") }
   end
 end
