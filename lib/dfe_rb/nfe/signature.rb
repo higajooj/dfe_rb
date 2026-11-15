@@ -30,10 +30,11 @@ module DfeRb
     SignedInvoice = Data.define(:xml, :key, :digest_value) do
       def to_s = xml
 
-      # An NFC-e's infNFeSupl/qrCode, which the DANFE NFC-e prints; nil for an NF-e.
+      # infNFeSupl/qrCode, which the DANFE NFC-e or the DANFE Simplificado Tipo 2 prints; nil
+      # for a note printed otherwise.
       def qr_code = Document.new(xml).supplement&.fetch("qrCode")
 
-      # An NFC-e's infNFeSupl/urlChave; nil for an NF-e.
+      # infNFeSupl/urlChave; nil for a note without a QR code.
       def consult_url = Document.new(xml).supplement&.fetch("urlChave")
     end
 

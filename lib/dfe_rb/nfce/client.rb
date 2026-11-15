@@ -84,62 +84,6 @@ module DfeRb
 
       private
 
-      # An NFC-e handed in as XML gets the NFC-e's rules too, and a signed one must carry its
-      # QR code (RV ZX02-10), which no one may add after the signature.
-      def validated(document, strict:)
-        super
-        supplement = document.supplement
-        if document.signed? && supplement.nil?
-          raise ValidationError, ["infNFeSupl: a signed NFC-e carries its QR code (rej. 394); it can't be added after signing"]
-        end
-        return document unless strict
-
-        tree = document.to_infnfe
-        problems = Validator.new(tree, supplement: supplement, signer: document.signer || certificate.certificate,
-          qr_address: qr_address(tree)).issues
-        raise ValidationError, problems unless problems.empty?
-
-        document
-      end
-
-      # The QR code address of the note's state and environment, or nil when they aren't known.
-      def qr_address(tree)
-        ide = tree["ide"] || {}
-        Endpoints.qr_code(uf: ide["cUF"], environment: ide["tpAmb"].to_s, overrides: @endpoints)
-      rescue ArgumentError, KeyError
-        nil
-      end
-
-      # An unsigned NFC-e handed in without infNFeSupl gets it: the QR code and urlChave of
-      # its state, signed with this client's certificate when issued off-line. One that has
-      # it keeps it, but an off-line QR code must be signed by the certificate that signs the
-      # note (NT 2026.003 §4.3.2, rej. 583).
-      def supplemented(document)
-        if (supplement = document.supplement)
-          check_qr_signer(supplement)
-          return document
-        end
-
-        supplement, problems = Supplement.build(document.to_infnfe, certificate: certificate, overrides: @endpoints)
-        raise ValidationError, problems unless problems.empty?
-        raise ValidationError, ["infNFe/@Id: the note has no access key to build its QR code from"] unless supplement
-
-        supplied = document.with_supplement(supplement)
-        problems = Nfe::Schemas.nfe_issues(supplied.xml)
-        raise ValidationError, problems unless problems.empty?
-
-        supplied
-      end
-
-      def check_qr_signer(supplement)
-        parsed = QrCode.parse(supplement["qrCode"])
-        return unless parsed&.dig(:signature)
-        return if QrCode.signed_by?(parsed[:signed_content], parsed[:signature], certificate.certificate)
-
-        raise ValidationError, ["infNFeSupl/qrCode: its signature isn't this client's certificate's, which signs the note " \
-          "(rej. 583); build the note with this client, or rebuild its QR code if it wasn't printed yet"]
-      end
-
       def substitution_problems(key, replacement)
         problems = []
         problems << "the replacement is the canceled note itself (rej. 911)" if key == replacement

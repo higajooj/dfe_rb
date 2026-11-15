@@ -16,7 +16,12 @@ module DfeRb
       # ide/mod: "55", or "65" for an NFC-e.
       def model = text("ide/mod")
 
-      # infNFeSupl ({"qrCode" => ..., "urlChave" => ...}), which an NFC-e carries; nil without it.
+      # Whether the note carries infNFeSupl: an NFC-e, or an NF-e printed as the DANFE
+      # Simplificado Tipo 2 (tpImp 6).
+      def qr_code? = Nfce::Supplement.carried_by?("mod" => model, "tpImp" => text("ide/tpImp"))
+
+      # infNFeSupl ({"qrCode" => ..., "urlChave" => ...}), which an NFC-e and an NF-e printed
+      # as the DANFE Simplificado Tipo 2 carry; nil without it.
       def supplement
         node = @root.at_xpath("doc:infNFeSupl", namespaces) or return
 

@@ -23,25 +23,13 @@ module DfeRb
     class Invoice < Nfe::Invoice
       MODEL = 65
 
-      def initialize(attributes = nil, certificate: nil, endpoints: {}, **options, &block)
-        @certificate = certificate
-        @addresses = endpoints
-        super(attributes, **options, &block)
-      end
-
-      # infNFeSupl/qrCode: the URL the DANFE NFC-e's QR code holds. Nil while the key can't
-      # be built, or off-line without a certificate to sign it.
-      def qr_code = supplement_of(resolved).first&.fetch("qrCode")
-
-      # infNFeSupl/urlChave: where the consumer looks the note up by its key.
-      def consult_url = supplement_of(resolved).first&.fetch("urlChave")
-
       private
 
-      def supplement_of(tree) = Supplement.build(tree, certificate: @certificate, overrides: @addresses)
-
+      # The NFC-e's rules hold for modelo 65; a note forced to another model is told so.
       def rule_issues(tree, supplement)
-        super + Validator.new(tree, supplement: supplement, signer: @certificate&.certificate).issues
+        return super if tree.dig("ide", "mod").to_s == Supplement::NFCE
+
+        super + ["ide/mod: an NFC-e is modelo 65 (DfeRb::Nfe issues modelo 55)"]
       end
     end
   end

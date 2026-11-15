@@ -4,13 +4,17 @@ require "time"
 module DfeRb
   module Nfce
     # The rules of Anexo I that hold only for modelo 65, with the NTs that amend them, checked
-    # on top of the NF-e's (Nfe::Validator). Those left to each state (the total it caps, the
-    # CSOSNs it bars, home delivery, the cutoff of an NCM...) stay with SEFAZ, and so does a
-    # rule another NT words differently; where they disagree on a list, the gem takes the
-    # widest one, so it never flags what SEFAZ may accept.
+    # on top of the NF-e's (Nfe::Validator). NT 2026.002 holds an NF-e printed as the DANFE
+    # Simplificado Tipo 2 (tpImp 6) to most of them, the rules it gives "55/65"; the rest
+    # (payments, the IBS/CBS groups NT 2025.002 bars, the consumer's IE...) stay with
+    # modelo 65. Those left to each state (the total it caps, the CSOSNs it bars, home
+    # delivery, the cutoff of an NCM...) stay with SEFAZ, and so does a rule another NT words
+    # differently; where they disagree on a list, the gem takes the widest one, so it never
+    # flags what SEFAZ may accept.
     class Validator
       HOMOLOGACAO = "2"
       OFFLINE = QrCode::OFFLINE
+      NFCE = Supplement::NFCE
       # tpEmis an NFC-e may take: normal, EPEC (at the state's discretion, NT 2014.003) and
       # off-line contingency (RV B22-34, B22-70).
       EMISSION_TYPES = %w[1 4 9].freeze
@@ -49,25 +53,32 @@ module DfeRb
       # Above this total the consumer must be identified (RV W16-40).
       IDENTIFIED_ABOVE = BigDecimal(10_000)
 
-      # Groups an NFC-e can't carry: [path from infNFe, rejection, what it is].
+      # Groups neither an NFC-e nor an NF-e printed as the DANFE Simplificado Tipo 2 can carry
+      # (NT 2026.002): [path from infNFe, rejection, what it is]. G01-10 bars the delivery
+      # place too, but only in the future ("implementação futura").
       BARRED = [
         [%w[ide dhSaiEnt], 705, "a date of entry or exit"],
-        [%w[ide dPrevEntrega], 1153, "a delivery forecast"],
         [%w[ide NFref], 708, "referenced documents"],
-        [%w[ide gCompraGov], 1006, "the government purchase group"],
-        [%w[ide gPagAntecipado], 1146, "the NF-e of an advance payment"],
-        [%w[ide cIndOp], 1099, "the indicator of where the supply takes place"],
         [%w[emit IEST], 718, "the issuer's IE as tax substitute"],
-        [%w[dest ISUF], 730, "a SUFRAMA registration"],
+        [%w[retirada], 669, "a pickup place"],
         [%w[transp retTransp], 755, "ICMS withheld on transport"],
         [%w[transp veicTransp], 756, "a transport vehicle"],
         [%w[transp reboque], 757, "trailers"],
         [%w[transp vagao], 758, "a wagon"],
         [%w[transp balsa], 759, "a ferry"],
         [%w[cobr], 760, "billing (invoice, installments)"],
-        [%w[exporta], 814, "the foreign trade group"],
         [%w[compra], 762, "purchase data"],
         [%w[cana], 763, "sugar cane acquisition"]
+      ].freeze
+
+      # Groups only an NFC-e can't carry (Anexo I and NT 2025.002, modelo 65).
+      BARRED_NFCE = [
+        [%w[ide dPrevEntrega], 1153, "a delivery forecast"],
+        [%w[ide gCompraGov], 1006, "the government purchase group"],
+        [%w[ide gPagAntecipado], 1146, "the NF-e of an advance payment"],
+        [%w[ide cIndOp], 1099, "the indicator of where the supply takes place"],
+        [%w[dest ISUF], 730, "a SUFRAMA registration"],
+        [%w[exporta], 814, "the foreign trade group"]
       ].freeze
 
       # The same, per item: [path from det, rejection, what it is].
@@ -75,29 +86,35 @@ module DfeRb
         [%w[prod veicProd], 736, "new vehicles"],
         [%w[prod arma], 738, "weapons"],
         [%w[prod nRECOPI], 348, "RECOPI (immune paper)"],
-        [%w[prod tpCredPresIBSZFM], 1165, "the ZFM IBS sub-assessment class"],
         [%w[imposto ICMSUFDest], 807, "ICMS for the destination state"],
         [%w[imposto IPI], 742, "IPI"],
         [%w[imposto II], 743, "import tax"],
         [%w[imposto PISST], 746, "PIS-ST"],
         [%w[imposto COFINSST], 749, "COFINS-ST"],
-        [%w[imposto IBSCBS gCredPresOper], 1049, "the operation's presumed credit"],
-        [%w[imposto IBSCBS gCredPresIBSZFM], 1138, "the ZFM presumed credit"],
-        [%w[imposto IBSCBS gIBSCBS gCBS gDevTrib], 1187, "the CBS returned"],
         [%w[impostoDevol], 390, "returned taxes"],
         [%w[DFeReferenciado], 708, "a referenced document"]
       ].freeze
 
-      # infnfe: the resolved infNFe tree. supplement: its infNFeSupl ({"qrCode", "urlChave"}),
-      # when there is one to check. signer: the OpenSSL certificate that signs the note, to
-      # check an off-line QR code's signature. qr_address: the state's QR code consultation
-      # address (Endpoints.qr_code), to check the QR code's against.
+      BARRED_NFCE_ITEM = [
+        [%w[prod tpCredPresIBSZFM], 1165, "the ZFM IBS sub-assessment class"],
+        [%w[imposto IBSCBS gCredPresOper], 1049, "the operation's presumed credit"],
+        [%w[imposto IBSCBS gCredPresIBSZFM], 1138, "the ZFM presumed credit"],
+        [%w[imposto IBSCBS gIBSCBS gCBS gDevTrib], 1187, "the CBS returned"]
+      ].freeze
+
+      # infnfe: the resolved infNFe tree, of an NFC-e or of an NF-e with tpImp 6. supplement:
+      # its infNFeSupl ({"qrCode", "urlChave"}), when there is one to check. signer: the
+      # OpenSSL certificate that signs the note, to check an off-line QR code's signature.
+      # qr_address: the state's QR code consultation address (Endpoints.qr_code), to check the
+      # QR code's against.
       def initialize(infnfe, supplement: nil, signer: nil, qr_address: nil)
         @inf = infnfe
         @ide = infnfe["ide"] || {}
         @supplement = supplement
         @signer = signer
         @qr_address = qr_address
+        @nfce = @ide["mod"].to_s == NFCE
+        @subject = @nfce ? "an NFC-e" : "an NF-e with DANFE Simplificado Tipo 2"
         @issues = []
       end
 
@@ -116,23 +133,30 @@ module DfeRb
       private
 
       def check_identification
-        add "ide/mod: an NFC-e is modelo 65 (DfeRb::Nfe issues modelo 55)" unless @ide["mod"].to_s == "65"
-        add "ide/tpNF: an NFC-e is an exit, tpNF 1 (rej. 706)" if @ide["tpNF"].to_s == "0"
-        add "ide/idDest: an NFC-e is an internal operation, idDest 1 (rej. 707)" unless @ide["idDest"].to_s == "1"
-        add "ide/tpImp: an NFC-e prints the DANFE NFC-e, tpImp 4 or 5 (rej. 709)" unless %w[4 5].include?(@ide["tpImp"].to_s)
-        add "ide/finNFe: an NFC-e is a normal note, finNFe 1 (rej. 715)" unless @ide["finNFe"].to_s == "1"
-        add "ide/indFinal: an NFC-e is a sale to a final consumer, indFinal 1 (rej. 716)" unless @ide["indFinal"].to_s == "1"
-
+        add "ide/tpNF: #{@subject} is an exit, tpNF 1 (rej. 706)" if @ide["tpNF"].to_s == "0"
+        add "ide/idDest: #{@subject} is an internal operation, idDest 1 (rej. 707)" unless @ide["idDest"].to_s == "1"
+        add "ide/finNFe: #{@subject} is a normal note, finNFe 1 (rej. 715)" unless @ide["finNFe"].to_s == "1"
+        add "ide/indFinal: #{@subject} is a sale to a final consumer, indFinal 1 (rej. 716)" unless @ide["indFinal"].to_s == "1"
+        presence = @ide["indPres"].to_s
+        unless PRESENCE.include?(presence)
+          add "ide/indPres: #{@subject} is an in-person sale (1), a home delivery (4) or in person outside the establishment (5) (rej. 717)"
+        end
         emission = @ide["tpEmis"].to_s
+        unless @nfce
+          # The schema's QR code of a note issued on-line takes tpEmis 1, 3 or 4 in its key, so
+          # an NF-e printed as the DANFE Simplificado Tipo 2 can't go to the SVC.
+          if SVC_EMISSION_TYPES.include?(emission)
+            add "ide/tpEmis: an NF-e with DANFE Simplificado Tipo 2 can't be issued at the SVC, since the schema's QR code " \
+              "takes no SVC key; issue it off-line (contingency :offline)"
+          end
+          return
+        end
+
+        add "ide/tpImp: an NFC-e prints the DANFE NFC-e, tpImp 4 or 5 (rej. 709)" unless %w[4 5].include?(@ide["tpImp"].to_s)
         if SVC_EMISSION_TYPES.include?(emission)
           add "ide/tpEmis: the SVC doesn't authorize NFC-e; issue it off-line, contingency :offline (rej. 783)"
         elsif !emission.empty? && !EMISSION_TYPES.include?(emission)
           add "ide/tpEmis: #{emission} isn't an NFC-e emission type; use 1 (normal) or 9 (off-line) (rej. 714)"
-        end
-
-        presence = @ide["indPres"].to_s
-        unless PRESENCE.include?(presence)
-          add "ide/indPres: an NFC-e is an in-person sale (1), a home delivery (4) or in person outside the establishment (5) (rej. 717)"
         end
         if @ide["cMunFGIBS"] && presence != OFF_PREMISES
           add "ide/cMunFGIBS: only for a sale in person outside the establishment, indPres 5 (rej. 1000)"
@@ -142,8 +166,8 @@ module DfeRb
       end
 
       def check_barred
-        BARRED.each do |path, rejection, what|
-          add "#{path.join("/")}: an NFC-e can't carry #{what} (rej. #{rejection})" if present?(@inf.dig(*path))
+        (@nfce ? BARRED + BARRED_NFCE : BARRED).each do |path, rejection, what|
+          add "#{path.join("/")}: #{@subject} can't carry #{what} (rej. #{rejection})" if present?(@inf.dig(*path))
         end
       end
 
@@ -154,6 +178,8 @@ module DfeRb
           add "dest: a home delivery (indPres 4) identifies the consumer (rej. 787)" if home_delivery
           return
         end
+        # An NF-e names and locates its recipient anyway (Nfe::Validator), who may be a taxpayer.
+        return unless @nfce
 
         add "dest/enderDest: a home delivery (indPres 4) gives the consumer's address (rej. 788)" if home_delivery && dest["enderDest"].nil?
         if dest["indIEDest"] && dest["indIEDest"].to_s != "9"
@@ -166,10 +192,10 @@ module DfeRb
       def check_item(item, number)
         where = "det[#{number}]"
         prod = item["prod"] || {}
-        BARRED_ITEM.each do |path, rejection, what|
-          add "#{where}/#{path.join("/")}: an NFC-e can't carry #{what} (rej. #{rejection})" if present?(item.dig(*path))
+        (@nfce ? BARRED_ITEM + BARRED_NFCE_ITEM : BARRED_ITEM).each do |path, rejection, what|
+          add "#{where}/#{path.join("/")}: #{@subject} can't carry #{what} (rej. #{rejection})" if present?(item.dig(*path))
         end
-        add "#{where}/prod/indTot: every item of an NFC-e counts in its total, indTot 1 (rej. 774)" if prod["indTot"].to_s == "0"
+        add "#{where}/prod/indTot: every item of #{@subject} counts in its total, indTot 1 (rej. 774)" if prod["indTot"].to_s == "0"
         if number == 1 && @ide["tpAmb"].to_s == HOMOLOGACAO && prod["xProd"] != Nfe::Resolver::HOMOLOGACAO_ITEM_DESCRIPTION
           add "#{where}/prod/xProd: in homologação the first item is described as " \
             "\"#{Nfe::Resolver::HOMOLOGACAO_ITEM_DESCRIPTION}\" (rej. 373)"
@@ -185,18 +211,12 @@ module DfeRb
         return if state_cfop?(cfop, code)
 
         unless CFOPS.include?(cfop)
-          return add "#{where}/prod/CFOP: #{cfop} can't be used in an NFC-e, which takes #{CFOPS.join(", ")} (rej. 725)"
+          return add "#{where}/prod/CFOP: #{cfop} can't be used in #{@subject}, which takes #{CFOPS.join(", ")} (rej. 725)"
         end
 
-        service = !item.dig("imposto", "ISSQN").nil?
-        if cfop == SERVICE_CFOP && !service
-          add "#{where}/imposto/ISSQN: CFOP 5933 is a service taxed by ISSQN, which the item must carry (rej. 374)"
-        elsif cfop != SERVICE_CFOP && service
-          add "#{where}/prod/CFOP: an item taxed by ISSQN takes CFOP 5933 (rej. 374)"
-        end
-
+        check_service_cfop(where, item, cfop) if @nfce
         if @inf.dig("emit", "CRT").to_s == MEI && cfop != MEI_CFOP
-          add "#{where}/prod/CFOP: a MEI's NFC-e takes CFOP #{MEI_CFOP} only (rej. 337)"
+          add "#{where}/prod/CFOP: a MEI's #{@nfce ? "NFC-e" : "NF-e with DANFE Simplificado Tipo 2"} takes CFOP #{MEI_CFOP} only (rej. 337)"
         end
         return unless code
 
@@ -211,52 +231,71 @@ module DfeRb
           "which takes #{expected.join(", ")} (rej. #{(code.length == 3) ? 386 : 382})"
       end
 
+      def check_service_cfop(where, item, cfop)
+        service = !item.dig("imposto", "ISSQN").nil?
+        if cfop == SERVICE_CFOP && !service
+          add "#{where}/imposto/ISSQN: CFOP 5933 is a service taxed by ISSQN, which the item must carry (rej. 374)"
+        elsif cfop != SERVICE_CFOP && service
+          add "#{where}/prod/CFOP: an item taxed by ISSQN takes CFOP 5933 (rej. 374)"
+        end
+      end
+
       def check_icms(where, item)
         name, values = Nfe::Totals.icms_variant(item)
         return unless name
 
         path = "#{where}/imposto/ICMS/#{name}"
         case name
-        when "ICMSPart" then return add "#{path}: an NFC-e can't share ICMS between states (rej. 741)"
-        when "ICMSST" then return add "#{path}: an NFC-e can't pass on ICMS-ST withheld before (rej. 740)"
+        when "ICMSPart" then return add "#{path}: #{@subject} can't share ICMS between states (rej. 741)"
+        when "ICMSST" then return add "#{path}: #{@subject} can't pass on ICMS-ST withheld before (rej. 740)"
         end
 
         if (cst = values["CST"])
-          add "#{path}/CST: an NFC-e takes CST #{CSTS.join(", ")} (rej. 766)" unless CSTS.include?(cst.to_s)
-          add "#{path}/modBCST: CST 90 in an NFC-e carries no ICMS-ST (rej. 381)" if name == "ICMS90" && values["modBCST"]
+          add "#{path}/CST: #{@subject} takes CST #{CSTS.join(", ")} (rej. 766)" unless CSTS.include?(cst.to_s)
+          add "#{path}/modBCST: CST 90 in #{@subject} carries no ICMS-ST (rej. 381)" if name == "ICMS90" && values["modBCST"]
         elsif (csosn = values["CSOSN"])
-          add "#{path}/CSOSN: an NFC-e takes CSOSN #{CSOSNS.join(", ")} (rej. 383)" unless CSOSNS.include?(csosn.to_s)
-          add "#{path}/modBCST: CSOSN 900 in an NFC-e carries no ICMS-ST (rej. 385)" if name == "ICMSSN900" && values["modBCST"]
+          add "#{path}/CSOSN: #{@subject} takes CSOSN #{CSOSNS.join(", ")} (rej. 383)" unless CSOSNS.include?(csosn.to_s)
+          add "#{path}/modBCST: CSOSN 900 in #{@subject} carries no ICMS-ST (rej. 385)" if name == "ICMSSN900" && values["modBCST"]
           if @inf.dig("emit", "CRT").to_s == MEI && !MEI_CSOSNS.include?(csosn.to_s)
-            add "#{path}/CSOSN: a MEI's NFC-e takes CSOSN #{MEI_CSOSNS.join(" or ")} (rej. 782)"
+            add "#{path}/CSOSN: a MEI's #{@nfce ? "NFC-e" : "NF-e with DANFE Simplificado Tipo 2"} takes CSOSN #{MEI_CSOSNS.join(" or ")} (rej. 782)"
           end
         end
       end
 
       # Above R$ 10.000,00 the consumer is identified (RV W16-40). Its address (W16-60) and name
-      # (W16-50) are each state's call, so SEFAZ checks them.
+      # (W16-50) are each state's call, so SEFAZ checks them. An NF-e identifies its recipient
+      # whatever the total (Nfe::Validator).
       def check_total
         total = Nfe::Totals.number(@inf.dig("total", "ICMSTot", "vNF"))
         return unless total > IDENTIFIED_ABOVE
 
         dest = @inf["dest"] || {}
         if %w[CNPJ CPF idEstrangeiro].none? { |tag| present?(dest[tag]) }
-          add "dest: an NFC-e above R$ 10.000,00 identifies the consumer by CNPJ, CPF or foreign id (rej. 750)"
+          add "dest: #{@subject} above R$ 10.000,00 identifies the consumer by CNPJ, CPF or foreign id (rej. 750)"
         end
       end
 
-      # Only a home delivery has freight and a carrier, and it must have the carrier (RV X02-10, X03-10, X03-20).
+      # Only a home delivery has freight (RV X02-10). An NFC-e names a carrier only there, and
+      # must name it there (X03-10, X03-20).
       def check_transport
         transp = @inf["transp"] || {}
-        if @ide["indPres"].to_s == HOME_DELIVERY
+        home_delivery = @ide["indPres"].to_s == HOME_DELIVERY
+        unless home_delivery || transp["modFrete"].to_s == "9"
+          add "transp/modFrete: #{@subject} has freight only on a home delivery, indPres 4; use modFrete 9 (rej. 753)"
+        end
+        return unless @nfce
+
+        if home_delivery
           add "transp/transporta: a home delivery (indPres 4) names who carries it (rej. 786)" if transp["transporta"].nil?
-        else
-          add "transp/modFrete: an NFC-e has freight only on a home delivery, indPres 4; use modFrete 9 (rej. 753)" unless transp["modFrete"].to_s == "9"
-          add "transp/transporta: an NFC-e names a carrier only on a home delivery, indPres 4 (rej. 754)" if transp["transporta"]
+        elsif transp["transporta"]
+          add "transp/transporta: an NFC-e names a carrier only on a home delivery, indPres 4 (rej. 754)"
         end
       end
 
+      # An NF-e with DANFE Simplificado Tipo 2 takes the NF-e's payments (NT 2026.002 bars none).
       def check_payments
+        return unless @nfce
+
         Array(@inf.dig("pag", "detPag")).each_with_index do |detail, index|
           path = "pag/detPag[#{index + 1}]"
           kind = detail["tPag"].to_s
@@ -282,6 +321,10 @@ module DfeRb
         add "infNFeSupl/qrCode: its key #{parsed[:key]} differs from the note's #{key} (rej. 397)" unless parsed[:key] == key
         version = parsed[:version]
         return add "infNFeSupl/qrCode: version #{version} is not 2 or 3 (rej. 398)" unless %w[2 3].include?(version)
+        unless @nfce || version == QrCode::VERSION
+          return add "infNFeSupl/qrCode: an NF-e with DANFE Simplificado Tipo 2 takes QR code version 3, not #{version} " \
+            "(RV ZX02-220, rej. 672)"
+        end
         add "infNFeSupl/qrCode: its tpAmb #{parsed[:environment]} differs from the note's (rej. 397)" unless parsed[:environment] == @ide["tpAmb"].to_s
         offline = @ide["tpEmis"].to_s == OFFLINE
         if version == "2"
