@@ -10,13 +10,15 @@ module DfeRb
     # RVs and the NTs that amend them). Rules that depend on state tables stay with SEFAZ.
     class Validator
       TOLERANCE = BigDecimal("0.01")
-      # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.51), by
+      # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.53), by
       # tpAmb. Homologação has rejected a note without it (1115) since 01/07/2026. In
       # production the rule has no date yet ("implementação futura"; v1.51 struck out
       # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
       # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
       # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
-      # yet to bring, so nothing is asked of them.
+      # yet to bring, so nothing is asked of them. Returns and complements are left out:
+      # v1.53 exempts only those referencing a note issued before 2027, which until then is
+      # every one, so the exception needs the referenced key's date from 2027 on.
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
       PRODUCTION = "1"
       NORMAL_REGIME = "3"
@@ -298,7 +300,7 @@ module DfeRb
       end
 
       # RV NA01-20: an interstate sale to a final consumer who isn't an ICMS taxpayer carries
-      # the DIFAL group, with the rule's exceptions (NT 2025.002 v1.51).
+      # the DIFAL group, with the rule's exceptions (NT 2025.002 v1.32, unchanged through v1.53).
       def check_destination_group(where, item, row)
         imposto = item["imposto"] || {}
         return if imposto["ICMSUFDest"] || imposto["ISSQN"]

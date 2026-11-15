@@ -434,7 +434,7 @@ RSpec.describe DfeRb::Nfe::Invoice do
       expect(invoice.issues).to contain_exactly(a_string_matching(%r{det\[1\]/imposto/IBSCBS: mandatory for regime normal}))
     end
 
-    it "requires IBS/CBS in production by law, from 2026, the rejection there having no date (NT 2025.002 v1.51, RV UB12-10)" do
+    it "requires IBS/CBS in production by law, from 2026, the rejection there having no date (NT 2025.002 v1.53, RV UB12-10)" do
       build = lambda { |issued_at|
         normal_regime(nfe_client(NfeHelpers::FakeTransport.new, environment: :production)) { |nfe|
           nfe.issued_at issued_at
