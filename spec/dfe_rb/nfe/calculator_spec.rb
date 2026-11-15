@@ -304,7 +304,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
         expect([ibs["vIBS"], ibs["gCBS"]["vCBS"]].map { |value| decimal(value) }).to eq(%w[0.08 7.13])
       end
 
-      it "charges the reference rate less 0.1 point once it is published (EC 132/2023, ADCT art. 127)" do
+      it "charges the reference rate less 0.1 point once it is published (LC 214/2025, art. 347)" do
         stub_const("DfeRb::Nfe::Rates::CBS_REFERENCE", {2027 => "8.80", 2028 => nil})
 
         expect(decimal(ibs_cbs({"cClassTrib" => "000001"}, later)["gIBSCBS"]["gCBS"]["pCBS"])).to eq("8.7")
@@ -339,7 +339,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
       expect(ipi({"vBC" => "100.00", "pIPI" => "10.00"})).to include("pIPI" => "10.00", "vIPI" => BigDecimal(10))
     end
 
-    it "is zero from 2027 but on a product also made in the Zona Franca de Manaus (EC 132/2023, ADCT art. 126, III)" do
+    it "is zero from 2027 but on a product also made in the Zona Franca de Manaus (ADCT art. 126, III, a; LC 214/2025, art. 454)" do
       later = context.dup.tap { |copy| copy.year = 2027 }
       zfm = {"prod" => {"vProd" => "100.00", "NCM" => "22030000"}, "imposto" => {"IPI" => {"IPITrib" => {"vBC" => "100.00"}}},
              described_class::ZFM_PRODUCT => true}

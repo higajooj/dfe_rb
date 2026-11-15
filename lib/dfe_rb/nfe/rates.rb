@@ -22,14 +22,20 @@ module DfeRb
         2027 => {uf: "0.05", municipal: "0.05", cbs: nil},
         2028 => {uf: "0.05", municipal: "0.05", cbs: nil}
       }.freeze
-      # The CBS reference rate (alíquota de referência) in percent, by year, as the Senate's
-      # resolution fixes it (or, failing that, the rate the TCU calculates). nil until then.
+      # The CBS reference rate (alíquota de referência) in percent, by year: the Senate's
+      # resolution, due by 31 October of the year before, or, if none is in force by 22
+      # December, the rate the TCU calculated (LC 214/2025, art. 349, §§ 1º and 2º). nil until
+      # one of them applies. For 2027 the TCU calculated 11.3% (TC 006.529/2026-7, 28/10/2026),
+      # but the Senate may still fix its own until 22/12/2026.
       CBS_REFERENCE = {2027 => nil, 2028 => nil}.freeze
       # In 2027 and 2028 the CBS is charged at its reference rate less 0.1 point, the IBS's
-      # 0.05% + 0.05% (EC 132/2023, ADCT art. 127).
+      # 0.05% + 0.05% (LC 214/2025, art. 347; EC 132/2023, ADCT art. 127). A reduced rate takes
+      # the point off in proportion (§ 1º, I), as gRed does with the rate it reduces.
       CBS_TRANSITION_DISCOUNT = {2027 => "0.10", 2028 => "0.10"}.freeze
-      # The year the CBS is charged in earnest: PIS/Pasep and COFINS end and the IPI's rates go to zero
-      # but on goods also made in the Zona Franca de Manaus (EC 132/2023, ADCT art. 126).
+      # The year the CBS is charged in earnest: PIS/Pasep and COFINS end (EC 132/2023, ADCT art.
+      # 126, II; LC 214/2025, art. 542) and the IPI's rates go to zero but on products with
+      # incentivized industrialization in the Zona Franca de Manaus (ADCT art. 126, III, a; LC
+      # 214/2025, art. 454).
       CBS_CHARGED_SINCE = 2027
 
       # PIS and COFINS rates in percent: cumulative (Lei 9.718/1998, lucro presumido) and
@@ -111,8 +117,11 @@ module DfeRb
       def pis_cofins_charged?(year) = year_of(year) < CBS_CHARGED_SINCE
 
       # Whether the IPI is charged on a note issued in `year` (an Integer, or anything with
-      # #year): until 2026 on every product, and from 2027 only on a product also made in the
-      # Zona Franca de Manaus (`zfm_product: true`), which only the issuer knows.
+      # #year): until 2026 on every product, and from 2027 only on a product whose IPI the law
+      # keeps (`zfm_product: true`): one with incentivized industrialization in the Zona Franca
+      # de Manaus, unless LC 214/2025, art. 454 zeroes it too (a TIPI rate below 6.5% on
+      # 31/12/2023, but not an ICT good). The Union is to list the products (§ 3º); until then
+      # only the issuer knows.
       def ipi_applies?(year, zfm_product: false) = year_of(year) < CBS_CHARGED_SINCE || zfm_product == true
 
       def year_of(value) = value.respond_to?(:year) ? value.year : Integer(value)

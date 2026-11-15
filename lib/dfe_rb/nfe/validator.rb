@@ -592,10 +592,11 @@ module DfeRb
         add "#{path}/#{rate_tag}: #{sphere[rate_tag]} is not the rate the law fixes for #{year} (#{expected.to_s("F")}) (rej. #{rejection})"
       end
 
-      # PIS/Pasep and COFINS end with 2026 (EC 132/2023, ADCT art. 126; LC 214/2025): a normal
-      # note issued later carries no rate or amount of them. Each group is still mandatory (RV
-      # Q01-20, S01-20), with a CST that charges nothing until an NT says otherwise. A return or
-      # a complement may carry those of the 2026 operation it refers to.
+      # PIS/Pasep and COFINS end with 2026 (EC 132/2023, ADCT art. 126, II; LC 214/2025, art.
+      # 542): a normal note issued later carries no rate or amount of them. Each group is still
+      # mandatory (RV Q01-20, S01-20, NT 2025.002 v1.53), with a CST that charges nothing until
+      # an NT says otherwise. A return or a complement may carry those of the 2026 operation it
+      # refers to.
       def check_contributions_ended(where, imposto)
         return unless @ide["finNFe"].to_s == "1" && issued_at && !Rates.pis_cofins_charged?(issued_at.year)
 
@@ -609,7 +610,7 @@ module DfeRb
           next unless charged
 
           add "#{where}/imposto/#{name}/#{charged}: PIS/Pasep and COFINS are not charged on a note issued from 2027 " \
-            "(EC 132/2023, ADCT art. 126; LC 214/2025)"
+            "(EC 132/2023, ADCT art. 126, II; LC 214/2025, art. 542)"
         end
       end
 

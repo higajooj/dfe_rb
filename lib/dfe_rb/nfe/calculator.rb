@@ -57,8 +57,8 @@ module DfeRb
       MARGIN_MODE = 4
       INTERSTATE = 2
       RATE_PLACES = 4
-      # Where the builder marks an item whose product is also made in the Zona Franca de Manaus,
-      # whose IPI goes on from 2027 (`i.ipi ..., zfm_product: true`); never written.
+      # Where the builder marks an item whose IPI goes on from 2027, a product of the Zona Franca
+      # de Manaus (`i.ipi ..., zfm_product: true`, Rates.ipi_applies?); never written.
       ZFM_PRODUCT = "#zfm_product"
       SPHERE_NAMES = {"pIBSUF" => "the state IBS", "pIBSMun" => "the municipal IBS", "pCBS" => "the CBS"}.freeze
 
@@ -83,8 +83,8 @@ module DfeRb
       end
 
       # A taxed IPI's rate is the TIPI's for the item's NCM and EXTIPI, unless the IPI is per
-      # unit or the line is NT. From 2027 it is zero but on a product also made in the Zona
-      # Franca de Manaus (EC 132/2023, ADCT art. 126, III).
+      # unit or the line is NT. From 2027 it is zero but on a product of the Zona Franca de
+      # Manaus whose IPI the law keeps (EC 132/2023, ADCT art. 126, III, a; LC 214/2025, art. 454).
       def ipi(item, imposto, context)
         group = imposto.dig("IPI", "IPITrib") or return
         fill(group, "vBC") { operation_value(item) } if %w[qUnid vUnid].all? { |tag| group[tag].nil? }

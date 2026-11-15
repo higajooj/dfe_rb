@@ -80,8 +80,8 @@ RSpec.describe DfeRb::Nfe::Validator do
 
     expect(item_issues(taxed, ide: {"dhEmi" => "2026-12-31T23:59:59-03:00"})).to eq([])
     expect(item_issues(taxed, ide: {"dhEmi" => "2027-01-01T00:00:00-03:00"})).to contain_exactly(
-      "det[1]/imposto/PIS/pPIS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126; LC 214/2025)",
-      "det[1]/imposto/COFINSST/pCOFINS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126; LC 214/2025)"
+      "det[1]/imposto/PIS/pPIS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126, II; LC 214/2025, art. 542)",
+      "det[1]/imposto/COFINSST/pCOFINS: PIS/Pasep and COFINS are not charged on a note issued from 2027 (EC 132/2023, ADCT art. 126, II; LC 214/2025, art. 542)"
     )
     expect(item_issues(taxed, ide: {"dhEmi" => "2027-01-01T00:00:00-03:00", "finNFe" => "4"})).to eq([])
   end

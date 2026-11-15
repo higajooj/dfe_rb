@@ -119,8 +119,8 @@ module DfeRb
         end
 
         # IPI: framework code and stamp go on <IPI>, the rest in IPITrib (CST 00/49/50/99) or IPINT.
-        # `zfm_product: true` marks a product also made in the Zona Franca de Manaus, whose IPI
-        # goes on from 2027 (Calculator::ZFM_PRODUCT).
+        # `zfm_product: true` marks a product of the Zona Franca de Manaus whose IPI goes on from
+        # 2027 (Rates.ipi_applies?, Calculator::ZFM_PRODUCT).
         def ipi(scope, data, args, kwargs, block)
           attributes = attributes(args, kwargs)
           zfm_product = attributes.delete(:zfm_product)
