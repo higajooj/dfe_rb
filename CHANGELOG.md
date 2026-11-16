@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- NT 2023.002 v1.02 (read in full): **no inutilização in AC, BA and SP** since 11/11/2026, in homologação and in production (Ajustes SINIEF 38/2026 and 40/2026; RV I01a, rej. 998). `Nfe::Client#inutilize` (and the NFC-e's) for an issuer of those states raises `DfeRb::Nfe::Unsupported` before sending anything, with a message naming the Ajustes. It raises the same when any state answers 998 "Serviço Desativado" or HTTP 404. `Nfe::Retirements.inutilization_off?(uf, time)` tells which states.
+- **The asynchronous authorization lot ends** (RV GAP03a-6, rej. 129): SEFAZ rejects `indSinc` 0 from 01/02/2027 in homologação and 05/04/2027 in production. `Nfe::Client#authorize` with two or more notes still sends the lot until then, and warns once (`[dfe_rb] DEPRECATION: ...`); from those days, by the clock of the request or any note's `dhEmi`, it raises `ValidationError` naming RV GAP03a-6 and rej. 129 before sending. Send several notes one call each (README, "Several notes, results and errors"). A single note is unaffected.
+- **Deprecated, to be removed in a release after 05/04/2027**: `Nfe::Client#resume` and the receipt query (`:authorization_return`, `Requests.lot_return`), which go with the lot; `resume` warns once. See the README's "Deprecations". `DfeRb::Deprecation.silenced = true` turns the notices off.
+- `StatusCodes::SYNCHRONOUS_REQUIRED` (129) and `SERVICE_OFF` (998), `Nfe::Document#issued_at`.
+- RV 1C17-38 (rej. 781) now covers models 55 and 65, and 3B08-100 skips AC, BA and SP: both are SEFAZ's checks, nothing local. The NT's schema change against invalid characters names no package.
+- The specs' test certificates start in 2020 instead of a minute before the wall clock, which failed the specs that travel to an earlier time.
+
 ## 0.19.0
 
 - The DANFE Simplificado Tipo 2 (NT 2026.002 v1.11, NT 2026.003): an NF-e with `nfe.print_format :simplified_type_2` (`tpImp` 6), for a counter sale an NFC-e would cover, gets the NFC-e's QR code version 3 in `infNFeSupl`, at the NFC-e's addresses of its state, and `invoice.qr_code`, `consult_url` and the same on `SignedInvoice` and `AuthorizationResult`. It defaults to a final consumer (`indFinal` 1), whose IE it keeps, and in homologação to the first item's description RV I04-10 requires. `nfe.contingency :offline` issues it off-line (`tpEmis` 9), its QR code signed with the client's certificate. `Nfe::Client#sign` adds `infNFeSupl` to one handed in unsigned and refuses one signed without it (394), but a note of the Regime Especial NFF.
