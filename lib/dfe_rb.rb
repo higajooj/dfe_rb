@@ -37,6 +37,7 @@ module DfeRb
 end
 
 require_relative "dfe_rb/errors"
+require_relative "dfe_rb/deprecation"
 require_relative "dfe_rb/environment"
 require_relative "dfe_rb/tax_id"
 require_relative "dfe_rb/certificate"

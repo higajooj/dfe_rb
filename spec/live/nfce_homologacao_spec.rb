@@ -126,8 +126,12 @@ RSpec.describe "NFC-e against SEFAZ homologacao", live: true do
       registered(cancellation)
       expect(client.consult(signed.key)).to be_canceled
 
-      unused = client.inutilize(series: 1, from: base_number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
-      expect(unused).to be_approved, "#{unused.code} #{unused.message}"
+      if DfeRb::Nfe::Retirements.inutilization_off?(uf, Time.now)
+        expect { client.inutilize(series: 1, from: base_number + 10, reason: "Inutilizacao de teste do ambiente de homologacao") }.to raise_error(DfeRb::Nfe::Unsupported)
+      else
+        unused = client.inutilize(series: 1, from: base_number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
+        expect(unused).to be_approved, "#{unused.code} #{unused.message}"
+      end
     end
 
     # The off-line note's QR code carries its parameters signed with the certificate, which

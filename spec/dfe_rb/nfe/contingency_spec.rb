@@ -1,7 +1,9 @@
 RSpec.describe "NF-e in contingency" do
   let(:transport) { NfeHelpers::FakeTransport.new }
-  let(:client) { nfe_client(transport) }
-  let(:since) { (Time.now - 3600).getlocal("-03:00") }
+  # A clock before the day the asynchronous lot ends (RV GAP03a-6), so the lot specs don't age.
+  let(:clock) { Struct.new(:now).new(Time.new(2026, 11, 16, 10, 0, 0, "-03:00")) }
+  let(:client) { nfe_client(transport, clock: clock) }
+  let(:since) { (clock.now - 3600).getlocal("-03:00") }
   let(:reason) { "SEFAZ de origem fora do ar" }
 
   def text(xml, tag) = Nokogiri::XML(xml).remove_namespaces!.at_xpath("//#{tag}")&.text

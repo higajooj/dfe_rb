@@ -167,18 +167,22 @@ documents:
     document: NT 2023.002, Emitente pessoa física na NFC-e
     kind: nt
     status: implemented
-    dfe: [nfce]
-    version: "1.01"
-    current: "1.02"
-    published: "2025-11"
-    production: "2026-02-02"
-    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfce/validator.rb]
+    dfe: [nfe, nfce]
+    version: "1.02"
+    published: "2026-10-27"
+    production: "2026-11-11"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfce/validator.rb, lib/dfe_rb/nfe/retirements.rb, lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfe/status_codes.rb, lib/dfe_rb/deprecation.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: b0cb9528bfaa6e0b5ac2986c879898eebcbb9457e97fcf0af985a00659649031
+    sha256: e375b487fdb38c0f114dbc9fd4a0b109151d0a21e1770d738f5c5f9597758202
     note: >-
-      v1.02 (2026-10-27, SHA-256 e375b487fdb38c0f114dbc9fd4a0b109151d0a21e1770d738f5c5f9597758202)
-      switches off inutilização in AC, BA and SP (production 2026-11-11, rej. 998) and ends
-      asynchronous authorization for the NF-e and the NFC-e (GAP03a-6, rej. 129, production 2027-04-05).
+      v1.02 (read in full) switches off inutilização in AC, BA and SP (Ajustes SINIEF 38/2026 and 40/2026;
+      RV I01a, rej. 998 or HTTP 404; homologação and production 2026-11-11), which Nfe::Client#inutilize
+      refuses locally (Retirements), and ends asynchronous authorization for the NF-e and the NFC-e (RV GAP03a-6,
+      rej. 129; homologação 2027-02-01, production 2027-04-05), which Nfe::Client#authorize refuses locally from
+      those days after warning until then (Deprecation). Left to SEFAZ: RV 1C17-38 now covers models 55 and 65
+      (rej. 781, the issuer's registration status), the database check 3B08-100 skips AC, BA and SP, and the
+      document's other rules (B26-30, B26-50, C02a, G04e, G06, G08) read as in v1.01, the text transcribed in the
+      legislation library. Its schema change against invalid characters names no package.
     issue: https://github.com/higajooj/dfe_rb/issues/11
   - id: nt-2023.003
     document: NT 2023.003, CFOP na NFC-e
@@ -277,6 +281,9 @@ documents:
     implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/supplement.rb, lib/dfe_rb/nfe/invoice.rb, lib/dfe_rb/nfe/client.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 2ef826027e0e8423ba9dc2f53ee7197f8bfdcc399a30459b72da977528600f13
+    note: >-
+      §4.3.2 (Tabela 2, 8th parameter, and its model URL) writes the off-line signature as raw
+      standard Base64, `+`, `/` and `=` included; the gem does the same (issue 4).
   - id: nt-2026.004
     document: NT 2026.004, Schema da NF-e e da NFC-e para o CNPJ alfanumérico
     kind: nt
@@ -680,6 +687,9 @@ documents:
 
 # What the gem is waiting for: announced, or left open by a published document, but not yet law.
 awaiting:
+  - what: Homologação evidence that a state's consultation page reads an off-line QR code's raw Base64 signature (`+`, `/`, `=`) as signed (MS at least, then the states clients use)
+    affects: Nfce::QrCode.offline
+    source: NT 2026.003 §4.3.2 prints it raw but says nothing of how the page decodes the query (issue 4)
   - what: The production date of RV UB12-10 (rej. 1115, IBSCBS missing on a regime normal note)
     affects: Validator::IBS_CBS_SINCE
     source: NT 2025.002 v1.53, UB12-10 Observação 2 ("implementação futura para produção")
