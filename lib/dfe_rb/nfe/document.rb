@@ -18,6 +18,13 @@ module DfeRb
       # ide/mod: "55", or "65" for an NFC-e.
       def model = text("ide/mod")
 
+      # ide/dhEmi as a Time, or nil when it is missing or isn't a date and time.
+      def issued_at
+        Time.iso8601(text("ide/dhEmi").to_s)
+      rescue ArgumentError
+        nil
+      end
+
       # Whether the note carries infNFeSupl: an NFC-e, or an NF-e printed as the DANFE
       # Simplificado Tipo 2 (tpImp 6).
       def qr_code? = Nfce::Supplement.carried_by?("mod" => model, "tpImp" => text("ide/tpImp"))
