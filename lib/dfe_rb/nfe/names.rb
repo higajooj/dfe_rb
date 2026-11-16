@@ -80,6 +80,7 @@ module DfeRb
         },
         "gCred" => {code: "cCredPresumido", rate: "pCredPresumido", amount: "vCredPresumido"},
         "NFref" => {key: "refNFe", nfe: "refNFe", cte: "refCTe"},
+        "DFeReferenciado" => {key: "chaveAcesso", item_number: "nItem"},
         "obsCont" => {field: "@xCampo", text: "xTexto"},
         "transp" => {
           freight_mode: "modFrete", mode: "modFrete", carrier: "transporta", retained_tax: "retTransp",

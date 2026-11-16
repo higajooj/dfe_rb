@@ -104,7 +104,11 @@ module DfeRb
       # receipt. Finish them with #resume.
       #
       # Notes issued in SVC contingency (tpEmis 6 or 7) go to the state's SVC, and so do
-      # #resume, #consult and #cancel for them.
+      # #resume, #consult and #cancel for them. A note that names no IE for its issuer, a
+      # contribuinte exclusivo do IBS/CBS (NT 2026.007), goes to the SVRS whatever the
+      # client's state, which alone authorizes it (RV C17-11, rej. 166); so do its #resume
+      # and the lookup of its key after a lost answer. Ask for its #consult, #cancel and
+      # #correct with `via: :svrs`, since the key doesn't tell it.
       #
       # An NFC-e or a DANFE Simplificado Tipo 2 issued on-line reaches SEFAZ within 5 minutes
       # of its dhEmi (RV B09-40, rej. 704). With `recover`, one that late is looked up first:
@@ -162,11 +166,12 @@ module DfeRb
       end
 
       # Where a key stands at SEFAZ. Asks the key's own state, or its SVC for a key issued
-      # there. `via: :home` or `via: :contingency` picks the authorizer yourself.
+      # there. `via: :home`, `via: :contingency` or `via: :svrs` (a note of an issuer without
+      # IE) picks the authorizer yourself.
       def consult(key, via: nil)
         key = AccessKey.parse(key.to_s)
         response = Response.new(call(:consult, Requests.consult(key: key, environment: environment), uf: key.state,
-          contingency: contingency?(key, via)))
+          contingency: contingency?(key, via), svrs: via == :svrs))
         protocol_xml = response.fragment("protNFe")
         protocol = protocol_xml && Protocol.parse(protocol_xml)
 
@@ -186,7 +191,7 @@ module DfeRb
         raise ArgumentError, "protocol must have 15 or 17 digits" unless protocol.match?(/\A(\d{15}|\d{17})\z/)
 
         detail = Requests.cancellation_detail(protocol: protocol, reason: justification(reason, "reason", 15..255))
-        send_event(key, "110111", 1, detail, contingency: contingency?(key, via))
+        send_event(key, "110111", 1, detail, contingency: contingency?(key, via), svrs: via == :svrs)
       end
 
       # Corrects an authorized note (Carta de Correção, evento 110110). A new correction
@@ -197,7 +202,7 @@ module DfeRb
         raise ArgumentError, "sequence must be between 1 and 20" unless (1..20).cover?(sequence)
 
         detail = Requests.correction_detail(text: justification(text, "text", 15..1000))
-        send_event(key, "110110", sequence, detail, contingency: contingency?(key, via))
+        send_event(key, "110110", sequence, detail, contingency: contingency?(key, via), svrs: via == :svrs)
       end
 
       # Declares a range of numbers as unused (inutilização).
@@ -235,8 +240,9 @@ module DfeRb
         call(service, xml, uf: uf, contingency: contingency)
       end
 
-      def endpoint(service, uf: self.uf, contingency: false)
-        Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints, contingency: contingency)
+      def endpoint(service, uf: self.uf, contingency: false, svrs: false)
+        Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints, contingency: contingency,
+          authorizer: ("SVRS" if svrs))
       end
 
       # Registers the Evento Prévio de Emissão em Contingência (110140) at the Ambiente
@@ -275,8 +281,8 @@ module DfeRb
 
       private
 
-      def call(service, xml, uf: self.uf, contingency: false)
-        transport.post(endpoint(service, uf: uf, contingency: contingency), xml)
+      def call(service, xml, uf: self.uf, contingency: false, svrs: false)
+        transport.post(endpoint(service, uf: uf, contingency: contingency, svrs: svrs), xml)
       end
 
       # Whether a request about `key` goes to the SVC. It follows the key's tpEmis (6 or 7)
@@ -285,8 +291,8 @@ module DfeRb
         case via
         when nil then States::SVC_EMISSION_TYPES.value?(AccessKey.parse(key.to_s).emission_type)
         when :contingency then true
-        when :home then false
-        else raise ArgumentError, "via must be :home or :contingency (got #{via.inspect})"
+        when :home, :svrs then false
+        else raise ArgumentError, "via must be :home, :contingency or :svrs (got #{via.inspect})"
         end
       end
 
@@ -297,6 +303,20 @@ module DfeRb
 
         kinds.first
       end
+
+      # Whether a lot goes to the SVRS, the only authorizer of a note that names no IE for its
+      # issuer (RV C17-11), unless it is one for the SVC, or the client's state is the SVRS's
+      # already. It can't mix such notes with others.
+      def svrs_lot?(signed)
+        return false if States.authorizer(uf) == "SVRS"
+
+        kinds = signed.map { |note| svrs_note?(note) }.uniq
+        raise ArgumentError, "a lot can't mix notes of an issuer without IE (the SVRS's) with others" if kinds.size > 1
+
+        kinds.first == true && !contingency_lot?(signed)
+      end
+
+      def svrs_note?(note) = Document.new(note.xml).without_state_registration?
 
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
 
@@ -428,7 +448,7 @@ module DfeRb
         sync = signed.size == 1
         lot = begin
           Response.new(call(:authorization, Requests.authorization(signed.map(&:xml), lot_id: lot_id, sync: sync),
-            contingency: contingency_lot?(signed)))
+            contingency: contingency_lot?(signed), svrs: svrs_lot?(signed)))
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
@@ -450,7 +470,7 @@ module DfeRb
       # with the receipt, to finish with #resume.
       def collect_lot(signed, receipt, polling, recover)
         answer = begin
-          wait_for_lot(receipt, polling, contingency_lot?(signed))
+          wait_for_lot(receipt, polling, contingency_lot?(signed), svrs_lot?(signed))
         rescue TransportError => e
           return signed.map { |note| (recover && recovered_quietly(note, e)) || pending(note, receipt, e) }
         end
@@ -471,12 +491,12 @@ module DfeRb
       end
 
       # Polls the lot until SEFAZ has processed it (cStat 104) or `max_wait` seconds have passed.
-      def wait_for_lot(receipt, polling, contingency)
+      def wait_for_lot(receipt, polling, contingency, svrs = false)
         @sleeper.call(polling[:wait])
         waited = polling[:wait]
         loop do
           answer = Response.new(call(:authorization_return, Requests.lot_return(receipt: receipt, environment: environment),
-            contingency: contingency))
+            contingency: contingency, svrs: svrs))
           return answer unless answer.code == StatusCodes::BATCH_PROCESSING && waited < polling[:max_wait]
 
           @sleeper.call(polling[:interval])
@@ -534,7 +554,7 @@ module DfeRb
       # Conflict when it holds a different one. A note canceled since keeps its authorization
       # protocol but reports the consult's status (101...), so it is never taken as usable.
       def recovered(note, cause:)
-        found = consult(note.key)
+        found = consult(note.key, via: (:svrs if svrs_note?(note) && !contingency?(note.key, nil)))
         return unless found.found? && found.protocol_xml
 
         if found.digest_value == note.digest_value
@@ -558,11 +578,11 @@ module DfeRb
         end
       end
 
-      def send_event(key, type, sequence, detail, contingency: false)
+      def send_event(key, type, sequence, detail, contingency: false, svrs: false)
         unsigned = Requests.event(key: key, type: type, sequence: sequence, detail: detail, environment: environment,
           at: States.now(key.state, @clock))
         signed = Signature.sign_event(unsigned, certificate)
-        register_event(key, type, sequence, signed, endpoint(:event, uf: key.state, contingency: contingency))
+        register_event(key, type, sequence, signed, endpoint(:event, uf: key.state, contingency: contingency, svrs: svrs))
       end
 
       def register_event(key, type, sequence, signed, endpoint)

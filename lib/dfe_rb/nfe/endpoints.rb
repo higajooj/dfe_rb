@@ -115,13 +115,19 @@ module DfeRb
       #
       # `overrides` maps service names to URLs that replace the built-in ones; those of the
       # SVC go under :contingency ({contingency: {authorization: "https://..."}}).
-      def resolve(uf:, environment:, service:, overrides: {}, contingency: false)
+      # `authorizer: "SVRS"` asks for that authorizer whatever the state's: the SVRS alone
+      # authorizes the note of an issuer without IE (RV C17-11, NT 2026.007).
+      def resolve(uf:, environment:, service:, overrides: {}, contingency: false, authorizer: nil)
         definition = SERVICES.fetch(service) { raise ArgumentError, "unknown service: #{service.inspect} (#{SERVICE_KEYS.join(", ")})" }
         if contingency && !CONTINGENCY_SERVICE_KEYS.include?(service)
           raise ArgumentError, "the SVC has no #{service} service (use #{CONTINGENCY_SERVICE_KEYS.join(", ")})"
         end
 
-        authorizer = contingency ? States.contingency(uf) : States.authorizer(uf)
+        authorizer = if contingency
+          States.contingency(uf)
+        else
+          authorizer || States.authorizer(uf)
+        end
         override = contingency ? overrides[:contingency]&.[](service) : overrides[service]
         url = override || url_for(authorizer, Environment.normalize(environment), service)
 

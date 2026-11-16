@@ -9,6 +9,9 @@ module DfeRb
     # mistake shows up before SEFAZ rejects the note. Only unambiguous rules are here (Anexo I
     # RVs and the NTs that amend them). Rules that depend on state tables stay with SEFAZ.
     class Validator
+      include ReferenceRules
+      include NoIeRules
+
       TOLERANCE = BigDecimal("0.01")
       # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.53), by
       # tpAmb. Homologação has rejected a note without it (1115) since 01/07/2026. In
@@ -16,9 +19,8 @@ module DfeRb
       # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
       # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
       # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
-      # yet to bring, so nothing is asked of them. Returns and complements are left out:
-      # v1.53 exempts only those referencing a note issued before 2027, which until then is
-      # every one, so the exception needs the referenced key's date from 2027 on.
+      # yet to bring, so nothing is asked of them. A return or a complement is left out unless it
+      # references only notes of 2027 on, by their keys' AAMM (ReferenceRules).
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
       PRODUCTION = "1"
       NORMAL_REGIME = "3"
@@ -92,6 +94,7 @@ module DfeRb
         check_payment
         check_billing
         check_ibs_cbs
+        check_issuer_without_ie
         check_transport_retention
         check_technical_contact
         @issues
@@ -227,6 +230,7 @@ module DfeRb
             add "#{path}/refECF: an NF-e can't reference a cupom fiscal (RV BA20-30, rej. 924)" if reference["refECF"]
           end
         end
+        check_note_references(references)
         return unless in_force?(CONSUMER_REFERENCES_BARRED_SINCE)
 
         check_consumer_references(references)
@@ -373,11 +377,12 @@ module DfeRb
           "(see DfeRb::Nfe::Tables.cfops.select(&:devolution?)) (rej. 327)"
       end
 
-      # RV I08-191 (NT 2026.007, SVRS): an issuer without IE, taxed only by IBS/CBS, may only
-      # use the CFOPs marked indExcIBSCBS, except on a return or a credit note of type 03.
+      # RV I08-191 (NT 2026.007 v1.11, SVRS): an issuer without IE, taxed only by IBS/CBS, may
+      # only use the CFOPs marked indExcIBSCBS, except on a return or a credit note of type
+      # 03; from the day v1.11 gives (NoIeRules::NO_IE_RULES_SINCE).
       def check_ibs_cbs_only_cfop(where, row)
         emit = @inf["emit"] or return
-        return unless emit["IE"].to_s.empty?
+        return unless emit["IE"].to_s.empty? && in_force?(NO_IE_RULES_SINCE)
         return if row.ibs_cbs_only?
         return if @ide["finNFe"].to_s == "4" || credit_note_type == "03"
 
@@ -800,10 +805,12 @@ module DfeRb
 
       # Every item of a regime normal issuer must carry IBS/CBS (RV UB12-10). It is a rejection
       # in homologação and only the law's requirement in production. A devolução (finNFe 4) is
-      # exempt, and so is a complementar note that references a note issued before 2027. The
-      # gem can't tell that case apart, so it skips finNFe 2 and leaves it to SEFAZ.
+      # exempt, and so is a complementar note (finNFe 2), when it references a note issued
+      # before 2027 (exception 1, NT 2025.002 v1.53), which the AAMM of the referenced key,
+      # in the header or on the items, tells (ReferenceRules). From 2027 one that references
+      # only notes of 2027 on carries the group.
       def check_ibs_cbs
-        return if %w[2 4].include?(@ide["finNFe"].to_s)
+        return if %w[2 4].include?(@ide["finNFe"].to_s) && !references_only_from_ibs_cbs_year?
         return unless @inf.dig("emit", "CRT").to_s == NORMAL_REGIME
 
         since = IBS_CBS_SINCE[@ide["tpAmb"].to_s]
