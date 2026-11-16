@@ -61,10 +61,11 @@ module DfeRb
           "a return of several notes names each on its items (det/DFeReferenciado)"
       end
 
-      # RV VC02-14 (rej. 321): a return with no key in the header names it on every item,
+      # RV VC02-14 (rej. 321): a return with no NF-e key in the header (refNFe) names it on every item,
       # but for the CFOPs 5921 and 6921.
       def check_return_item_references(references)
-        return unless @ide["finNFe"].to_s == "4" && references.empty? && in_force?(RETURN_REFERENCE_SINCE)
+        return unless @ide["finNFe"].to_s == "4" && in_force?(RETURN_REFERENCE_SINCE)
+        return if references.any? { |reference| reference.is_a?(Hash) && (reference["refNFe"] || reference["refNFeSig"]) }
 
         Array(@inf["det"]).each_with_index do |item, index|
           next if item["DFeReferenciado"] || UNREFERENCED_RETURN_CFOPS.include?(item.dig("prod", "CFOP").to_s)

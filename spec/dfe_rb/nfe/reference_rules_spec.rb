@@ -59,6 +59,13 @@ RSpec.describe DfeRb::Nfe::ReferenceRules do
       ])
     end
 
+    it "doesn't take a CT-e in the header for the NF-e VC02-14 asks for" do
+      cte = {"refCTe" => "35260911444777000161570010000000011000000019"}
+
+      expect(issues_of(references: [cte]).size).to eq(1)
+      expect(issues_of(references: [{"refNFeSig" => key_2026}])).to eq([])
+    end
+
     it "leaves the items of CFOP 5921 and 6921 out of it (NT 2013/005)" do
       expect(issues_of(cfop: "5921")).to eq([])
       expect(issues_of(cfop: "6921")).to eq([])

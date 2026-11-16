@@ -60,6 +60,17 @@ RSpec.describe DfeRb::Nfe::Client do
     expect(transport.calls).to be_empty
   end
 
+  it "lets such notes share a lot with others where the client's state is the SVRS's already" do
+    es = nfe_client(transport, uf: "ES")
+    note = es.sign(no_ie_invoice)
+    other = es.sign(simples_invoice(es, number: 9))
+    transport.answer(:authorization, ret_env_nfe)
+    transport.answer(:authorization_return, ret_cons_reci_nfe([prot_nfe(note.key), prot_nfe(other.key)]))
+
+    expect(es.authorize([note, other])).to all(be_authorized)
+    expect(transport.calls_to(:authorization).map(&:url)).to eq(["#{svrs}NfeAutorizacao/NFeAutorizacao4.asmx"])
+  end
+
   it "looks the key up at the SVRS after a lost answer" do
     transport.answer(:authorization, DfeRb::TransportError.new("ReadTimeout", maybe_processed: true))
     transport.answer(:consult, ->(_xml) { ret_cons_sit_nfe(no_ie.key, protocol_xml: prot_nfe(no_ie.key, digest: no_ie.digest_value)) })

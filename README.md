@@ -746,7 +746,7 @@ The validator checks what the notes' own data says (the others go to SEFAZ, belo
 - the same key and item twice (VC02-20, rej. 1072) is checked once the NT dates it: `ReferenceRules::DUPLICATE_ITEM_REFERENCE_SINCE` is empty because v1.53 says "implementação futura". The same key on several items without `nItem` isn't a duplicate here, though the rule's observation reads so: it would refuse every return of several items of one note that leaves `nItem` out, which v1.53 allows.
 - from 2027 a return or a complement that references only notes of 2027 on carries IBS/CBS (UB12-10's exception 1). The gem reads each key's AAMM, in the header and on the items. When the notes are of both years, or none can be read (a paper note), it asks nothing and SEFAZ judges.
 
-Left to SEFAZ, because they consult its database: that the referenced note exists (3BA02-10, rej. 267), the return's total, ICMS and FCP against the notes returned (3BA02-50 to 3BA02-68, rej. 545, 546, 566, 567, 581), that the referenced note's recipient is the return's issuer (VC02-50, rej. 1194, which needs the referenced note's direction) and the `nItem` that VC03-20 (rej. 1048) will require, "implementação futura", without the exception for a return that v1.53 announces.
+Left to SEFAZ, because they consult its database: that the referenced note exists (3BA02-10, rej. 267), the return's total, ICMS and FCP against the notes returned (3BA02-50 to 3BA02-68, rej. 545, 546, 566, 567, 581), that the issuer of a referenced exit note is the return's recipient (VC02-50, rej. 1194, which needs the referenced note's direction) and the `nItem` that VC03-20 (rej. 1048) will require, "implementação futura", without the exception for a return that v1.53 announces.
 
 ### An issuer without IE
 

@@ -278,8 +278,11 @@ module DfeRb
       end
 
       # Whether a lot goes to the SVRS, the only authorizer of a note that names no IE for its
-      # issuer (RV C17-11), unless it is one for the SVC. It can't mix such notes with others.
+      # issuer (RV C17-11), unless it is one for the SVC, or the client's state is the SVRS's
+      # already. It can't mix such notes with others.
       def svrs_lot?(signed)
+        return false if States.authorizer(uf) == "SVRS"
+
         kinds = signed.map { |note| svrs_note?(note) }.uniq
         raise ArgumentError, "a lot can't mix notes of an issuer without IE (the SVRS's) with others" if kinds.size > 1
 
