@@ -732,9 +732,15 @@ documents:
 
 # What the gem is waiting for: announced, or left open by a published document, but not yet law.
 awaiting:
-  - what: Homologação evidence that a state's consultation page reads an off-line QR code's raw Base64 signature (`+`, `/`, `=`) as signed (MS at least, then the states clients use)
+  - what: Homologação evidence that a state's consultation page reads an off-line QR code's raw Base64 signature (`+`, `/`, `=`) as signed, at a state whose page checks it. MS (16/11/2026) shows the note from the raw, the percent-encoded and a tampered signature alike, so its page doesn't check the signature and proves nothing either way
     affects: Nfce::QrCode.offline
     source: NT 2026.003 §4.3.2 prints it raw but says nothing of how the page decodes the query (issue 4)
+  - what: BA's homologação still inutilizes a number (cStat 102 on 16/11/2026), where NT 2023.002 v1.02 retires the service since 11/11/2026; AC and SP answer 998. The gem refuses it locally in all three, as the Ajustes SINIEF 38/2026 and 40/2026 say
+    affects: Nfe::Retirements.inutilization_off?
+    source: NT 2023.002 v1.02, RV I01a (issue 24)
+  - what: The SVRS's homologação for an issuer without IE (16/11/2026). It authorizes the note of an issuer of SP, but answers 584 to one of MS (a state of the SVC-RS, which shares its address) and 410 to one of RS, and 410 to the consult and the events of the SP note (1P10-40), so such a note can't be consulted or canceled there yet
+    affects: Nfe::Client (svrs routing), Endpoints.resolve
+    source: NT 2026.007 v1.11, RV C17-11, B02-10, C12-10, P12-40 and 1P10-40 (issue 24)
   - what: The production date of RV UB12-10 (rej. 1115, IBSCBS missing on a regime normal note)
     affects: Validator::IBS_CBS_SINCE
     source: NT 2025.002 v1.53, UB12-10 Observação 2 ("implementação futura para produção")
