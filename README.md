@@ -767,7 +767,7 @@ What SEFAZ stops accepting stays in the gem until it stops, and warns until then
 | `Nfe::Client#resume`, the receipt query (`:authorization_return`, `Requests.lot_return`) | It collects an asynchronous lot's answer, and no lot is accepted | Works, with a notice, for a lot accepted before the day above | Nothing issues a receipt; SEFAZ may stop answering old ones |
 | `inutilize` in AC, BA and SP | Ajustes SINIEF 38/2026 and 40/2026, RV I01a (rej. 998) | Sent until 11/11/2026 | Raises `Unsupported` before sending (this one is not a warning: the service is gone) |
 
-The lot (`authorize` with an Array), `resume` and `Requests.lot_return` are removed in a release after 05/04/2027, once SEFAZ no longer answers old receipts. The CHANGELOG announces it first, and a release that removes them says so.
+The lot (`authorize` with an Array of two or more notes), `resume` and `Requests.lot_return` are removed in a release after 05/04/2027, once SEFAZ no longer answers old receipts. The CHANGELOG announces it first, and a release that removes them says so.
 
 ## Testing
 
