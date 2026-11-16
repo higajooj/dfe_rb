@@ -210,16 +210,23 @@ documents:
     version: "1.53"
     published: "2026-10-30"
     production: "2026-11-16"
-    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/calculator.rb, lib/dfe_rb/nfe/totals.rb, lib/dfe_rb/nfe/rates.rb, lib/dfe_rb/nfce/validator.rb]
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/reference_rules.rb, lib/dfe_rb/nfe/calculator.rb, lib/dfe_rb/nfe/totals.rb, lib/dfe_rb/nfe/rates.rb, lib/dfe_rb/nfce/validator.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: d62445d7429806b0403b44818e252fea16107794319a029ac7025017e5f4e34c
     attachments:
       - {file: NT_2025.002_v1.51_RTC.pdf, sha256: a4aaaa181522b43cd90b502f8ccb9e4bdabea30fed838e2d0790be5ba77254a4}
     note: >-
-      The rules were read at v1.51 and checked against v1.53. v1.52 and v1.53 changed UB12-10,
-      VC02-14 to VC02-50, VC03-20, 3BA02-50 to 3BA02-68 and B25-40. Of those the gem checks
-      only UB12-10, whose return exception it applies to every return; from 2027 it needs
-      the referenced note's date. UB12-10 still has no production date ("implementação futura").
+      The rules were read at v1.51 and checked against v1.53 (SHA-256 above, read in full
+      for UB12-10, B25-40 and the VC and 3BA02 groups). v1.52 and v1.53 changed UB12-10,
+      VC02-14 to VC02-50, VC03-20, 3BA02-50 to 3BA02-68 and B25-40: a return references its
+      note in the header (one key) or on its items, never both. Checked here, from the days
+      the NT dates them (ReferenceRules): B25-40 (255), VC02-05 and VC02-14 (1010, 321),
+      VC02-30 (1130), VC02-40 (1193) and UB12-10's exception 1, which reads the referenced
+      key's AAMM. VC02-20 (1072) is written but waits for a date ("implementação futura").
+      Left to SEFAZ: 3BA02-50 to 3BA02-68 (the referenced notes' totals), VC02-50 (the
+      referenced note's direction) and VC03-20 (nItem; "implementação futura", with no
+      exception yet for the return whose nItem v1.53 made optional). UB12-10 still has no
+      production date ("implementação futura").
     issue: https://github.com/higajooj/dfe_rb/issues/16
   - id: nt-2026.001
     document: NT 2026.001, Programa de Aquisição de Alimentos (PAA) na NF-e
@@ -673,9 +680,12 @@ awaiting:
   - what: The 2027 and 2028 CBS rates, and every rate from 2029
     affects: Rates::IBS_CBS
     source: IT 2025.002 v1.71 §05 ("Aguardar Legislação")
-  - what: The return and complement exception of UB12-10 from 2027, which needs the referenced note's issue date
-    affects: Validator#check_ibs_cbs
-    source: NT 2025.002 v1.53, UB12-10 Exceção 1 (issue 16)
+  - what: The date of RV VC02-20 (rej. 1072, the same key and item referenced twice; "implementação futura", for both environments)
+    affects: ReferenceRules::DUPLICATE_ITEM_REFERENCE_SINCE
+    source: NT 2025.002 v1.53, VC02-20 Observação 2 (issue 16)
+  - what: RV VC03-20 (rej. 1048, nItem of DFeReferenciado required; "implementação futura") and the exception for a return, whose nItem v1.53 made optional
+    affects: ReferenceRules
+    source: NT 2025.002 v1.53, VC03-20 and the version table (issue 16)
   - what: The day each cCredPres starts for each tax (all in 2027 or 2029; cCredPres 08's IBS start is blank on the SVRS page)
     affects: Tables::PresumedCredit#valid_on?
     source: IT 2025.002 v1.71 cCredPres table

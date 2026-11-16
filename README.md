@@ -156,7 +156,7 @@ DfeRb::Nfe::Rates.ipi_applies?(2027, zfm_product: false)                       #
 DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
 ```
 
-The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except returns (RV UB12-10, NT 2025.002 v1.53). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. Nothing is asked of the Simples Nacional and the MEI, who fill it from 2027 under rules an NT has yet to bring. The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
+The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except a return or a complement that references a note issued before 2027 (RV UB12-10, NT 2025.002 v1.53; the date is the AAMM of the referenced key, see [What a return references](#what-a-return-references)). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. Nothing is asked of the Simples Nacional and the MEI, who fill it from 2027 under rules an NT has yet to bring. The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 
@@ -726,6 +726,28 @@ An item's IBS/CBS codes are checked against the tables of IT 2025.002 (NT 2025.0
 
 The carrier required on fuel sales with `indComb` 2 (X04-10) is left to SEFAZ: it depends on a list of ANP product codes the gem doesn't ship.
 
+### What a return references
+
+NT 2025.002 v1.53 lets a return (`purpose :return`, `finNFe` 4) reference the note it returns in the header or on its items. Reference it in the header with `nfe.reference key: "..."`, once, or on each item with `i.referenced_dfe key: "...", item_number: 2` (`chaveAcesso` and `nItem`, which is optional):
+
+```ruby
+nfe.purpose :return
+nfe.item do |i|
+  i.cfop "6202"
+  i.referenced_dfe key: sale_key, item_number: 1   # the item of the note it returns
+end
+```
+
+The validator checks what the notes' own data says (the others go to SEFAZ, below):
+
+- a return carries one header key at most, and so do a complement and the credit notes of types 01, 03 and 04 (B25-40, rej. 255; for a return from 09/11/2026 in homologação and 16/11/2026 in production). A return of several notes names each on its items.
+- a return references its note, in the header or on every item but those of CFOP `5921` and `6921` (VC02-14, rej. 321; from 01/09/2026 in homologação and 03/11/2026 in production), and never in both (VC02-05 and VC02-14's observation, rej. 1010, from the same days).
+- the items of a note reference one document, but for a return and the debit notes 03 and 07 (VC02-30, rej. 1130), and the items of a return one issuer, by its CNPJ base or CPF (VC02-40, rej. 1193; both from 09/11/2026 and 16/11/2026). The issuer of a Nota Fiscal Avulsa, whose key carries SEFAZ's CNPJ, isn't compared.
+- the same key and item twice (VC02-20, rej. 1072) is checked once the NT dates it: `ReferenceRules::DUPLICATE_ITEM_REFERENCE_SINCE` is empty because v1.53 says "implementação futura". The same key on several items without `nItem` isn't a duplicate here, though the rule's observation reads so: it would refuse every return of several items of one note that leaves `nItem` out, which v1.53 allows.
+- from 2027 a return or a complement that references only notes of 2027 on carries IBS/CBS (UB12-10's exception 1). The gem reads each key's AAMM, in the header and on the items. When the notes are of both years, or none can be read (a paper note), it asks nothing and SEFAZ judges.
+
+Left to SEFAZ, because they consult its database: that the referenced note exists (3BA02-10, rej. 267), the return's total, ICMS and FCP against the notes returned (3BA02-50 to 3BA02-68, rej. 545, 546, 566, 567, 581), that the referenced note's recipient is the return's issuer (VC02-50, rej. 1194, which needs the referenced note's direction) and the `nItem` that VC03-20 (rej. 1048) will require, "implementação futura", without the exception for a return that v1.53 announces.
+
 ## Advanced
 
 ```ruby
@@ -792,7 +814,7 @@ Edited by hand:
 | XSD packages | `lib/dfe_rb/xml/schemas` (copied unchanged; versions listed in its `README.md`) | Portal Nacional da NF-e, "Esquemas XML" | each schema package (`PL_010...`), usually with an NT |
 | English names of new fields | `lib/dfe_rb/nfe/names.rb` | the new schema package | with the XSDs |
 | Validation and derivation rules | `validator.rb`, `calculator.rb`, `totals.rb`, `resolver.rb` (each rule cites its RV and NT) | Anexo I of the MOC and the NTs | each NT; "Legislation" above names the last one applied |
-| Dates a rule starts | `Validator::IBS_CBS_SINCE`, `PAPER_REFERENCES_BARRED_SINCE`, `CONSUMER_REFERENCES_BARRED_SINCE` | NT 2025.002, NT 2026.002 and their successors | an NT moves a date |
+| Dates a rule starts | `Validator::IBS_CBS_SINCE`, `PAPER_REFERENCES_BARRED_SINCE`, `CONSUMER_REFERENCES_BARRED_SINCE`, `ReferenceRules::RETURN_REFERENCE_SINCE`, `REFERENCE_RULES_SINCE`, `DUPLICATE_ITEM_REFERENCE_SINCE` | NT 2025.002, NT 2026.002 and their successors | an NT moves a date |
 | States barred from the EPEC | `States::EPEC_BARRED` | NT 2014.001 (RV 2P10-20) | an Ajuste SINIEF adds or removes a state |
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
 | IBS/CBS standard rates by year | `Rates::IBS_CBS`, and the CBS reference rate of 2027 and 2028 in `Rates::CBS_REFERENCE` (less `CBS_TRANSITION_DISCOUNT`); nothing after 2028 | IT 2025.002 §05, the Senate's resolution or the TCU's rate (LC 214/2025, art. 349), and the laws that set each year's rates | yearly, before the first issue of the year; for 2027, on 22/12/2026 at the latest |

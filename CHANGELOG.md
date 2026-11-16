@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- How a return references its note (NT 2025.002 v1.53): `DfeRb::Nfe::ReferenceRules` checks that a return carries one header key (B25-40, rej. 255, from 09/11/2026 in homologação and 16/11/2026 in production; a complement and the credit notes 01, 03 and 04 always did), references its note in the header or on every item but those of CFOP 5921 and 6921 (VC02-14, 321, from 01/09 and 03/11/2026) and never in both (VC02-05, 1010), that the items of a note reference one document (VC02-30, 1130) and the items of a return one issuer (VC02-40, 1193). VC02-20 (1072, a key and item referenced twice) is written but waits for a date, `ReferenceRules::DUPLICATE_ITEM_REFERENCE_SINCE`, which the NT leaves at "implementação futura". The items of a return take `i.referenced_dfe key: "...", item_number: 1`. The README has a section on them.
+- From 2027, UB12-10's exception for a return or a complement reads the AAMM of the notes it references, in the header and on the items: one that references only notes of 2027 on needs IBS/CBS on a regime normal note (it used to be exempt whatever it referenced). When the notes are of both years, or none can be read, it stays exempt and SEFAZ judges.
+- The manifest says which rules of v1.52 and v1.53 the gem leaves to SEFAZ: 3BA02-50 to 3BA02-68, VC02-50 and VC03-20.
+
 ## 0.19.0
 
 - The DANFE Simplificado Tipo 2 (NT 2026.002 v1.11, NT 2026.003): an NF-e with `nfe.print_format :simplified_type_2` (`tpImp` 6), for a counter sale an NFC-e would cover, gets the NFC-e's QR code version 3 in `infNFeSupl`, at the NFC-e's addresses of its state, and `invoice.qr_code`, `consult_url` and the same on `SignedInvoice` and `AuthorizationResult`. It defaults to a final consumer (`indFinal` 1), whose IE it keeps, and in homologação to the first item's description RV I04-10 requires. `nfe.contingency :offline` issues it off-line (`tpEmis` 9), its QR code signed with the client's certificate. `Nfe::Client#sign` adds `infNFeSupl` to one handed in unsigned and refuses one signed without it (394), but a note of the Regime Especial NFF.
