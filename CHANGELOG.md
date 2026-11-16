@@ -8,6 +8,7 @@
 - `StatusCodes::SYNCHRONOUS_REQUIRED` (129) and `SERVICE_OFF` (998), `Nfe::Document#issued_at`.
 - RV 1C17-38 (rej. 781) now covers models 55 and 65, and 3B08-100 skips AC, BA and SP: both are SEFAZ's checks, nothing local. The NT's schema change against invalid characters names no package.
 - The specs' test certificates start in 2020 instead of a minute before the wall clock, which failed the specs that travel to an earlier time.
+- The off-line NFC-e QR code's signature (`Nfce::QrCode.offline`) stays raw standard Base64, `+`, `/` and `=` included, as NT 2026.003 §4.3.2 (Tabela 2, 8th parameter, and its model URL) prints it; the code cites it, and a spec covers a signature holding all three. `QrCode.parse` and `signed_by?` now also read one a URL encoder touched (percent-encoded, `+` turned into spaces, or URL-safe Base64, padded or not), so a note's QR code printed in any of those forms still verifies. `QrCode.normalize_signature` does it. Whether each state's consultation page decodes the raw `+` is still to be confirmed in homologação (issue 4).
 
 ## 0.19.0
 
