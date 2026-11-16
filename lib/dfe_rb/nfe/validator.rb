@@ -18,9 +18,10 @@ module DfeRb
       # production the rule has no date yet ("implementação futura"; v1.51 struck out
       # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
       # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
-      # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
-      # yet to bring, so nothing is asked of them. A return or a complement is left out unless it
-      # references only notes of 2027 on, by their keys' AAMM (ReferenceRules).
+      # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348), and NT 2026.005 says
+      # how (check_simples_ibs_cbs) but gives no rule for its absence, so nothing is asked of
+      # them. A return or a complement is left out unless it references only notes of 2027 on,
+      # by their keys' AAMM (ReferenceRules).
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
       PRODUCTION = "1"
       NORMAL_REGIME = "3"
@@ -77,6 +78,38 @@ module DfeRb
       # The CFOPs of a note issued for a sale a cupom fiscal covered (I08-180).
       RETAIL_DOCUMENT_CFOPS = %w[5929 6929].freeze
 
+      # NT 2026.008 (v1.01): when the rules on the net value (I11c-20, W01a-10, W01a-20) and on the
+      # ICMS of an advance payment (NB01-10, NB01-20) apply, by tpAmb. Homologação by 26/10/2026;
+      # production moved from 16/11 to 14/12/2026 by the Portal's aviso of 13/11/2026. NB01-30 has
+      # its own, later dates (01/02/2027 in homologação, 01/03/2027 in production). I11c-10
+      # (vProdLiq required) is "implementação futura" and not checked.
+      NET_VALUE_RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+      PREPAID_ICMS_REQUIRED_SINCE = {"2" => Time.new(2027, 2, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2027, 3, 1, 0, 0, 0, "-03:00")}.freeze
+      # tpOperGov 4: receipt of a payment with a later supply (NB01-20, NB01-30).
+      ADVANCE_PAYMENT_OPERATION = "4"
+      # tpNFDebito 06, the debit note of an advance payment (B25-80, NB01), and 07, of a loss in stock.
+      ADVANCE_PAYMENT_DEBIT_NOTE = "06"
+      STOCK_LOSS_DEBIT_NOTE = "07"
+      # The groups a debit or credit note may not carry (RV B25-80); it is IBS/CBS only.
+      IBS_CBS_ONLY_BARRED_GROUPS = %w[ICMS ISSQN IPI II PIS PISST COFINS COFINSST ICMSUFDest].freeze
+      CONTRIBUTION_GROUPS_OF_2026 = %w[PIS PISST COFINS COFINSST].freeze
+
+      # NT 2026.005 v1.00 (the Simples Nacional's IBS and CBS): when its rules apply, by tpAmb.
+      # Homologação by 26/10/2026; production moved from 16/11 to 14/12/2026 by the Portal's aviso
+      # of 13/11/2026.
+      SIMPLES_IBS_CBS_RULES_SINCE = SimplesIbsCbs::RULES_SINCE
+      # The notes whose IBSCBS mirrors the supply note they refer to (NT 2026.005 §2.4), issued
+      # perhaps under another regime than the issuer's today: a return, the credit notes 03 and 06
+      # and the debit note 09.
+      MIRROR_CREDIT_NOTES = %w[03 06].freeze
+      MIRROR_DEBIT_NOTE = "09"
+
+      # NT 2026.006 v1.01 (the link to the payment transaction, YC): when its rules apply, by
+      # tpAmb. Homologação by 26/10/2026; production moved from 03/11 to 16/11 and then to
+      # 14/12/2026 by the Portal's aviso of 13/11/2026. Nothing asks for the group in production
+      # in 2026: it is for the split payment, expected from 2027.
+      PAYMENT_LINK_RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
         @inf = infnfe
@@ -92,6 +125,7 @@ module DfeRb
         Array(@inf["det"]).each_with_index { |item, index| check_item(item, index + 1) }
         check_totals
         check_payment
+        check_payment_links
         check_billing
         check_ibs_cbs
         check_issuer_without_ie
@@ -297,13 +331,111 @@ module DfeRb
           add "#{where}/prod/vDesc: the discount exceeds the item value (rej. 483)"
         end
 
+        check_net_value(where, prod)
+        check_simples_ibs_cbs(where, item)
         check_item_cfop(where, item)
+        check_ibs_cbs_only_purpose(where, item)
+        check_prepaid_icms(where, item)
         check_gtin("#{where}/prod/cEAN", prod["cEAN"])
         check_gtin("#{where}/prod/cEANTrib", prod["cEANTrib"])
         check_manufacturer(where, prod)
         check_cest(where, item, prod)
         check_icms(where, item)
         check_item_taxes(where, item)
+      end
+
+      # NT 2026.005 §2.1 to §2.3: what the issuer's regime lets its item carry of the IBS and the
+      # CBS (SimplesIbsCbs). The NT gives these as a table, with no rejection code. A MEI (CRT 4)
+      # carries no IBSCBS at all; tpRegimeIBSCBS is given only where the table names it; cAtivSN
+      # only by an optante or one whose option is pending; and gIBSCBS and the groups of gTribSN
+      # are left out where the table says "não informar". What the table says to "informar" is
+      # left to SEFAZ, which publishes no rule for it, and so is a note whose IBSCBS mirrors a
+      # supply (§2.4: returns and refusals), which may carry the regime the supply had.
+      def check_simples_ibs_cbs(where, item)
+        return unless in_force?(SIMPLES_IBS_CBS_RULES_SINCE)
+
+        ibscbs = item.dig("imposto", "IBSCBS")
+        # CST 620 (monophase fuels) fills gIBSCBSMono and no gTribSN, whoever the issuer is.
+        if ibscbs && ibscbs["gTribSN"] && ibscbs["CST"].to_s == "620"
+          add "#{where}/imposto/IBSCBS/gTribSN: not informed with CST 620, monophase fuel taxation (NT 2026.005 §2.3)"
+        end
+        layout = SimplesIbsCbs.layout(@inf["emit"]) or return
+        add "emit/tpRegimeIBSCBS: #{layout.problem}" if layout.problem
+        if item.dig("prod", "cAtivSN") && !layout.activity
+          add "#{where}/prod/cAtivSN: only a Simples Nacional issuer, or one whose option for it is pending (tpRegimeIBSCBS 2, 3 or 4), informs it (NT 2026.005 §2.2)"
+        end
+        return if ibscbs.nil? || mirror_note?
+
+        if layout.mei
+          add "#{where}/imposto/IBSCBS: a MEI (CRT 4) doesn't inform the IBS/CBS group (NT 2026.005 §2.3)"
+          return
+        end
+        return if layout.problem
+
+        path = "#{where}/imposto/IBSCBS"
+        add "#{path}/gIBSCBS: not informed by a Simples Nacional issuer without the regular regime of the IBS and the CBS (NT 2026.005 §2.3)" if layout.main == false && ibscbs["gIBSCBS"]
+        simples = ibscbs["gTribSN"] or return
+        if layout.ibs_sn == false && layout.cbs_sn == false
+          add "#{path}/gTribSN: not informed with this regime (NT 2026.005 §2.3)"
+        else
+          add "#{path}/gTribSN/gIBSSN: not informed with this regime (NT 2026.005 §2.3)" if layout.ibs_sn == false && simples["gIBSSN"]
+          add "#{path}/gTribSN/gCBSSN: not informed with this regime (NT 2026.005 §2.3)" if layout.cbs_sn == false && simples["gCBSSN"]
+        end
+      end
+
+      def mirror_note?
+        @ide["finNFe"].to_s == "4" || MIRROR_CREDIT_NOTES.include?(credit_note_type) || debit_note_type == MIRROR_DEBIT_NOTE
+      end
+
+      # RV I11c-20 (NT 2026.008): on a normal note, vProdLiq is the net unit price x the quantity.
+      def check_net_value(where, prod)
+        return unless in_force?(NET_VALUE_RULES_SINCE) && @ide["finNFe"].to_s == "1"
+        return if prod["vProdLiq"].nil? || prod["vUnComLiq"].nil?
+
+        check_amount("#{where}/prod/vProdLiq", prod["vProdLiq"], Totals.net_item_amount(prod), "net unit price x quantity", 1279)
+      end
+
+      # RV B25-80 (NT 2025.002 v1.53, exceções 2 to 4 with NT 2026.008): a debit or credit note, or
+      # the receipt of a payment (tpOperGov 2), is for the IBS and the CBS only, whatever the item
+      # carries of the other taxes. The credit notes of a refusal or a reduction (03, 04, 06) and
+      # the debit note of a loss in stock (07) are left out. A debit note of an advance payment (06)
+      # may carry the IPI, the ICMS expected at the supply (NB01) and, in 2026, PIS and COFINS.
+      def check_ibs_cbs_only_purpose(where, item)
+        return if nfce?
+        return unless %w[5 6].include?(@ide["finNFe"].to_s) || @ide.dig("gCompraGov", "tpOperGov").to_s == "2"
+        return if DEVOLUTION_CREDIT_NOTES.include?(credit_note_type) || debit_note_type == STOCK_LOSS_DEBIT_NOTE
+
+        imposto = item["imposto"] || {}
+        prepaid = debit_note_type == ADVANCE_PAYMENT_DEBIT_NOTE
+        found = IBS_CBS_ONLY_BARRED_GROUPS.select { |tag| imposto[tag] }
+        found << "impostoDevol" if item["impostoDevol"]
+        found.each do |tag|
+          next if prepaid && tag == "IPI"
+          next if prepaid && tag == "ICMS" && imposto["ICMS"].keys == [Sugar::PREPAID_ICMS]
+          next if prepaid && CONTRIBUTION_GROUPS_OF_2026.include?(tag) && (issued_at.nil? || issued_at.year <= 2026)
+
+          add "#{where}/#{(tag == "impostoDevol") ? tag : "imposto/#{tag}"}: a debit or credit note carries IBS and CBS only (RV B25-80, rej. 1001)"
+        end
+      end
+
+      # RV NB01-10, NB01-20 and NB01-30 (NT 2026.008): the ICMS expected at the supply of an advance
+      # payment goes on an NF-e of a debit note of type 06 or of tpOperGov 4, on every item, and on
+      # no other note, an NFC-e least of all. Its absence is flagged from NB01-30's own date.
+      def check_prepaid_icms(where, item)
+        group = item.dig("imposto", "ICMS", Sugar::PREPAID_ICMS)
+        advance = debit_note_type == ADVANCE_PAYMENT_DEBIT_NOTE || @ide.dig("gCompraGov", "tpOperGov").to_s == ADVANCE_PAYMENT_OPERATION
+        path = "#{where}/imposto/ICMS/#{Sugar::PREPAID_ICMS}"
+        if group
+          return unless in_force?(NET_VALUE_RULES_SINCE)
+
+          if nfce?
+            add "#{path}: an NFC-e can't carry the ICMS expected at the supply of an advance payment (RV NB01-10, rej. 1280)"
+          elsif !advance
+            add "#{path}: only a debit note of type 06 (tpNFDebito) or tpOperGov 4 carries it (RV NB01-20, rej. 1280)"
+          end
+        elsif advance && !nfce? && in_force?(PREPAID_ICMS_REQUIRED_SINCE)
+          add "#{path}: required on an advance payment (tpNFDebito 06 or tpOperGov 4), 0.00 if no ICMS falls at the supply (RV NB01-30, rej. 1281)"
+        end
       end
 
       # The rules that consult the CFOP table (IT 2023.002). An unknown CFOP is reported
@@ -440,6 +572,8 @@ module DfeRb
 
       def credit_note_type = @ide["tpNFCredito"].to_s.rjust(2, "0")
 
+      def debit_note_type = @ide["tpNFDebito"].to_s.rjust(2, "0")
+
       def nfce? = @ide["mod"].to_s == "65"
 
       # Whether the note references an NF-e issued before 2016 (the key's year digits,
@@ -528,6 +662,8 @@ module DfeRb
         check_ibs_cbs_codes(where, item, imposto["IBSCBS"])
         check_ibs_cbs_item(where, imposto["IBSCBS"])
         return unless item["vItem"] && issued_at
+        # VB01-10 and VB01-20, exceção 2 (NT 2026.008 v1.01): not on an import.
+        return if item.dig("prod", "CFOP").to_s.start_with?("3")
 
         check_amount("#{where}/vItem", item["vItem"], Totals.item_amount(item, issued_at.year),
           "the sum of the values that make it up", 1105)
@@ -672,7 +808,9 @@ module DfeRb
         year = issued_at.year
         # As the XML writes it: 4 places at most.
         given = Calculator.percentage(sphere[rate_tag])
-        expected = (rate_tag == "pCBS" && sphere["gALCZFMCBS"]) ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
+        # The CBS of an excess of the sublimit is in gTribSN: gIBSCBS carries it at zero (NT 2026.005 §2.3).
+        zero_cbs = rate_tag == "pCBS" && (sphere["gALCZFMCBS"] || (in_force?(SIMPLES_IBS_CBS_RULES_SINCE) && SimplesIbsCbs.layout(@inf["emit"])&.zero_cbs))
+        expected = zero_cbs ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
         return if expected.nil? || given == expected
         return if rate_tag == "pCBS" && given.zero? && year < Rates::CBS_CHARGED_SINCE
 
@@ -730,12 +868,67 @@ module DfeRb
         if total["vNFTot"] && det.all? { |item| item["vItem"] }
           check_amount("total/vNFTot", total["vNFTot"], Totals.sum(det) { |item| item["vItem"] }, "the sum of the items' vItem", 1094)
         end
+        check_net_total(det, total)
+        check_simples_totals(det, total)
         given = total["ICMSTot"] or return
         expected = Totals.icms_total(det)
         expected.each do |tag, value|
           next if given[tag].nil?
 
           check_amount("total/ICMSTot/#{tag}", given[tag], value, "the sum of the items")
+        end
+      end
+
+      # RV W01a-10 and W01a-20 (NT 2026.008): vProdLiqTot is there once an item gives vProdLiq, and
+      # is the sum of them.
+      def check_net_total(det, total)
+        return unless in_force?(NET_VALUE_RULES_SINCE)
+
+        net = Totals.net_total(det)
+        if net && total["vProdLiqTot"].nil?
+          add "total/vProdLiqTot: required when an item gives vProdLiq (RV W01a-10, rej. 1282)"
+        elsif total["vProdLiqTot"]
+          check_amount("total/vProdLiqTot", total["vProdLiqTot"], net || 0, "the sum of the items' vProdLiq", 1283)
+        end
+      end
+
+      # RV W59h-10, W59h-20, W59i-10, W59j-10 (NT 2026.005): the Simples Nacional's totals are there
+      # when an item carries gTribSN, and only then, and each is the sum of the items' own.
+      def check_simples_totals(det, total)
+        return unless in_force?(SIMPLES_IBS_CBS_RULES_SINCE)
+
+        carrying = det.filter_map { |item| item.dig("imposto", "IBSCBS", "gTribSN") }
+        given = total.dig("IBSCBSTot", "gTribSN")
+        path = "total/IBSCBSTot/gTribSN"
+        if given.nil?
+          add "#{path}: required when an item carries gTribSN (RV W59h-10, rej. 1275)" unless carrying.empty?
+          return
+        end
+        return add "#{path}: no item carries gTribSN (RV W59h-20, rej. 1276)" if carrying.empty?
+
+        check_amount("#{path}/vIBSSN", given["vIBSSN"], Totals.sum(carrying) { |group| group.dig("gIBSSN", "vIBSSN") },
+          "the sum of the items' vIBSSN", 1277)
+        check_amount("#{path}/vCBSSN", given["vCBSSN"], Totals.sum(carrying) { |group| group.dig("gCBSSN", "vCBSSN") },
+          "the sum of the items' vCBSSN", 1284)
+      end
+
+      # RV YC03-10, YC04-20 (the schema forbids a repeated nPag or idTransacao, rej. 215), YC05-10
+      # (tpMeioPgto is in the table of IT 2026.001, rej. 1273) and YC06-10 (CNPJReceb is a valid
+      # CNPJ, rej. 1274), on each payment the note links (NT 2026.006).
+      def check_payment_links
+        links = Array(@inf.dig("gPgtoVinc", "gPgto"))
+        return if links.empty? || !in_force?(PAYMENT_LINK_RULES_SINCE)
+
+        %w[@nPag @idTransacao].each do |attribute|
+          values = links.filter_map { |link| link[attribute]&.to_s }
+          repeated = values.select { |value| values.count(value) > 1 }.uniq
+          rule, code = (attribute == "@nPag") ? ["YC03-10", "nPag"] : ["YC04-20", "idTransacao"]
+          repeated.each { |value| add "gPgtoVinc/gPgto: #{code} #{value} is repeated (RV #{rule}, rej. 215: the schema forbids it)" }
+        end
+        links.each_with_index do |link, index|
+          path = "gPgtoVinc/gPgto[#{index + 1}]"
+          add "#{path}/tpMeioPgto: #{link["tpMeioPgto"]} is not a means of payment of IT 2026.001 (RV YC05-10, rej. 1273)" unless Tables.payment_link_method(link["tpMeioPgto"])
+          add "#{path}/CNPJReceb: #{link["CNPJReceb"]} is not a valid CNPJ (RV YC06-10, rej. 1274)" unless TaxId.cnpj?(link["CNPJReceb"])
         end
       end
 

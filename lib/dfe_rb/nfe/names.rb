@@ -25,7 +25,8 @@ module DfeRb
         mono_base: "qBCMono", mono_ad_rem: "adRemICMS", mono_amount: "vICMSMono", mono_operation_amount: "vICMSMonoOp",
         mono_deferral_amount: "vICMSMonoDif", mono_deferral_base: "qBCMonoDif", mono_deferral_ad_rem: "adRemICMSDif",
         mono_retained_base: "qBCMonoReten", mono_retained_ad_rem: "adRemICMSReten", mono_retained_amount: "vICMSMonoReten",
-        mono_ret_base: "qBCMonoRet", mono_ret_ad_rem: "adRemICMSRet", mono_ret_amount: "vICMSMonoRet"
+        mono_ret_base: "qBCMonoRet", mono_ret_ad_rem: "adRemICMSRet", mono_ret_amount: "vICMSMonoRet",
+        forecast_amount: "vICMSPrevisto"
       }.freeze
 
       PIS = {cst: "CST", base: "vBC", rate: "pPIS", amount: "vPIS", quantity_base: "qBCProd", unit_rate: "vAliqProd"}.freeze
@@ -58,7 +59,7 @@ module DfeRb
         },
         "emit" => {
           cnpj: "CNPJ", cpf: "CPF", name: "xNome", trade_name: "xFant", address: "enderEmit", state_registration: "IE",
-          st_state_registration: "IEST", municipal_registration: "IM", cnae: "CNAE", tax_regime: "CRT"
+          st_state_registration: "IEST", municipal_registration: "IM", cnae: "CNAE", tax_regime: "CRT", ibs_cbs_regime: "tpRegimeIBSCBS"
         },
         "dest" => {
           cnpj: "CNPJ", cpf: "CPF", foreign_id: "idEstrangeiro", name: "xNome", address: "enderDest",
@@ -73,11 +74,12 @@ module DfeRb
           cfop: "CFOP", unit: "uCom", quantity: "qCom", unit_price: "vUnCom", total: "vProd",
           taxable_gtin: "cEANTrib", taxable_unit: "uTrib", taxable_quantity: "qTrib",
           taxable_unit_price: "vUnTrib", freight: "vFrete", insurance: "vSeg", discount: "vDesc",
-          other_expenses: "vOutro", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
+          other_expenses: "vOutro", simples_activity: "cAtivSN", net_unit_price: "vUnComLiq", net_amount: "vProdLiq", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
           fci: "nFCI", additional_info: "infAdProd", tax_total: "vTotTrib", ibs_cbs: "IBSCBS",
           selective_tax: "IS", icms_destination: "ICMSUFDest", import_tax: "II", returned_tax: "impostoDevol",
           referenced_dfe: "DFeReferenciado"
         },
+        "total" => {net_total: "vProdLiqTot"},
         "gCred" => {code: "cCredPresumido", rate: "pCredPresumido", amount: "vCredPresumido"},
         "NFref" => {key: "refNFe", nfe: "refNFe", cte: "refCTe"},
         "DFeReferenciado" => {key: "chaveAcesso", item_number: "nItem"},
@@ -96,6 +98,10 @@ module DfeRb
         "fat" => {number: "nFat", original_amount: "vOrig", discount: "vDesc", net_amount: "vLiq"},
         "dup" => {number: "nDup", due_date: "dVenc", amount: "vDup"},
         "pag" => {payments: "detPag", payment: "detPag", change: "vTroco"},
+        "gPgto" => {
+          kind: "tpMeioPgto", receiver_cnpj: "CNPJReceb", psp_cnpj_base: "CNPJBasePSP", transaction_id: "@idTransacao",
+          number: "@nPag"
+        },
         "detPag" => {
           payment_type: "indPag", kind: "tPag", description: "xPag", amount: "vPag", paid_on: "dPag", card: "card"
         },
@@ -154,7 +160,11 @@ module DfeRb
           foreign_acquired_no_similar: 7, domestic_imported_content_over_70: 8
         },
         "modBC" => {margin: 0, unit_price: 1, price_list: 2, operation_value: 3},
-        "tpIntegra" => {integrated: 1, not_integrated: 2}
+        "tpIntegra" => {integrated: 1, not_integrated: 2},
+        "tpMeioPgto" => {
+          bank_slip: "15", boleto: "15", dynamic_pix: "17", pix: "17", bank_transfer: "18", static_pix: "20",
+          automatic_pix: "23", book_transfer: "24"
+        }
       }.freeze
 
       module_function

@@ -62,6 +62,7 @@ module DfeRb
         items(inf, ide, state)
         inf["transp"] ||= {}
         inf["transp"]["modFrete"] = 9 if inf["transp"]["modFrete"].nil?
+        payment_links(inf)
         totals(inf)
         billing(inf)
         identify(inf, ide, emit)
@@ -187,7 +188,8 @@ module DfeRb
         year = issued_time(ide["dhEmi"])&.year
         context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
           destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"),
-          purpose: ide["finNFe"], direction: ide["tpNF"], final_consumer: ide["indFinal"])
+          purpose: ide["finNFe"], direction: ide["tpNF"], final_consumer: ide["indFinal"],
+          ibs_cbs_layout: (SimplesIbsCbs.layout(inf["emit"]) if SimplesIbsCbs.in_force?(ide["tpAmb"], issued_time(ide["dhEmi"]))))
         # vItem is required with IBS/CBS (RV VB01-05).
         item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
 
@@ -202,6 +204,7 @@ module DfeRb
           prod["vUnTrib"] ||= prod["vUnCom"]
           prod["indTot"] ||= 1
           prod["vProd"] ||= Totals.money(Totals.number(prod["qCom"]) * Totals.number(prod["vUnCom"]))
+          net_value(prod)
           prod["CFOP"] = cfop(prod["CFOP"], ide) if prod["CFOP"]
         end
         # Spread before the taxes are computed, since freight, insurance, other expenses and the
@@ -213,6 +216,17 @@ module DfeRb
         rescue RateNotPublished => e
           @issues << e.message
         end
+      end
+
+      # The net value of an item (NT 2026.008) comes as a pair in the layout (I11a): given its
+      # net unit price the gem works out vProdLiq, and given vProdLiq alone, the unit price.
+      # Nothing is made up for an item that gives neither, since which taxes a price carries
+      # isn't the gem's to know.
+      def net_value(prod)
+        amount = Totals.net_item_amount(prod)
+        prod["vProdLiq"] ||= amount if amount
+        price = Totals.net_unit_price(prod)
+        prod["vUnComLiq"] ||= price if price
       end
 
       # A 3-digit CFOP ("102") gets the first digit the operation calls for ("6102").
@@ -234,11 +248,18 @@ module DfeRb
         pag["vTroco"] ||= Totals.money(paid - invoice_total) if invoice_total.positive? && paid > invoice_total
       end
 
+      # The links to payment transactions (YC) are numbered in the order given, from 1 (nPag).
+      def payment_links(inf)
+        Array(inf.dig("gPgtoVinc", "gPgto")).each_with_index { |link, index| link["@nPag"] ||= index + 1 }
+      end
+
       def totals(inf)
         det = Array(inf["det"])
         given = inf["total"] || {}
         icms = Totals.icms_total(det).merge(given["ICMSTot"] || {})
         inf["total"] = given.merge("ICMSTot" => icms)
+        net = Totals.net_total(det)
+        inf["total"]["vProdLiqTot"] ||= net if net
         selective = Totals.selective_total(det)
         inf["total"]["ISTot"] ||= selective if selective
         ibs = Totals.ibs_cbs_total(det)

@@ -15,6 +15,10 @@ module DfeRb
         "203" => "ICMSSN202", "300" => "ICMSSN102", "400" => "ICMSSN102", "500" => "ICMSSN500", "900" => "ICMSSN900"
       }.freeze
 
+      # The ICMS group of an advance payment (NB01), a variant of <ICMS> with no CST.
+      PREPAID_ICMS = "ICMSPrevistoPagtoAntecip"
+      PREPAID_ICMS_TAG = "vICMSPrevisto"
+
       IPI_TAXED_CST = %w[00 49 50 99].freeze
       IPI_LEVEL_TAGS = %w[CNPJProd cSelo qSelo cEnq].freeze
 
@@ -82,12 +86,18 @@ module DfeRb
           table = Names::ICMS
           tags = attributes.keys.filter_map { |key| tag_for(key, table, known) }
           key, code = code_from(attributes, table, known)
-          raise ArgumentError, "icms needs cst: (or csosn:)" unless code
+          if code.nil? && tags.include?(PREPAID_ICMS_TAG)
+            # The ICMS expected at the future supply of an advance payment (NB01, NT 2026.008): no CST.
+            variant = PREPAID_ICMS
+            fields = attributes
+          else
+            raise ArgumentError, "icms needs cst: (or csosn:, or forecast_amount: for the ICMS of an advance payment)" unless code
 
-          code = code.rjust(2, "0")
-          variant = icms_variant(code, tags)
-          code_tag = variant.start_with?("ICMSSN") ? "CSOSN" : "CST"
-          fields = attributes.reject { |k, _| k == key }.merge(code_tag => code)
+            code = code.rjust(2, "0")
+            variant = icms_variant(code, tags)
+            code_tag = variant.start_with?("ICMSSN") ? "CSOSN" : "CST"
+            fields = attributes.reject { |k, _| k == key }.merge(code_tag => code)
+          end
 
           target = ((data["imposto"] ||= {})["ICMS"] ||= {})
           target.clear
@@ -169,12 +179,27 @@ module DfeRb
             group["gCBS"] = ibs_part(cbs, "pCBS", "vCBS")
           end
           attributes[:g_ibscbs] = (attributes[:g_ibscbs] || {}).merge(group) unless group.empty?
+          simples = simples_group(attributes)
+          attributes[:g_trib_sn] = (attributes[:g_trib_sn] || {}).merge(simples) unless simples.empty?
 
           target = ((data["imposto"] ||= {})["IBSCBS"] = {})
           inner = Scope.new(scope.__element.find("imposto").find("IBSCBS"), target)
           inner.__assign(attributes)
           block&.call(inner)
           nil
+        end
+
+        # The Simples Nacional's own IBS and CBS (gTribSN, NT 2026.005): `simples_ibs: {rate:,
+        # amount:}` for gIBSSN and `simples_cbs:` for gCBSSN.
+        def simples_group(attributes)
+          group = {}
+          if (ibs = attributes.delete(:simples_ibs)&.transform_keys(&:to_sym))
+            group["gIBSSN"] = {"pIBSSN" => ibs[:rate], "vIBSSN" => ibs[:amount]}.compact
+          end
+          if (cbs = attributes.delete(:simples_cbs)&.transform_keys(&:to_sym))
+            group["gCBSSN"] = {"pCBSSN" => cbs[:rate], "vCBSSN" => cbs[:amount]}.compact
+          end
+          group
         end
 
         def ibs_part(values, rate_tag, amount_tag)

@@ -82,7 +82,7 @@ The gem fills in and derives: `cUF`, `mod`, `tpEmis`, `tpAmb`, `indPres`, `procE
   - PIS and COFINS `vBC`, when a rate is given: the operation value less the item's own ICMS (STF Tema 69, Lei 14.592/2023).
   - `vCredICMSSN` = operation value x `pCredSN` (CSOSN 101, 201, 900).
 - **Invoice-level amounts spread over the items**: `nfe.freight`, `nfe.insurance`, `nfe.discount` and `nfe.other_expenses` are split in proportion to each item's `vProd`, to the cent (the shares always add up), before any tax is computed. An item that sets its own takes no share.
-- **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from `vBCST`, `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (RV UB16-10), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
+- **Tax values whose result the validation rules fix** (base × rate, ±0.01 tolerance): `vICMS`, `vFCP`, `vICMSOp`/`vICMSDif` (CST 51), `vICMSST` from `vBCST`, `vFCPST`, `vFCPSTRet`, `vIPI`, `vPIS`/`vCOFINS` (by rate or quantity), DIFAL (`vFCPUFDest`, `vICMSUFDest`, `vICMSUFRemet`), `vIS`, and IBS/CBS: the base (as UB16-10 gave it, removed by NT 2026.008), `vDif`, `pAliqEfet`, `vIBSUF`, `vIBSMun`, `vIBS`, `vCBS`.
 - **Rates fixed by law**, on a normal operation (`finNFe` 1). That covers the interstate `pICMS`/`pICMSInter` (4%, 7% or 12% by states and origin), `pICMSInterPart` by year, the IBS/CBS standard rates of the issue year (IT 2025.002; a rate the law hasn't set yet is yours to give, and the note is refused without it: see [2027](#2027)), and `pIPI` from the TIPI line of the item's `NCM` and `EXTIPI` when you give `i.ipi` a base without a rate (an NT line and a per-unit IPI get none; zero from 2027 but on a product of the Zona Franca de Manaus). A return, complement or adjustment carries the rates of the operation it refers to, so you give them. So does an item with a retorno or anulação CFOP (`6916`, `6206`...), for the interstate ICMS rates.
 - **Official tables** (shipped in `lib/dfe_rb/nfe/data`, refreshed by `script/update_tables`):
   - the IBS/CBS `CST` and rate reduction (`gRed`) from `class_code` (cClassTrib), zero main rates for a classification taxed in `gTribRegular`, and no IBS/CBS amounts for a deferral CST until you give its `gDif`
@@ -156,9 +156,76 @@ DfeRb::Nfe::Rates.ipi_applies?(2027, zfm_product: false)                       #
 DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
 ```
 
-The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except a return or a complement that references a note issued before 2027 (RV UB12-10, NT 2025.002 v1.53; the date is the AAMM of the referenced key, see [What a return references](#what-a-return-references)). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. Nothing is asked of the Simples Nacional and the MEI, who fill it from 2027 under rules an NT has yet to bring. The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
+The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except a return or a complement that references a note issued before 2027 (RV UB12-10, NT 2025.002 v1.53; the date is the AAMM of the referenced key, see [What a return references](#what-a-return-references)). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. The Simples Nacional fills it from 2027 (LC 214/2025, art. 348) under NT 2026.005, which gives no rule for leaving it out, so nothing is asked of it; a MEI sends none (see [the Simples Nacional](#the-simples-nacional-nt-2026005)). The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
+
+### Linking a payment transaction (NT 2026.006)
+
+Production moved from 16/11 to 14/12/2026 (the Portal's aviso of 13/11/2026). For the split payment (expected from 2027; nothing asks for it in production in 2026) a note lists the payment transactions started before it, a boleto or a dynamic Pix, even unpaid (group YC, `gPgtoVinc`):
+
+```ruby
+nfe.payment_link :bank_slip, transaction_id: "BOLETO-0001", receiver_cnpj: "11.222.333/0001-81", psp_cnpj_base: "00000000"
+nfe.payment_link :pix, transaction_id: "E0003816620261214...", receiver_cnpj: "11222333000181", psp_cnpj_base: "00038166"
+```
+
+`tpMeioPgto` takes the codes of IT 2026.001 (`DfeRb::Nfe::Tables.payment_link_methods`): 15 `:bank_slip`, 17 `:pix`, 18 `:bank_transfer`, 20 `:static_pix`, 23 `:automatic_pix`, 24 `:book_transfer`. `nPag` is numbered for you. The validator checks the code (YC05-10, rej. 1273), the receiver's CNPJ (YC06-10, rej. 1274) and a repeated `nPag` or `idTransacao` (YC03-10, YC04-20, rej. 215), from 14/12/2026 in production and 26/10/2026 in homologação, by `dhEmi`. This group doesn't replace `pag` and `infIntermed`, which state law still asks.
+
+To link a transaction to a note already authorized (a Pix QR code made after it, or a key mistyped in the payment), send the event 110300, one transaction each, then take it back with 110001 if it was wrong:
+
+```ruby
+client.link_payment(key, protocol: "135260000000123", transaction_id: "E0003816620261214...", method: :pix,
+  receiver_cnpj: "11222333000181", psp_cnpj_base: "00038166")            # sequence: 2 for the next one
+client.cancel_event(key, type: "110300", protocol: "135260000000999", sequence: 1)   # the event's own protocol and sequence
+```
+
+Both refuse what the rules refuse before sending (P26-10, P27-10) and check the event's detail against `e110300_v1.00.xsd` and `e110001_v1.00.xsd` (`DfeRb::Nfe::Events.detail_issues`). The package of schemas has no `envEventoNFe` schema: the envelope goes by the generic one. A live check in homologação, once the authorizers take the layout after 14/12/2026, is still to be made.
+
+### The Simples Nacional (NT 2026.005)
+
+From 14/12/2026 in production (the Portal's aviso of 13/11/2026 moved it from 16/11) the Simples Nacional's IBS and CBS have their own fields. The issuer's regime fixes which go on the note (§2.3 of the NT):
+
+| Issuer | `ibs_cbs_regime:` (`tpRegimeIBSCBS`) | item's IBS/CBS | `simples_ibs:` / `simples_cbs:` (`gTribSN`) |
+|---|---|---|---|
+| CRT 1 or 2 (`:simples`, `:simples_excess`), regular regime | 1 | `ibs_uf`, `ibs_municipal`, `cbs` | none |
+| CRT 1, no regular regime | none | none | both |
+| CRT 2, no regular regime | none | `ibs_uf`, `ibs_municipal`, `cbs` with the CBS at zero (the gem fills it) | `simples_cbs` only |
+| CRT 3 with the option for the Simples pending, no regular regime for CRT 1 | 2 | `ibs_uf`, `ibs_municipal`, `cbs` | both |
+| the same, for CRT 2 | 3 | the same | `simples_cbs` only |
+| the same, with the regular regime | 4 | the same | none |
+| MEI (`:mei`) | none | no IBSCBS at all | none |
+
+```ruby
+# CRT 1 without the regular regime: no tpRegimeIBSCBS, no gIBSCBS, both groups of gTribSN
+nfe.issuer tax_id: "...", tax_regime: :simples, ...
+nfe.item do |i|
+  i.simples_activity "01"                                                  # cAtivSN: 01, 02, 03, 04 or 90
+  i.ibs_cbs class_code: "000001", simples_ibs: {rate: "1.00", amount: "1.00"}, simples_cbs: {rate: "0.50", amount: "0.50"}
+end
+
+# CRT 1 with the regular regime: tpRegimeIBSCBS 1 and the regular groups, no gTribSN
+nfe.issuer tax_id: "...", tax_regime: :simples, ibs_cbs_regime: 1, ...
+nfe.item { |i| i.simples_activity "01"; i.ibs_cbs class_code: "000001" }
+```
+
+Every item of an optante, or of a regime normal issuer with the option pending, gives `simples_activity`. The effective rates and amounts of `gTribSN` (`pIBSSN`, `vIBSSN`, `pCBSSN`, `vCBSSN`) are yours, since the NT gives no base to work them out from: the gem totals them in `IBSCBSTot/gTribSN` (W59h to W59j), which the validator holds to the sum of the items (rej. 1275, 1276, 1277, 1284). It flags a MEI's IBSCBS and `tpRegimeIBSCBS`, a pair of CRT and `tpRegimeIBSCBS` the NT doesn't name, `cAtivSN` from an issuer who doesn't give it, and a group the table says "não informar". The table has no rejection codes, so what it says to "informar" is left to SEFAZ, and so is a return or refusal, whose IBSCBS mirrors the supply note and may carry the regime the supply had (§2.4). The rules apply from 14/12/2026 in production and 26/10/2026 in homologação, by `dhEmi`.
+
+Event 412140, "Tributação do Simples Nacional", is generated by the Administração Tributária, never sent by the issuer. `DfeRb::Nfe::Events.detail_issues("412140", detail_xml)` checks one received from the distribution against its schema (`e412140_v1.00.xsd`).
+
+### Net value, and the ICMS of an advance payment (NT 2026.008 v1.01)
+
+Production moved from 16/11 to 14/12/2026 (Portal's aviso of 13/11/2026); before that SEFAZ's schema takes none of these fields. Give an item its net value, the value without any tax, with `net_unit_price:` (`vUnComLiq`) or `net_amount:` (`vProdLiq`): the gem works out the other (`vProdLiq` = `vUnComLiq` x `qCom`, RV I11c-20, within a cent) and writes the note's `vProdLiqTot` (W01a) as the sum. It makes up nothing for an item that gives neither, since which taxes a price carries isn't its to know (I11c-10, `vProdLiq` required, is "implementação futura" and not checked). The validator flags a `vProdLiq` that isn't the price x quantity on a normal note (I11c-20, rej. 1279) and a total that is missing or isn't the sum (W01a-10, W01a-20, rej. 1282, 1283), from 14/12/2026 in production and 26/10/2026 in homologação.
+
+```ruby
+nfe.item do |i|
+  i.unit_price "10.00"
+  i.net_unit_price "8.50"   # vProdLiq 25.50 for 3 units, vProdLiqTot on the note
+end
+```
+
+An NF-e of a debit note of type 06 (`debit_note_type "06"`) or of `tpOperGov` 4 carries, on each item, the ICMS expected at the supply: `i.icms forecast_amount: "12.00"` (`ICMS/ICMSPrevistoPagtoAntecip/vICMSPrevisto`, NB01; `"0.00"` where none falls). No other note carries it, an NFC-e least of all (NB01-10, NB01-20, rej. 1280), and its absence is flagged from 01/03/2027 in production and 01/02/2027 in homologação (NB01-30, rej. 1281). B25-80 (rej. 1001) bars ICMS, ISSQN, IPI, II, PIS, COFINS, ICMSUFDest and `impostoDevol` from a debit or credit note and from the receipt of a payment (`tpOperGov` 2); a debit note of type 06 may carry the IPI, the NB01 group and, in 2026, PIS and COFINS, and the credit notes 03, 04 and 06 and the debit note 07 are spared.
+
+**What `vProd` carries from 2027.** NT 2026.008 v1.01 contradicts itself. Its introduction says `vProd` leaves IBS, CBS and IS out, and `vItem` has every tax. The field table (I11: "a partir de 2027, os valores de IBS, CBS e IS compõem o Valor Total Bruto, exceto nas notas de importação") and the rules VB01-10 and VB01-20 ("(+) vProd (contém vIBS, vCBS e vIS)") say `vProd` contains them, and no later NT settles it. The gem follows the table and the rules: `vProd` is the gross value you give, and it never builds it from the taxes. `vItem` is the sum the rules list, which still names "(+) vIBS (+) vCBS (+) vIS" and spares 2025 and 2026 (exceção 1), so that is what the gem fills and checks; it skips the check on an import (CFOP 3xxx, exceção 2). The reading lives in `Totals::VITEM_ADDS_IBS_CBS_IS` and `Totals::IBS_CBS_IN_TOTAL_SINCE`, for a later NT to change. SEFAZ doesn't enforce VB01-10 and VB01-20 yet ("implementação futura"). UB16-10 (rej. 1104, the IBS/CBS base) is gone from the NT, so the base the gem fills when you give none is a default, no longer a rule.
 
 ### 2027
 
@@ -168,7 +235,7 @@ On 1 January 2027 the CBS starts being charged at its reference rate, PIS/Pasep 
 |---|---|---|
 | CBS (`pCBS`) | 0.9% | the reference rate less 0.1 point (LC 214, art. 347), filled once `Rates::CBS_REFERENCE` has it |
 | IBS (`pIBSUF`, `pIBSMun`) | 0.1% and 0 | 0.05% and 0.05% (art. 344), in 2027 and 2028 |
-| IBS, CBS and IS in `vItem` | no | yes (RV VB01-10) |
+| IBS, CBS and IS in `vItem` | no | yes (RV VB01-10; see [what `vProd` carries](#net-value-and-the-icms-of-an-advance-payment-nt-2026008-v101)) |
 | PIS and COFINS | charged | not charged; the groups stay mandatory (RV Q01-20, S01-20) |
 | IPI from the TIPI | the TIPI rate | zero, unless the item says `zfm_product: true` |
 
@@ -183,7 +250,7 @@ The validator also checks every note's IBS/CBS rates against the issue year (UB1
 Still waiting on publications:
 
 - the 2027 reference rate, the Senate's (due 15/12/2026) or else the TCU's 11.3% (11.2% charged), which goes into `Rates::CBS_REFERENCE` in a new release;
-- an NT on the PIS/COFINS groups of 2027 notes (NT 2025.002 v1.53 still requires them) and on the IBS/CBS of the Simples Nacional and the MEI (RV UB12-10 sets 04/01/2027 for them in production, under rules still to come);
+- an NT on the PIS/COFINS groups of 2027 notes (NT 2025.002 v1.53 still requires them) and a rule that makes the IBS/CBS group mandatory for the Simples Nacional (RV UB12-10 is for the regime normal; NT 2026.005 says how to fill it, not that it must be);
 - the Union's list of the products whose IPI goes to zero (LC 214, art. 454, § 3º), or a new TIPI;
 - the Imposto Seletivo rates of MP 1.399/2026, in force from 02/02/2027, which the gem doesn't fill (`i.selective_tax` takes them).
 

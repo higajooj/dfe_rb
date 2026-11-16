@@ -240,7 +240,7 @@ RSpec.describe DfeRb::Nfe::Calculator do
       ibs = group["gIBSCBS"]
 
       expect(group["CST"]).to eq("000")
-      # UB16-10: 100 - 1.65 - 7.60 - 18.00
+      # the base UB16-10 gave (removed by NT 2026.008): 100 - 1.65 - 7.60 - 18.00
       expect(decimal(ibs["vBC"])).to eq("72.75")
       expect([ibs["gIBSUF"]["pIBSUF"], ibs["gIBSMun"]["pIBSMun"], ibs["gCBS"]["pCBS"]].map { |rate| decimal(rate) }).to eq(%w[0.1 0.0 0.9])
       expect([ibs["gIBSUF"]["vIBSUF"], ibs["gIBSMun"]["vIBSMun"], ibs["vIBS"], ibs["gCBS"]["vCBS"]].map { |value| decimal(value) })
