@@ -295,21 +295,26 @@ documents:
   - id: nt-2026.006
     document: NT 2026.006, RTC, vinculação do pagamento
     kind: nt
-    status: pending
-    dfe: [nfe, ibs_cbs]
-    version: null
-    current: "1.01"
+    status: implemented
+    dfe: [nfe, nfce, ibs_cbs, events]
+    version: "1.01"
     published: "2026-10-30"
     production: "2026-12-14"
-    implemented_in: []
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfe/requests.rb, lib/dfe_rb/nfe/events.rb, lib/dfe_rb/nfe/resolver.rb, lib/dfe_rb/nfe/names.rb, lib/dfe_rb/nfe/scope.rb, lib/dfe_rb/nfe/tables.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: null
+    sha256: 2c5770b54d19b66ff61200fad20d1a4373b71a48d42f0ee5e005e808ce0eb206
     attachments:
       - {file: "NT_2026.006_v1.00_RTC_VinculacaoPagamento[2775].pdf", sha256: 47a65abde315fed1e6a8c6085a67ca483935cb57877ae5715d365377a725e05d}
     note: >-
-      Not applied: group YC (gPgtoVinc) and event 110300. v1.01 (SHA-256
-      2c5770b54d19b66ff61200fad20d1a4373b71a48d42f0ee5e005e808ce0eb206) only moved the dates;
-      production moved from 2026-11-16 to 2026-12-14 (Portal informe of 2026-11-13).
+      Group YC (gPgtoVinc: nPag numbered by the gem, idTransacao, tpMeioPgto, CNPJReceb, CNPJBasePSP) is built (Scope
+      names payment_link and payment_links) and checked (YC03-10 and YC04-20, rej. 215, which the schema also enforces;
+      YC05-10, rej. 1273; YC06-10, rej. 1274), and event 110300 is sent by Client#link_payment with the checks of P26-10
+      and P27-10 (P21-10, rej. 466, is the gem's own tpAutor 1) and taken back by Client#cancel_event (evento 110001, NT
+      2025.002). v1.01 only moved the dates of v1.00 (the attachment); production moved from 2026-11-16 to 2026-12-14
+      (Portal's aviso of 2026-11-13). Nothing asks for the group in production in 2026: split payment starts in 2027.
+      The Portal publishes no envEventoNFe_v9.99.xsd: the envelope goes by event_1.00. A live check in homologação
+      after 14/12/2026 still has to confirm the event (the authorizers' acceptance of the layout and of the idTransacao
+      formats of each means of payment).
     issue: https://github.com/higajooj/dfe_rb/issues/13
   - id: nt-2026.007
     document: NT 2026.007, Emissão de NF-e sem IE e RV de LCC
@@ -429,6 +434,25 @@ documents:
     sha256: 19953feb5695e728cf15a91be144b7115b3079a31be5ba0fa6eb46af58db1172
     attachments:
       - {file: Tabela_de_meios_de_pagamento - 04032026.xlsx, sha256: f85d4a6d50390f824921703d166d3f2f4ec637b7244fa922248ef14e782d8a2d}
+  - id: it-2026.001
+    document: IT 2026.001, Tabela de meios de pagamento para a vinculação de pagamento (split payment)
+    kind: it
+    status: implemented
+    dfe: [nfe, nfce, events]
+    version: "1.01"
+    published: "2026-08"
+    production: null
+    implemented_in: [lib/dfe_rb/nfe/tables.rb, lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/client.rb]
+    tables: [lib/dfe_rb/nfe/data/payment_link_methods.tsv]
+    source: Portal Nacional da NF-e, Informes Técnicos
+    sha256: 1e58913755c4e617f30619448909dd9ef82b0c772bcd44dc85774e77bcd28900
+    attachments:
+      - {file: IT_2026.001_v1.00_Tabelas_de_Meios_Split.pdf, sha256: 3ac4d1155460d30f10e8ed30b03fce409ae17deee58f6a20183518b17a1c2580}
+    note: >-
+      The codes valid for tpMeioPgto in gPgtoVinc and event 110300 (15, 17, 18, 20, 23, 24; others are rejected with 1003
+      by the IT, 1273 by NT 2026.006). v1.01 adapted the IT to every DF-e model, and calls 17 "Pix QRCode" where v1.00
+      said "dinâmico"; its codes 23 and 24 are "to be updated in the national table" (the gem's tPag table has them since
+      2026-05-04). v1.00 was published 2026-02 with production in 2026-05 for the other DF-e; v1.01 gives no date.
   - id: it-2025.002
     document: IT 2025.002, Tabelas de Classificação do IBS e da CBS (CST, cClassTrib, cCredPres, alíquotas padrão)
     kind: it

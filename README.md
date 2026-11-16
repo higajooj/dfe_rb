@@ -160,6 +160,27 @@ The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :no
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 
+### Linking a payment transaction (NT 2026.006)
+
+Production moved from 16/11 to 14/12/2026 (the Portal's aviso of 13/11/2026). For the split payment (expected from 2027; nothing asks for it in production in 2026) a note lists the payment transactions started before it, a boleto or a dynamic Pix, even unpaid (group YC, `gPgtoVinc`):
+
+```ruby
+nfe.payment_link :bank_slip, transaction_id: "BOLETO-0001", receiver_cnpj: "11.222.333/0001-81", psp_cnpj_base: "00000000"
+nfe.payment_link :pix, transaction_id: "E0003816620261214...", receiver_cnpj: "11222333000181", psp_cnpj_base: "00038166"
+```
+
+`tpMeioPgto` takes the codes of IT 2026.001 (`DfeRb::Nfe::Tables.payment_link_methods`): 15 `:bank_slip`, 17 `:pix`, 18 `:bank_transfer`, 20 `:static_pix`, 23 `:automatic_pix`, 24 `:book_transfer`. `nPag` is numbered for you. The validator checks the code (YC05-10, rej. 1273), the receiver's CNPJ (YC06-10, rej. 1274) and a repeated `nPag` or `idTransacao` (YC03-10, YC04-20, rej. 215), from 14/12/2026 in production and 26/10/2026 in homologação, by `dhEmi`. This group doesn't replace `pag` and `infIntermed`, which state law still asks.
+
+To link a transaction to a note already authorized (a Pix QR code made after it, or a key mistyped in the payment), send the event 110300, one transaction each, then take it back with 110001 if it was wrong:
+
+```ruby
+client.link_payment(key, protocol: "135260000000123", transaction_id: "E0003816620261214...", method: :pix,
+  receiver_cnpj: "11222333000181", psp_cnpj_base: "00038166")            # sequence: 2 for the next one
+client.cancel_event(key, type: "110300", protocol: "135260000000999", sequence: 1)   # the event's own protocol and sequence
+```
+
+Both refuse what the rules refuse before sending (P26-10, P27-10) and check the event's detail against `e110300_v1.00.xsd` and `e110001_v1.00.xsd` (`DfeRb::Nfe::Events.detail_issues`). The package of schemas has no `envEventoNFe` schema: the envelope goes by the generic one. A live check in homologação, once the authorizers take the layout after 14/12/2026, is still to be made.
+
 ### The Simples Nacional (NT 2026.005)
 
 From 14/12/2026 in production (the Portal's aviso of 13/11/2026 moved it from 16/11) the Simples Nacional's IBS and CBS have their own fields. The issuer's regime fixes which go on the note (§2.3 of the NT):
