@@ -4,7 +4,7 @@ RSpec.describe DfeRb::Nfe::Schema do
 
   it "reads the layout from the official XSD" do
     expect(root.tag).to eq("NFe")
-    expect(inf.each_element.map(&:tag)).to eq(%w[ide emit avulsa dest retirada entrega autXML det total transp cobr pag infIntermed infAdic exporta compra cana infRespTec infSolicNFF agropecuario infPAA])
+    expect(inf.each_element.map(&:tag)).to eq(%w[ide emit avulsa dest retirada entrega autXML det total transp cobr pag infIntermed gPgtoVinc infAdic exporta compra cana infRespTec infSolicNFF agropecuario infPAA])
     expect(inf.find("det")).to have_attributes(min: 1, max: 990)
     expect(inf.find("det").attributes.map(&:name)).to eq(["nItem"])
   end

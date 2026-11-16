@@ -1,6 +1,7 @@
 # Bundled official schemas
 
-- `nfe_4.00`: NF-e layout from PL_010f_v1.04 (emission).
+- `nfe_4.00`: NF-e layout from PL_010h_v1.03 (13/11/2026; emission): the Simples Nacional's IBS/CBS (NT 2026.005), the net value of the product (NT 2026.008) and the link to the payment transaction (NT 2026.006). `nfe_v4.00.xsd`, `tiposBasico_v4.00.xsd` and the signature schema are unchanged from PL_010f_v1.04.
+- `Evento_PL_010h_v1.03`: the Evento folder of PL_010h_v1.03, unchanged: the detail schemas of event 110300 (payment link, NT 2026.006) and 412140 (Simples Nacional taxation, NT 2026.005), and `e110001` with the `tiposBasico_v1.03.xsd` they include. The package has no `envEventoNFe` schema (no `envEventoNFe_v9.99.xsd` is published): an event's detail is checked against its own schema and the envelope against `event_1.00`'s, whose `detEvento` takes any content.
 - `PL_NFeDistDFe_104`: distribution request/response and summary layouts, NT 2014.002 v1.40. `xmldsig-core-schema_v1.01.xsd` is the unchanged signature dependency from PL_010d_v1.03.
 - `event_1.00`: generic event request/response/process layouts and dependencies from PL_010d_v1.03/Evento. These support alphanumeric CNPJ, access keys and event IDs, and four-digit statuses.
 - `cad_2.00`: consulta cadastro request and answer (`consCad`, `retConsCad`) from PL_010d_v1.03/CadConsultaCadastro. The request is validated; answers are read by tag, since some states deviate from the schema's namespaces.

@@ -505,19 +505,26 @@ documents:
     sha256: cf1ecb48d9c1baf9c541d5cf5edee4e44a7b88abdeb3c9d877af5519ae58b1da
 
   # ---------------------------------------------------------------- schema packages
-  - id: pl-010f-v1.04
-    document: Pacote de schemas PL_010f_v1.04 (NF-e e NFC-e 4.00)
+  - id: pl-010h-v1.03
+    document: Pacote de schemas PL_010h_v1.03 (NF-e e NFC-e 4.00, eventos 110300 e 412140)
     kind: schema
     status: implemented
-    dfe: [nfe, nfce, ibs_cbs]
-    version: "1.04"
-    published: null
-    production: null
+    dfe: [nfe, nfce, events, ibs_cbs]
+    version: "1.03"
+    published: "2026-11-13"
+    production: "2026-12-14"
     implemented_in: [lib/dfe_rb/nfe/schema.rb, lib/dfe_rb/nfe/schemas.rb]
-    schemas: [lib/dfe_rb/xml/schemas/nfe_4.00]
+    schemas: [lib/dfe_rb/xml/schemas/nfe_4.00, lib/dfe_rb/xml/schemas/Evento_PL_010h_v1.03]
     source: Portal Nacional da NF-e, Esquemas XML
-    sha256: null
-    note: Copied from an unpacked folder; the ZIP wasn't kept.
+    sha256: bcbf6b277f79a6983d69016dfe0430f09b8a191997a4706a24938acddc18dc81
+    note: >-
+      Replaces PL_010f_v1.04 and the NF-e folder of PL_010g_v1.03 (26/10/2026), which carried no tpRegimeIBSCBS, cAtivSN,
+      gTribSN or event 412140. Adds tpRegimeIBSCBS (NT 2026.005), cAtivSN and gTribSN/gIBSSN/gCBSSN (NT 2026.005),
+      vUnComLiq, vProdLiq and vProdLiqTot (NT 2026.008), ICMSPrevistoPagtoAntecip, gPgtoVinc (NT 2026.006) and the
+      events 110300 and 412140 (folder Evento_PL_010h_v1.03, unchanged from the package). TTribNFCe no longer admits
+      gIBSCBSMono, which TTribNFe still does. The package's date of production is the Portal's aviso of 13/11/2026,
+      which moved NT 2026.005, 2026.006 and 2026.008 from 16/11 to 14/12/2026; the package has no envEventoNFe
+      schema, so events go on in the envelope of event_1.00 (PL_010d_v1.03), whose detEvento accepts any content.
   - id: pl-010d-v1.03
     document: Pacote de schemas PL_010d_v1.03 (eventos genéricos, consulta cadastro)
     kind: schema
