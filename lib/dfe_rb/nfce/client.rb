@@ -76,7 +76,7 @@ module DfeRb
         send_event(key, CANCEL_BY_SUBSTITUTION, 1, detail)
       end
 
-      def endpoint(service, uf: self.uf, contingency: false)
+      def endpoint(service, uf: self.uf, contingency: false, svrs: false)
         raise Unsupported, NO_SVC if contingency
 
         Endpoints.resolve(uf: uf, environment: environment, service: service, overrides: @endpoints)

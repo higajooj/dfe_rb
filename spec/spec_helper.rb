@@ -12,4 +12,10 @@ RSpec.configure do |config|
   config.expect_with(:rspec) { |c| c.syntax = :expect }
   config.disable_monkey_patching!
   config.order = :random
+
+  # Deprecation notices (DfeRb::Deprecation) stay out of the output; their own spec turns them on.
+  config.before do
+    DfeRb::Deprecation.silenced = true
+    DfeRb::Deprecation.reset!
+  end
 end

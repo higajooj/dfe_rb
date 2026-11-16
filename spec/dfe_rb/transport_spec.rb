@@ -91,6 +91,13 @@ RSpec.describe DfeRb::Transport do
       }
   end
 
+  it "keeps the status of a 404 even when its body carries a fault" do
+    stub_request(:post, endpoint.url).to_return(status: 404, body: "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\"><soap:Body><soap:Fault/></soap:Body></soap:Envelope>")
+
+    expect { transport.post(endpoint, request_xml) }
+      .to raise_error(DfeRb::TransportError, /HTTP 404/) { |error| expect(error).to have_attributes(maybe_processed?: false, http_status: 404) }
+  end
+
   it "flags a 5xx as possibly processed" do
     stub_request(:post, endpoint.url).to_return(status: 502, body: "bad gateway")
 

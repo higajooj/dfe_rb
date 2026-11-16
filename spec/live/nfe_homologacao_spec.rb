@@ -110,8 +110,27 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       cancel = DfeRb::Nfe::Client.new(certificate: certificate, uf: "SP").cancel(key, protocol: "135260000000001", reason: "Teste de cancelamento em homologacao")
       expect(cancel.code).to eq(494)
 
-      inutilize = DfeRb::Nfe::Client.new(certificate: certificate, uf: "SP").inutilize(series: 1, from: 999_001, reason: "Teste de inutilizacao em homologacao")
+      # PR still has the service (AC, BA and SP don't since 11/11/2026: see the next example).
+      inutilize = DfeRb::Nfe::Client.new(certificate: certificate, uf: "PR").inutilize(series: 1, from: 999_001, reason: "Teste de inutilizacao em homologacao")
       expect([102, 203, 241, 256]).to include(inutilize.code), "#{inutilize.code} #{inutilize.message}"
+    end
+
+    # RV I01a, NT 2023.002 v1.02: SEFAZ answers 998 (Serviço Desativado) or HTTP 404. The client
+    # refuses it before sending; the request is sent raw here to see what the state says.
+    it "has no inutilização in AC, BA and SP" do
+      %w[AC BA SP].each do |state|
+        off = DfeRb::Nfe::Client.new(certificate: certificate, uf: state)
+        expect { off.inutilize(series: 1, from: 999_001, reason: "Teste de inutilizacao em homologacao") }.to raise_error(DfeRb::Nfe::Unsupported, /Ajustes SINIEF/)
+
+        unsigned = DfeRb::Nfe::Requests.inutilization(state: state, year: Time.now.year, tax_id: certificate.tax_id, model: 55, series: 1,
+          from: 999_001, to: 999_001, reason: "Teste de inutilizacao em homologacao", environment: :homologacao)
+        answer = begin
+          DfeRb::Response.new(off.raw(:inutilization, DfeRb::Nfe::Signature.sign_inutilization(unsigned, certificate))).code
+        rescue DfeRb::TransportError => e
+          e.http_status
+        end
+        expect([998, 404]).to include(answer), "#{state}: #{answer.inspect}"
+      end
     end
   end
 
@@ -169,8 +188,12 @@ RSpec.describe "NF-e against SEFAZ homologacao", live: true do
       expect(cancellation).to be_registered, "#{cancellation.code} #{cancellation.message}"
       expect(client.consult(signed.key)).to be_canceled
 
-      unused = client.inutilize(series: 1, from: number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
-      expect(unused).to be_approved, "#{unused.code} #{unused.message}"
+      if DfeRb::Nfe::Retirements.inutilization_off?(uf, Time.now)
+        expect { client.inutilize(series: 1, from: number + 10, reason: "Inutilizacao de teste do ambiente de homologacao") }.to raise_error(DfeRb::Nfe::Unsupported)
+      else
+        unused = client.inutilize(series: 1, from: number + 10, reason: "Inutilizacao de teste do ambiente de homologacao")
+        expect(unused).to be_approved, "#{unused.code} #{unused.message}"
+      end
     end
 
     # The SVC's homologação is always active (Anexo III 2.1.3.2). The state's own authorizer

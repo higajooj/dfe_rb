@@ -156,7 +156,7 @@ DfeRb::Nfe::Rates.ipi_applies?(2027, zfm_product: false)                       #
 DfeRb::Nfe::Apportion.call("10.00", %w[100 200])                               # => [3.33, 6.67]
 ```
 
-The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except returns (RV UB12-10, NT 2025.002 v1.53). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. The Simples Nacional fills it from 2027 (LC 214/2025, art. 348) under NT 2026.005, which gives no rule for leaving it out, so nothing is asked of it; a MEI sends none (see [the Simples Nacional](#the-simples-nacional-nt-2026005)). The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
+The XML group comes from the CST/CSOSN. A regime normal issuer (`tax_regime: :normal`) must put IBS/CBS on every note except a return or a complement that references a note issued before 2027 (RV UB12-10, NT 2025.002 v1.53; the date is the AAMM of the referenced key, see [What a return references](#what-a-return-references)). Homologação has rejected a note without it since 01/07/2026. In production the law has required it since 01/01/2026, but the rejection has no date yet. The Simples Nacional fills it from 2027 (LC 214/2025, art. 348) under NT 2026.005, which gives no rule for leaving it out, so nothing is asked of it; a MEI sends none (see [the Simples Nacional](#the-simples-nacional-nt-2026005)). The CST and `cClassTrib` codes come from the tables of IT 2025.002, which the gem ships (see [Official tables](#official-tables)): it checks the `cClassTrib` exists and is in force on the issue date, belongs to its CST and may go on the note's model, and checks the operation's presumed credit (`gCredPresOper`) against the cCredPres table.
 
 `vNF` follows RV W16-10: exemptions are deducted per item (only where `exemption_deducted: 1`), retained monophase ICMS (`ICMS15`) is added, PIS-ST/COFINS-ST are added when the item asks for it, and ICMS-ST stays out of a direct sale of new vehicles. `payment :deferred_payment, "0.00"` is pagamento posterior (tPag 91).
 
@@ -264,20 +264,32 @@ client.sign(File.read("nfe.xml"))   # raw <NFe> XML from another system: schema 
 
 Unknown names fail with a suggestion (`nature_of_operacion` → did you mean `nature_of_operation`?), and symbols map to codes (`tax_regime: :normal`, `payment :pix, ...`, `presence: :internet`).
 
-## Lots, results and errors
+## Several notes, results and errors
 
 ```ruby
-results = client.authorize([signed_a, signed_b])   # 2..50 notes: asynchronous lot, polled until processed
+results = notes.map { |signed| client.authorize(signed) }   # several notes: one request each, answered at once
 client.authorize(signed).status                    # :authorized, :authorized_late, :authorized_with_alert, :denied, :rejected, :pending, :canceled
-client.resume(result.receipt, pending_results)     # finish a lot whose answer couldn't be awaited (result.pending?)
 client.authorize!(signed)                          # raises DfeRb::Nfe::Rejected / Denied / ConsumptionBlocked instead
 ```
+
+**Send several notes one at a time.** SEFAZ ends the asynchronous authorization lot (RV GAP03a-6, NT 2023.002 v1.02): a request with `indSinc` 0 is rejected with 129 from 01/02/2027 in homologação and 05/04/2027 in production, and the NFC-e has taken one note per request since 2023. `authorize` with an Array of two or more notes still sends the lot until then, warns once (see [Deprecations](#deprecations)) and, from those days, raises `DfeRb::ValidationError` naming RV GAP03a-6 and rej. 129 before anything is sent. It decides by the clock of the request and by the `dhEmi` of the notes, whichever is later. A synchronous request answers with the protocol at once, so there is no receipt to poll. Sign and store every note first, then send them, each in its own call:
+
+```ruby
+signed = invoices.map { |invoice| client.sign(invoice) }   # store each signed.xml before any is sent
+results = signed.map do |note|
+  client.authorize(note)                                   # one note, indSinc 1, the result in the answer
+rescue DfeRb::TransportError => e
+  e                                                        # this note's answer was lost; the others still go
+end
+```
+
+Each call recovers its own lost answer or duplicate by key (below), so one failure doesn't stop the rest, and a note that came back as a `TransportError` is sent again later, as the same signed XML.
 
 A rejection is a *result* (SEFAZ answered "no"); exceptions are for problems: `DfeRb::ValidationError` (`#issues` lists everything wrong locally, nothing was sent), `DfeRb::TransportError` (`#maybe_processed?` tells whether SEFAZ may have acted, `#http_status` the status of an answer that wasn't a SOAP one, `#certificate_refused?` a 403, SEFAZ refusing the certificate at the TLS layer), `DfeRb::CertificateError`, `DfeRb::Nfe::Conflict`.
 
 The gem handles lost answers. After a timeout that may have reached SEFAZ, or a duplicate rejection (204/539), it asks for the key. If SEFAZ holds this same document, the gem returns its protocol (`result.recovered?`), or `:canceled` if the note was canceled since. If SEFAZ holds a different document, it raises `Conflict`. If SEFAZ holds nothing, it re-raises the original error, and the *same signed XML* can be sent again. This is why you must store `signed.xml` first and never rebuild a note that may have been sent. You can hand a stored note back as `SignedInvoice.new(xml: File.read(path), key: nil, digest_value: nil)` or as the XML itself. The gem checks it against the client's environment, certificate and signature before it goes out.
 
-If polling an accepted lot fails, the results come back `pending?` with the lot's `receipt` (notes SEFAZ already reports are recovered by key); `client.resume(receipt, results)` collects the rest.
+A lot accepted before the day SEFAZ ends it is polled until processed. If polling fails, the results come back `pending?` with the lot's `receipt` (notes SEFAZ already reports are recovered by key), and `client.resume(receipt, results)` collects the rest. That receipt query is deprecated with the lot: it is for lots accepted before the day above, and nothing issues a receipt after it.
 
 ## After authorization
 
@@ -285,9 +297,11 @@ If polling an accepted lot fails, the results come back `pending?` with the lot'
 client.consult(key)                                              # => ConsultResult (status, protocol, events)
 client.cancel(key, protocol: result.protocol, reason: "Erro na digitação dos dados")   # 110111, up to 24 h
 client.correct(key, text: "Corrigir o endereço de entrega", sequence: 1)               # CC-e 110110
-client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por erro")
+client.inutilize(series: 1, from: 10, to: 12, reason: "Numeração pulada por erro")      # not in AC, BA or SP: see below
 event.proc_xml                                                   # procEventoNFe to archive, as event.filename ("<chave>_<tpEvento>_<seq>-procEventoNFe.xml")
 ```
+
+**No inutilização in AC, BA and SP.** Since 11/11/2026, in homologação and in production, their web service doesn't exist (Ajustes SINIEF 38/2026 and 40/2026; RV I01a, NT 2023.002 v1.02): SEFAZ answers 998 "Serviço Desativado" or HTTP 404. `inutilize` for an issuer of those states raises `DfeRb::Nfe::Unsupported` before sending anything, naming the Ajustes, and it raises the same when any state answers 998 or 404. A number skipped there is simply left unused: SEFAZ doesn't check the database of inutilized numbers for them either (RV 3B08-100). Every other state keeps the service, and `DfeRb::Nfe::Retirements.inutilization_off?(uf, Time.now)` tells which.
 
 To print the DANFE from the authorized `procNFe` XML, [browser_danfe_gen](https://github.com/higajooj/browser_danfe_gen) can be used.
 
@@ -311,7 +325,7 @@ client.cancel(result.key, protocol: result.protocol, reason: "Erro na digitaçã
 
 `contingency :svc` sets `dhCont`, `xJust` and the `tpEmis` of the issuer's SVC (6 for the SVC-AN, 7 for the SVC-RS; `DfeRb::Nfe::States.contingency("MS") # => "SVC-RS"`). A note authorized there needs nothing else, because the SVC shares it with the state. Until it has, the state's own authorizer doesn't know the key. A carta de correção always goes to the state's own authorizer, since the SVC takes none, so it is rejected for a while (494). `via: :home` or `via: :contingency` on `consult`, `cancel` and `correct` picks the authorizer yourself. The SVC has no inutilização.
 
-A note that was sent to the state before the outage and never answered must not be reissued under the same number (Anexo III 2.1.3.5): give the SVC note another number and, when the state is back, consult the old key, then cancel it if it was authorized or inutilize its number if not.
+A note that was sent to the state before the outage and never answered must not be reissued under the same number (Anexo III 2.1.3.5): give the SVC note another number and, when the state is back, consult the old key, then cancel it if it was authorized or inutilize its number if not (not in AC, BA and SP, which have no inutilização since 11/11/2026: leave it unused).
 
 When the SVC isn't active either, the **EPEC** registers a summary of the note at the Ambiente Nacional, which is enough to print the DANFE and ship:
 
@@ -471,10 +485,10 @@ end
 It is the NF-e's builder, layout, signature, results and errors (`DfeRb::Nfce::Rejected` is `DfeRb::Nfe::Rejected`), with the NFC-e's own authorizers (AM, GO, MG, MS, MT, PR, RS and SP have theirs; every other state, BA and PE included, uses the SVRS) and these differences:
 
 - **Defaults of a consumer sale**: `mod` 65, `tpImp` 4 (DANFE NFC-e), `indFinal` 1, `indPres` 1, `idDest` 1 and, for a consumer, `indIEDest` 9. In homologação the first item's description becomes the text RV I04-10 requires (rej. 373), as the consumer's name does (598).
-- **QR code version 3** (NT 2025.001): `infNFeSupl` is built for you, with the state's QR code and consultation addresses from the Portal Nacional da NFC-e. A note issued on-line needs no CSC. Override an address with `endpoints: {qr_code: "...", consult_url: "..."}`.
+- **QR code version 3** (NT 2025.001): `infNFeSupl` is built for you, with the state's QR code and consultation addresses from the Portal Nacional da NFC-e. A note issued on-line needs no CSC; one issued off-line (`tpEmis` 9) carries its signature as raw Base64 (`+`, `/`, `=`), as NT 2026.003 §4.3.2 prints it, and `QrCode.parse` also reads one a URL encoder touched. Override an address with `endpoints: {qr_code: "...", consult_url: "..."}`.
 - **Rules of modelo 65**, checked before sending: the CFOPs an NFC-e takes and the CST or CSOSN each goes with (with the states' own exceptions), the groups it can't carry (IPI, DIFAL, billing, vehicles, references, a pickup place...), home delivery, the consumer's identification above R$ 10.000,00, the payment methods it can't take and the card group of card and PIX payments (391), and the QR code's address, parameters and off-line signature. Rules each state sets (its total cap, the consumer's name and address above R$ 10.000,00, the CSOSNs it bars, home delivery, the NCMs it refuses) stay with SEFAZ.
 - **5 minutes to reach SEFAZ**: a note issued on-line is rejected when it arrives more than 5 minutes after its `dhEmi` (RV B09-40, rej. 704). Since sending a note again may be a retry after a lost answer, `authorize` first looks up the key of a note that late: when SEFAZ holds it, that result comes back; when it holds nothing, `ValidationError` says so before anything is sent, so build the note again or issue it off-line.
-- **One note per request**, synchronous (RV GAP03a-4): `authorize` refuses a lot of more. A lost answer or a duplicate is resolved by key, as for the NF-e.
+- **One note per request**, synchronous (RV GAP03a-4, rej. 126; RV GAP03a-6, rej. 129): `authorize` refuses a lot of more. A lost answer or a duplicate is resolved by key, as for the NF-e.
 - **Cancellation** within 30 minutes of the authorization, unless the state allows longer. There is no carta de correção (rej. 784) and no SVC (783).
 - `client.sign(xml)` takes an NFC-e from another system too: an unsigned one gets its `infNFeSupl`; a signed one must already carry it.
 
@@ -498,7 +512,7 @@ client.cancel_by_substitution(first.key, protocol: first.protocol, replacement: 
   reason: "Emitida em contingencia off-line para a mesma venda")
 ```
 
-A note sent and never answered that SEFAZ doesn't hold is inutilized instead (`client.inutilize(series: 1, from: 20, reason: "...")`, of modelo 65).
+A note sent and never answered that SEFAZ doesn't hold is inutilized instead (`client.inutilize(series: 1, from: 20, reason: "...")`, of modelo 65), except in AC, BA and SP, whose inutilização is off since 11/11/2026 (see [After authorization](#after-authorization)).
 
 ## DANFE Simplificado Tipo 2
 
@@ -784,7 +798,7 @@ Before anything is sent, every item's CFOP is checked against the rules that con
 - an interstate sale to a final consumer who isn't an ICMS taxpayer has `icms_destination` (DIFAL), with the rule's exceptions: retorno and remessa CFOPs, `6552`/`6922`/`6929`, `ICMSPart`, exempt or untaxed ICMS, Simples Nacional, delivery in the issuer's state... (NA01-20, rej. 694)
 - a fuel CFOP has the `comb` group (LA01-20, rej. 660; enforced at each state's discretion, but never wrong)
 - `retTransp` takes a transport CFOP (X16-10, rej. 722)
-- an issuer without IE uses only CFOPs marked `indExcIBSCBS`, except on returns (I08-191, rej. 159, NT 2026.007)
+- an issuer without IE uses only CFOPs marked `indExcIBSCBS`, except on returns (I08-191, rej. 159, NT 2026.007; see [An issuer without IE](#an-issuer-without-ie))
 
 An item's IBS/CBS codes are checked against the tables of IT 2025.002 (NT 2025.002):
 
@@ -792,6 +806,47 @@ An item's IBS/CBS codes are checked against the tables of IT 2025.002 (NT 2025.0
 - the operation's presumed credit (`IBSCBS/gCredPresOper`) is allowed by the `cClassTrib` (`ind_gCredPresOper`) unless the good is used (`indBemMovelUsado`) (UB120-20, rej. 1175); its `cCredPres` exists (UB122-10, rej. 1055); the IBS and CBS groups are given exactly where the code requires them and left out where it bars them (UB123-10 to UB127-20, rej. 1053, 1054, 1050, 1058); a used good's credit (cCredPres 04) doesn't exceed `vProd` (UB125-10, UB129-10); and an amount in suspensive condition comes only with cCredPres 04, the CBS's from 2027 and the IBS's from 2033 (UB126-10, UB130-10). The tables keep only each code's current indicators (IT 2025.002 v1.71, in production since 30/10/2026), so the rules that consult them (models, `ind_gCredPresOper`, the credit's tax groups) apply to notes issued from that day: an older note may carry a code an earlier version allowed.
 
 The carrier required on fuel sales with `indComb` 2 (X04-10) is left to SEFAZ: it depends on a list of ANP product codes the gem doesn't ship.
+
+### What a return references
+
+NT 2025.002 v1.53 lets a return (`purpose :return`, `finNFe` 4) reference the note it returns in the header or on its items. Reference it in the header with `nfe.reference key: "..."`, once, or on each item with `i.referenced_dfe key: "...", item_number: 2` (`chaveAcesso` and `nItem`, which is optional):
+
+```ruby
+nfe.purpose :return
+nfe.item do |i|
+  i.cfop "6202"
+  i.referenced_dfe key: sale_key, item_number: 1   # the item of the note it returns
+end
+```
+
+The validator checks what the notes' own data says (the others go to SEFAZ, below):
+
+- a return carries one header key at most, and so do a complement and the credit notes of types 01, 03 and 04 (B25-40, rej. 255; for a return from 09/11/2026 in homologação and 16/11/2026 in production). A return of several notes names each on its items.
+- a return references its note, in the header or on every item but those of CFOP `5921` and `6921` (VC02-14, rej. 321; from 01/09/2026 in homologação and 03/11/2026 in production), and never in both (VC02-05 and VC02-14's observation, rej. 1010, from the same days).
+- the items of a note reference one document, but for a return and the debit notes 03 and 07 (VC02-30, rej. 1130), and the items of a return one issuer, by its CNPJ base or CPF (VC02-40, rej. 1193; both from 09/11/2026 and 16/11/2026). The issuer of a Nota Fiscal Avulsa, whose key carries SEFAZ's CNPJ, isn't compared.
+- the same key and item twice (VC02-20, rej. 1072) is checked once the NT dates it: `ReferenceRules::DUPLICATE_ITEM_REFERENCE_SINCE` is empty because v1.53 says "implementação futura". The same key on several items without `nItem` isn't a duplicate here, though the rule's observation reads so: it would refuse every return of several items of one note that leaves `nItem` out, which v1.53 allows.
+- from 2027 a return or a complement that references only notes of 2027 on carries IBS/CBS (UB12-10's exception 1). The gem reads each key's AAMM, in the header and on the items. When the notes are of both years, or none can be read (a paper note), it asks nothing and SEFAZ judges.
+
+Left to SEFAZ, because they consult its database: that the referenced note exists (3BA02-10, rej. 267), the return's total, ICMS and FCP against the notes returned (3BA02-50 to 3BA02-68, rej. 545, 546, 566, 567, 581), that the issuer of a referenced exit note is the return's recipient (VC02-50, rej. 1194, which needs the referenced note's direction) and the `nItem` that VC03-20 (rej. 1048) will require, "implementação futura", without the exception for a return that v1.53 announces.
+
+### An issuer without IE
+
+NT 2026.007 lets an issuer that pays only the IBS and the CBS, no ICMS (a contribuinte exclusivo do IBS/CBS), issue an NF-e with no state registration: leave `state_registration` out of `nfe.issuer`. SEFAZ confirms against the CCC that the CNPJ has no IE enabled. The rules start on 26/10/2026 in homologação and 16/11/2026 in production (v1.11), and the validator checks what the note says by itself:
+
+- an NFC-e can't be issued without IE until 2033 (C17-42, rej. 156);
+- the issuer is a CNPJ (C17-43, rej. 157) and gives no `IEST` (C18-50, rej. 158);
+- no `ICMS` or `ICMSUFDest` group on an item (N01-10, rej. 161), but on a return and the credit note of type 03;
+- the `IBSCBS` group on every item (UB12-11, rej. 162), a return included;
+- only the CFOPs marked `indExcIBSCBS`, but on a return and the credit note of type 03 (I08-191, rej. 159).
+
+Only the SVRS authorizes such a note (C17-11, rej. 166), so the client sends it there whatever its `uf`: `authorize`, the lot's return of `resume` and the lookup of its key after a lost answer. The key doesn't say the note has no IE, so ask for the later requests with `via: :svrs`, which routes the issuer's events there too (1P10-40):
+
+```ruby
+client.cancel(key, protocol: protocol, reason: "...", via: :svrs)
+client.consult(key, via: :svrs)
+```
+
+A lot can't mix such notes with others, as it can't mix SVC ones. The Receita's LCC and SEFAZ's CCC registries are SEFAZ's to check, and the gem leaves them: that the CNPJ exists and is active at the Receita (12C02-10, 12C02-20, rej. 178, 179), that `CRT` matches its regime there (12C21-20, rej. 180), that the CCC knows no IE for it (1C17-02, 1C17-04, rej. 163, 164), the same for the recipient, the pickup and the delivery places (12E02 to 12G02, 5AF15 to 5BG17) and for the events (1P10-30, 1P10-32). In homologação v1.10 doesn't reject the issuer a CCC flags as a test one (`CCC.indContribTeste` 1), nor a recipient's state that differs from the Receita's.
 
 ## Advanced
 
@@ -810,6 +865,18 @@ What isn't particular to the NF-e sits at the top level, for the other DF-e to b
 
 The gem takes A1 certificates only, from a `.pfx` (`DfeRb::Certificate.from_pkcs12`), PEM, or OpenSSL objects you already hold (`DfeRb::Certificate.new(certificate:, private_key:, chain: [])`). Files encrypted with RC2-40 (common in ICP-Brasil A1) are opened through the OpenSSL legacy provider, which is loaded only while parsing. A precompiled Ruby (mise, rv...) whose OpenSSL can't find that provider gets it from the system's OpenSSL 3 (`openssl version -m`); set `OPENSSL_MODULES` to point elsewhere.
 
+## Deprecations
+
+What SEFAZ stops accepting stays in the gem until it stops, and warns until then: once per process, to `$stderr`, as `[dfe_rb] DEPRECATION: ...`, naming the RV, the NT and the day. `DfeRb::Deprecation.silenced = true` turns the notices off.
+
+| What | Why | Until | After |
+| --- | --- | --- | --- |
+| `Nfe::Client#authorize` with two or more notes (the asynchronous lot, `indSinc` 0) | RV GAP03a-6, rej. 129, NT 2023.002 v1.02 | Sent, with a notice, until 01/02/2027 in homologação and 05/04/2027 in production, by the request's clock or the notes' `dhEmi` | Raises `ValidationError` before sending. Send each note in its own call. |
+| `Nfe::Client#resume`, the receipt query (`:authorization_return`, `Requests.lot_return`) | It collects an asynchronous lot's answer, and no lot is accepted | Works, with a notice, for a lot accepted before the day above | Nothing issues a receipt; SEFAZ may stop answering old ones |
+| `inutilize` in AC, BA and SP | Ajustes SINIEF 38/2026 and 40/2026, RV I01a (rej. 998) | Sent until 11/11/2026 | Raises `Unsupported` before sending (this one is not a warning: the service is gone) |
+
+The lot (`authorize` with an Array of two or more notes), `resume` and `Requests.lot_return` are removed in a release after 05/04/2027, once SEFAZ no longer answers old receipts. The CHANGELOG announces it first, and a release that removes them says so.
+
 ## Testing
 
 `bundle exec rake` runs the specs (no network) and Standard. Live checks against homologação are opt-in:
@@ -822,7 +889,7 @@ They confirm the SOAP contract and every service with your certificate, includin
 
 ## Legislation
 
-Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization of single-note lots, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ).
+Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization only, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ, no inutilização in AC, BA and SP).
 
 The NFC-e follows the same MOC and Anexo I, the rules each NT gives modelo 65 (NT 2015.002, 2018.004 for the cancellation by substitution, 2023.001, 2023.002 v1.01, 2023.003 v1.40, 2024.001, 2025.001 v1.03 for the QR code version 3, NT 2025.002, 2026.002 v1.11), with the parameters of the QR code as NT 2026.003 tabulates them and Anexo IV for the off-line contingency. The DANFE Simplificado Tipo 2 follows NT 2026.002 v1.11 and NT 2026.003 v1.00. Where an NT lists fewer CFOPs than another, the gem takes the wider list. Its web services come from the SVRS DF-e portal's "Relação de Serviços Web" (MG, missing there, from its own authorizer's answer), and the QR code and consultation addresses from the Portal Nacional da NFC-e (`nfce.encat.org`).
 
@@ -859,7 +926,7 @@ Edited by hand:
 | XSD packages | `lib/dfe_rb/xml/schemas` (copied unchanged; versions listed in its `README.md`) | Portal Nacional da NF-e, "Esquemas XML" | each schema package (`PL_010...`), usually with an NT |
 | English names of new fields | `lib/dfe_rb/nfe/names.rb` | the new schema package | with the XSDs |
 | Validation and derivation rules | `validator.rb`, `calculator.rb`, `totals.rb`, `resolver.rb` (each rule cites its RV and NT) | Anexo I of the MOC and the NTs | each NT; "Legislation" above names the last one applied |
-| Dates a rule starts | `Validator::IBS_CBS_SINCE`, `PAPER_REFERENCES_BARRED_SINCE`, `CONSUMER_REFERENCES_BARRED_SINCE` | NT 2025.002, NT 2026.002 and their successors | an NT moves a date |
+| Dates a rule starts | `Validator::IBS_CBS_SINCE`, `PAPER_REFERENCES_BARRED_SINCE`, `CONSUMER_REFERENCES_BARRED_SINCE`, `ReferenceRules::RETURN_REFERENCE_SINCE`, `REFERENCE_RULES_SINCE`, `DUPLICATE_ITEM_REFERENCE_SINCE`, `NoIeRules::NO_IE_RULES_SINCE` | NT 2025.002, NT 2026.002 and their successors | an NT moves a date |
 | States barred from the EPEC | `States::EPEC_BARRED` | NT 2014.001 (RV 2P10-20) | an Ajuste SINIEF adds or removes a state |
 | Lists a rule consults | in `validator.rb`: `MEI_RETURN_CFOPS`, `RETURN_OTHER_CFOPS`, `NATURAL_GAS_RETURN_CFOPS`, `DIFAL_EXEMPT_CFOPS`, `DIFAL_FUEL_ANP_CODES`, `DIFAL_EXEMPT_ICMS` | the RVs they name (I08-140, I08-141, NA01-20) | an NT rewrites the rule |
 | IBS/CBS standard rates by year | `Rates::IBS_CBS`, and the CBS reference rate of 2027 and 2028 in `Rates::CBS_REFERENCE` (less `CBS_TRANSITION_DISCOUNT`); nothing after 2028 | IT 2025.002 §05, the Senate's resolution or the TCU's rate (LC 214/2025, art. 349), and the laws that set each year's rates | yearly, before the first issue of the year; for 2027, on 22/12/2026 at the latest |

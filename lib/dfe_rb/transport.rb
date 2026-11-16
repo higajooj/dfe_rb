@@ -92,8 +92,10 @@ module DfeRb
       response = Net::HTTP.start(uri.host, uri.port, **http_options) { |http| http.request(request) }
       body = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
 
-      # SOAP faults come with HTTP 500 and are reported by extract_result.
-      unless response.is_a?(Net::HTTPSuccess) || body.include?("Fault")
+      # SOAP faults come with HTTP 500 and are reported by extract_result. A 404 is the service
+      # being gone (NT 2023.002 v1.02), whatever its body says.
+      soap_fault = body.include?("Fault") && response.code.to_i != 404
+      unless response.is_a?(Net::HTTPSuccess) || soap_fault
         raise TransportError.new("HTTP #{response.code} from #{uri.host}", maybe_processed: response.code.to_i >= 500, http_status: response.code.to_i)
       end
 
