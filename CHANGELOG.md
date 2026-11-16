@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- NT 2023.002 v1.02 (read in full): **no inutilização in AC, BA and SP** since 11/11/2026, in homologação and in production (Ajustes SINIEF 38/2026 and 40/2026; RV I01a, rej. 998). `Nfe::Client#inutilize` (and the NFC-e's) for an issuer of those states raises `DfeRb::Nfe::Unsupported` before sending anything, with a message naming the Ajustes. It raises the same when any state answers 998 "Serviço Desativado" or HTTP 404. `Nfe::Retirements.inutilization_off?(uf, time)` tells which states.
+- **The asynchronous authorization lot ends** (RV GAP03a-6, rej. 129): SEFAZ rejects `indSinc` 0 from 01/02/2027 in homologação and 05/04/2027 in production. `Nfe::Client#authorize` with two or more notes still sends the lot until then, and warns once (`[dfe_rb] DEPRECATION: ...`); from those days, by the clock of the request or any note's `dhEmi`, it raises `ValidationError` naming RV GAP03a-6 and rej. 129 before sending. Send several notes one call each (README, "Several notes, results and errors"). A single note is unaffected.
+- **Deprecated, to be removed in a release after 05/04/2027**: `Nfe::Client#resume` and the receipt query (`:authorization_return`, `Requests.lot_return`), which go with the lot; `resume` warns once. See the README's "Deprecations". `DfeRb::Deprecation.silenced = true` turns the notices off.
+- `StatusCodes::SYNCHRONOUS_REQUIRED` (129) and `SERVICE_OFF` (998), `Nfe::Document#issued_at`.
+- RV 1C17-38 (rej. 781) now covers models 55 and 65, and 3B08-100 skips AC, BA and SP: both are SEFAZ's checks, nothing local. The NT's schema change against invalid characters names no package.
+- The specs' test certificates start in 2020 instead of a minute before the wall clock, which failed the specs that travel to an earlier time.
 - The off-line NFC-e QR code's signature (`Nfce::QrCode.offline`) stays raw standard Base64, `+`, `/` and `=` included, as NT 2026.003 §4.3.2 (Tabela 2, 8th parameter, and its model URL) prints it; the code cites it, and a spec covers a signature holding all three. `QrCode.parse` and `signed_by?` now also read one a URL encoder touched (percent-encoded, `+` turned into spaces, or URL-safe Base64, padded or not), so a note's QR code printed in any of those forms still verifies. `QrCode.normalize_signature` does it. Whether each state's consultation page decodes the raw `+` is still to be confirmed in homologação (issue 4).
 
 ## 0.19.0

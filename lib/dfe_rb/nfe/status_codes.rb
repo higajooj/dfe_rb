@@ -32,6 +32,10 @@ module DfeRb
       DUPLICATE_DIFFERENT_KEY = 539
       DUPLICATE_UNUSED_NUMBERS = 563
       CONSUMPTION_BLOCKED = 656
+      # A request for asynchronous authorization (GAP03a-6, NT 2023.002 v1.02).
+      SYNCHRONOUS_REQUIRED = 129
+      # The state's inutilização service is switched off (I01a, NT 2023.002 v1.02).
+      SERVICE_OFF = 998
 
       AUTHORIZED_CODES = [AUTHORIZED, AUTHORIZED_LATE, AUTHORIZED_WITH_ALERT].freeze
 

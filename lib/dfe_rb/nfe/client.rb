@@ -7,7 +7,7 @@ module DfeRb
     #   signed = client.sign(invoice)          # store signed.xml before sending
     #   result = client.authorize(signed)
     #   File.write("#{result.key}-procNFe.xml", result.proc_xml) if result.authorized?
-    #   result = client.resume(result.receipt, [result]) if result.pending?   # lot answer still pending
+    #   result = client.resume(result.receipt, [result]) if result.pending?   # a lot accepted before 05/04/2027
     class Client
       # The mod of the notes it issues (DfeRb::Nfce::Client issues 65).
       MODEL = 55
@@ -91,6 +91,11 @@ module DfeRb
       # SignedInvoices or raw XML. Returns an AuthorizationResult, or an Array of them when
       # given an Array.
       #
+      # The asynchronous lot is deprecated: SEFAZ rejects it from 01/02/2027 in homologação and
+      # 05/04/2027 in production (RV GAP03a-6, rej. 129; NT 2023.002 v1.02), and from then on
+      # a lot of several notes raises ValidationError before anything is sent. Send each note
+      # in a call of its own: `notes.map { |note| client.authorize(note) }`.
+      #
       # When the answer is lost (a timeout, say) or SEFAZ reports the key as a duplicate, it
       # looks the key up. If the stored note is this same document, it returns that note's
       # protocol (`result.recovered?` is true) instead of raising.
@@ -111,6 +116,7 @@ module DfeRb
         raise ArgumentError, "nothing to authorize" if signed.empty?
         raise ArgumentError, "a lot holds at most #{MAX_LOT} notes (got #{signed.size})" if signed.size > MAX_LOT
 
+        check_synchronous(signed)
         found = recover ? held_late_notes(signed) : {}
         unsent = signed.reject { |note| found.key?(note.key) }
         sent = unsent.empty? ? [] : transmit(unsent, lot_id: lot_id || new_lot_id, recover: recover, polling: DEFAULT_POLLING.merge(polling))
@@ -122,7 +128,14 @@ module DfeRb
       # Collects the answer to an asynchronous lot SEFAZ already accepted (cStat 103). Takes
       # the receipt and the notes sent in the lot, as SignedInvoices or as the pending
       # AuthorizationResults #authorize returned. Returns results as #authorize does.
+      #
+      # Deprecated with the asynchronous lot (see #authorize): SEFAZ issues no more receipts
+      # once it rejects the lot, so this is only for a lot accepted before.
       def resume(receipt, notes, recover: true, polling: {})
+        Deprecation.warn(:receipt_query, "Nfe::Client#resume and the receipt query (consReciNFe) go with the asynchronous " \
+          "authorization lot, which SEFAZ rejects from #{Retirements.async_lot_ends(environment).strftime("%d/%m/%Y")} in " \
+          "#{environment} (RV GAP03a-6, NT 2023.002 v1.02): use them only to finish a lot accepted before, and authorize " \
+          "each note on its own")
         many = notes.is_a?(Array)
         signed = Array(notes).map do |note|
           next sign(note) unless note.is_a?(AuthorizationResult)
@@ -188,15 +201,29 @@ module DfeRb
       end
 
       # Declares a range of numbers as unused (inutilização).
+      #
+      # AC, BA and SP have no inutilização service since 11/11/2026 (RV I01a, Ajustes SINIEF
+      # 38/2026 and 40/2026; NT 2023.002 v1.02): for them it raises Unsupported before sending
+      # anything, and it raises it too when SEFAZ answers 998 "Serviço Desativado" or HTTP 404.
       def inutilize(series:, from:, reason:, to: from, model: self.class::MODEL, year: @clock.now.year)
         raise ArgumentError, "from must not be greater than to" if from > to
         raise ArgumentError, "a request covers at most 10000 numbers" if to - from >= 10_000
 
         unsigned = Requests.inutilization(state: uf, year: year, tax_id: certificate.tax_id, model: model, series: series,
           from: from, to: to, reason: justification(reason, "reason", 15..255), environment: environment)
+        raise Unsupported, Retirements.inutilization_message(uf) if Retirements.inutilization_off?(uf, @clock.now)
+
         signed = Signature.sign_inutilization(unsigned, certificate)
 
-        response = Response.new(call(:inutilization, signed))
+        response = begin
+          Response.new(call(:inutilization, signed))
+        rescue TransportError => e
+          raise unless e.http_status == 404
+
+          raise Unsupported, Retirements.inutilization_message(uf, answer: "HTTP 404")
+        end
+        raise Unsupported, Retirements.inutilization_message(uf, answer: "#{response.code} #{response.message}".strip) if response.code == StatusCodes::SERVICE_OFF
+
         InutilizationResult.new(code: response.code, message: response.message, protocol: response.text("nProt"),
           request_xml: signed, return_xml: response.fragment("retInutNFe"), xml: response.xml)
       end
@@ -272,6 +299,20 @@ module DfeRb
       end
 
       def new_lot_id = (@clock.now.to_f * 1000).to_i.to_s
+
+      # A lot of several notes is an asynchronous request (indSinc 0), which SEFAZ rejects from
+      # the day the NT sets (RV GAP03a-6, rej. 129): by the clock of the request or any note's
+      # dhEmi. Before then it only warns that the lot is going away.
+      def check_synchronous(signed)
+        return if signed.size == 1
+
+        issued = signed.map { |note| Document.new(note.xml).issued_at }
+        raise ValidationError, [Retirements.async_lot_message(environment, signed.size)] if Retirements.async_lot_ended?(environment, [@clock.now, *issued])
+
+        Deprecation.warn(:async_lot, "an asynchronous authorization lot (several notes in one #{self.class}#authorize call) " \
+          "is rejected from #{Retirements.async_lot_ends(environment).strftime("%d/%m/%Y")} in #{environment} (RV GAP03a-6, rej. 129, " \
+          "NT 2023.002 v1.02): authorize each note in its own call")
+      end
 
       # Checks the schema, and the business rules unless `strict: false`, for XML that didn't
       # come from an Invoice. A note with a QR code (an NFC-e, or an NF-e printed as the DANFE
