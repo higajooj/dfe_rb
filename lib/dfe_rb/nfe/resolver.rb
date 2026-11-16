@@ -187,7 +187,8 @@ module DfeRb
         year = issued_time(ide["dhEmi"])&.year
         context = Calculator::Context.new(origin_state: state, destination_state: inf.dig("dest", "enderDest", "UF"),
           destination: ide["idDest"], year: year, purchase_reduction: ide.dig("gCompraGov", "pRedutor"),
-          purpose: ide["finNFe"], direction: ide["tpNF"], final_consumer: ide["indFinal"])
+          purpose: ide["finNFe"], direction: ide["tpNF"], final_consumer: ide["indFinal"],
+          ibs_cbs_layout: SimplesIbsCbs.layout(inf["emit"]))
         # vItem is required with IBS/CBS (RV VB01-05).
         item_amounts = det.any? { |item| item.dig("imposto", "IBSCBS") }
 

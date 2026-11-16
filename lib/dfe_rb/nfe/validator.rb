@@ -15,8 +15,8 @@ module DfeRb
       # production the rule has no date yet ("implementação futura"; v1.51 struck out
       # 03/08/2026), but the group has been mandatory by law since 01/01/2026 (the NT's
       # schedule, LC 214/2025), so a note without it is flagged all the same. The Simples
-      # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348) under rules an NT has
-      # yet to bring, so nothing is asked of them. Returns and complements are left out:
+      # Nacional and the MEI fill it from 2027 (LC 214/2025, art. 348), and NT 2026.005 says
+      # how (check_simples_ibs_cbs) but gives no rule for its absence, so nothing is asked of them. Returns and complements are left out:
       # v1.53 exempts only those referencing a note issued before 2027, which until then is
       # every one, so the exception needs the referenced key's date from 2027 on.
       IBS_CBS_SINCE = {"2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 1, 1, 0, 0, 0, "-03:00")}.freeze
@@ -90,6 +90,16 @@ module DfeRb
       # The groups a debit or credit note may not carry (RV B25-80); it is IBS/CBS only.
       IBS_CBS_ONLY_BARRED_GROUPS = %w[ICMS ISSQN IPI II PIS PISST COFINS COFINSST ICMSUFDest].freeze
       CONTRIBUTION_GROUPS_OF_2026 = %w[PIS PISST COFINS COFINSST].freeze
+
+      # NT 2026.005 v1.00 (the Simples Nacional's IBS and CBS): when its rules apply, by tpAmb.
+      # Homologação by 26/10/2026; production moved from 16/11 to 14/12/2026 by the Portal's aviso
+      # of 13/11/2026.
+      SIMPLES_IBS_CBS_RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+      # The notes whose IBSCBS mirrors the supply note they refer to (NT 2026.005 §2.4), issued
+      # perhaps under another regime than the issuer's today: a return, the credit notes 03 and 06
+      # and the debit note 09.
+      MIRROR_CREDIT_NOTES = %w[03 06].freeze
+      MIRROR_DEBIT_NOTE = "09"
 
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
@@ -310,6 +320,7 @@ module DfeRb
         end
 
         check_net_value(where, prod)
+        check_simples_ibs_cbs(where, item)
         check_item_cfop(where, item)
         check_ibs_cbs_only_purpose(where, item)
         check_prepaid_icms(where, item)
@@ -319,6 +330,43 @@ module DfeRb
         check_cest(where, item, prod)
         check_icms(where, item)
         check_item_taxes(where, item)
+      end
+
+      # NT 2026.005 §2.1 to §2.3: what the issuer's regime lets its item carry of the IBS and the
+      # CBS (SimplesIbsCbs). The NT gives these as a table, with no rejection code. A MEI (CRT 4)
+      # carries no IBSCBS at all; tpRegimeIBSCBS is given only where the table names it; cAtivSN
+      # only by an optante or one whose option is pending; and gIBSCBS and the groups of gTribSN
+      # are left out where the table says "não informar". What the table says to "informar" is
+      # left to SEFAZ, which publishes no rule for it, and so is a note whose IBSCBS mirrors a
+      # supply (§2.4: returns and refusals), which may carry the regime the supply had.
+      def check_simples_ibs_cbs(where, item)
+        return unless in_force?(SIMPLES_IBS_CBS_RULES_SINCE)
+
+        layout = SimplesIbsCbs.layout(@inf["emit"]) or return
+        add "emit/tpRegimeIBSCBS: #{layout.problem}" if layout.problem
+        ibscbs = item.dig("imposto", "IBSCBS")
+        if layout.mei
+          add "#{where}/imposto/IBSCBS: a MEI (CRT 4) doesn't inform the IBS/CBS group (NT 2026.005 §2.3)" if ibscbs
+          return
+        end
+        if item.dig("prod", "cAtivSN") && !layout.activity
+          add "#{where}/prod/cAtivSN: only a Simples Nacional issuer, or one whose option for it is pending (tpRegimeIBSCBS 2, 3 or 4), informs it (NT 2026.005 §2.2)"
+        end
+        return if ibscbs.nil? || mirror_note? || layout.problem
+
+        path = "#{where}/imposto/IBSCBS"
+        add "#{path}/gIBSCBS: not informed by a Simples Nacional issuer without the regular regime of the IBS and the CBS (NT 2026.005 §2.3)" if layout.main == false && ibscbs["gIBSCBS"]
+        simples = ibscbs["gTribSN"] or return
+        if layout.ibs_sn == false && layout.cbs_sn == false
+          add "#{path}/gTribSN: not informed with this regime (NT 2026.005 §2.3)"
+        else
+          add "#{path}/gTribSN/gIBSSN: not informed with this regime (NT 2026.005 §2.3)" if layout.ibs_sn == false && simples["gIBSSN"]
+          add "#{path}/gTribSN/gCBSSN: not informed with this regime (NT 2026.005 §2.3)" if layout.cbs_sn == false && simples["gCBSSN"]
+        end
+      end
+
+      def mirror_note?
+        @ide["finNFe"].to_s == "4" || MIRROR_CREDIT_NOTES.include?(credit_note_type) || debit_note_type == MIRROR_DEBIT_NOTE
       end
 
       # RV I11c-20 (NT 2026.008): on a normal note, vProdLiq is the net unit price x the quantity.
@@ -741,7 +789,9 @@ module DfeRb
         year = issued_at.year
         # As the XML writes it: 4 places at most.
         given = Calculator.percentage(sphere[rate_tag])
-        expected = (rate_tag == "pCBS" && sphere["gALCZFMCBS"]) ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
+        # The CBS of an excess of the sublimit is in gTribSN: gIBSCBS carries it at zero (NT 2026.005 §2.3).
+        zero_cbs = rate_tag == "pCBS" && (sphere["gALCZFMCBS"] || SimplesIbsCbs.layout(@inf["emit"])&.zero_cbs)
+        expected = zero_cbs ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
         return if expected.nil? || given == expected
         return if rate_tag == "pCBS" && given.zero? && year < Rates::CBS_CHARGED_SINCE
 
@@ -800,6 +850,7 @@ module DfeRb
           check_amount("total/vNFTot", total["vNFTot"], Totals.sum(det) { |item| item["vItem"] }, "the sum of the items' vItem", 1094)
         end
         check_net_total(det, total)
+        check_simples_totals(det, total)
         given = total["ICMSTot"] or return
         expected = Totals.icms_total(det)
         expected.each do |tag, value|
@@ -820,6 +871,26 @@ module DfeRb
         elsif total["vProdLiqTot"]
           check_amount("total/vProdLiqTot", total["vProdLiqTot"], net || 0, "the sum of the items' vProdLiq", 1283)
         end
+      end
+
+      # RV W59h-10, W59h-20, W59i-10, W59j-10 (NT 2026.005): the Simples Nacional's totals are there
+      # when an item carries gTribSN, and only then, and each is the sum of the items' own.
+      def check_simples_totals(det, total)
+        return unless in_force?(SIMPLES_IBS_CBS_RULES_SINCE)
+
+        carrying = det.filter_map { |item| item.dig("imposto", "IBSCBS", "gTribSN") }
+        given = total.dig("IBSCBSTot", "gTribSN")
+        path = "total/IBSCBSTot/gTribSN"
+        if given.nil?
+          add "#{path}: required when an item carries gTribSN (RV W59h-10, rej. 1275)" unless carrying.empty?
+          return
+        end
+        return add "#{path}: no item carries gTribSN (RV W59h-20, rej. 1276)" if carrying.empty?
+
+        check_amount("#{path}/vIBSSN", given["vIBSSN"], Totals.sum(carrying) { |group| group.dig("gIBSSN", "vIBSSN") },
+          "the sum of the items' vIBSSN", 1277)
+        check_amount("#{path}/vCBSSN", given["vCBSSN"], Totals.sum(carrying) { |group| group.dig("gCBSSN", "vCBSSN") },
+          "the sum of the items' vCBSSN", 1284)
       end
 
       def check_payment

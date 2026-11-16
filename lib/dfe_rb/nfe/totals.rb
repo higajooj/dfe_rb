@@ -249,6 +249,14 @@ module DfeRb
         unless reversals.empty?
           total["gEstornoCred"] = %w[vIBSEstCred vCBSEstCred].to_h { |tag| [tag, money(sum(reversals) { |group| group[tag] })] }
         end
+
+        # The Simples Nacional's own IBS and CBS (W59h to W59j, NT 2026.005): an item without
+        # gIBSSN or gCBSSN adds nothing.
+        simples = taxed.filter_map { |ibscbs| ibscbs["gTribSN"] }
+        unless simples.empty?
+          total["gTribSN"] = {"vIBSSN" => money(sum(simples) { |group| group.dig("gIBSSN", "vIBSSN") }),
+                              "vCBSSN" => money(sum(simples) { |group| group.dig("gCBSSN", "vCBSSN") })}
+        end
         total
       end
 

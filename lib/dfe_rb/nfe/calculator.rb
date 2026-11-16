@@ -19,7 +19,7 @@ module DfeRb
       # only for a normal operation (finNFe 1). A return, adjustment or complement carries the
       # rates of the operation it refers to, which only the issuer knows.
       Context = Struct.new(:origin_state, :destination_state, :destination, :year, :purchase_reduction, :purpose, :direction,
-        :final_consumer, :cfop, :zfm_product) do
+        :final_consumer, :cfop, :zfm_product, :ibs_cbs_layout) do
         def law_rates? = purpose.to_s == NORMAL
 
         # The IPI joins the ICMS base for a final consumer, but not for a contributor who buys
@@ -206,7 +206,10 @@ module DfeRb
         klass = Tables.classification(ibscbs["cClassTrib"])
         ibscbs["CST"] ||= ibscbs["cClassTrib"].to_s[0, 3] if ibscbs["cClassTrib"]
 
-        if ibscbs["gIBSCBS"].nil? && klass&.taxed? && !klass.monophase? && ibscbs["gIBSCBSMono"].nil?
+        # A Simples Nacional issuer without the regular regime of the IBS and the CBS carries them
+        # in gTribSN and no gIBSCBS (NT 2026.005 §2.3), which the gem leaves for it to give.
+        layout = context.ibs_cbs_layout
+        if ibscbs["gIBSCBS"].nil? && klass&.taxed? && !klass.monophase? && ibscbs["gIBSCBSMono"].nil? && layout&.main != false
           ibscbs["gIBSCBS"] = {}
         end
         group = ibscbs["gIBSCBS"] or return
@@ -227,6 +230,8 @@ module DfeRb
           # The CBS of a sale within one incentive area (ZFM or an ALC) is zero (UB56-20,
           # exception 3; LC 214/2025, arts. 451 and 466).
           standard = BigDecimal(0) if sphere["gALCZFMCBS"]
+          # The excess of the sublimit's CBS is in gTribSN, so gIBSCBS carries it at rate zero (NT 2026.005 §2.3).
+          standard = BigDecimal(0) if rate_tag == "pCBS" && layout&.zero_cbs
           if sphere[rate_tag].nil? && standard.nil? && law_rates && context.year >= Rates::IBS_CBS.keys.min
             raise RateNotPublished, unpublished_rate(item, rate_tag, context.year)
           end

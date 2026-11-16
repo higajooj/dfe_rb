@@ -179,12 +179,27 @@ module DfeRb
             group["gCBS"] = ibs_part(cbs, "pCBS", "vCBS")
           end
           attributes[:g_ibscbs] = (attributes[:g_ibscbs] || {}).merge(group) unless group.empty?
+          simples = simples_group(attributes)
+          attributes[:g_trib_sn] = (attributes[:g_trib_sn] || {}).merge(simples) unless simples.empty?
 
           target = ((data["imposto"] ||= {})["IBSCBS"] = {})
           inner = Scope.new(scope.__element.find("imposto").find("IBSCBS"), target)
           inner.__assign(attributes)
           block&.call(inner)
           nil
+        end
+
+        # The Simples Nacional's own IBS and CBS (gTribSN, NT 2026.005): `simples_ibs: {rate:,
+        # amount:}` for gIBSSN and `simples_cbs:` for gCBSSN.
+        def simples_group(attributes)
+          group = {}
+          if (ibs = attributes.delete(:simples_ibs))
+            group["gIBSSN"] = {"pIBSSN" => ibs[:rate], "vIBSSN" => ibs[:amount]}.compact
+          end
+          if (cbs = attributes.delete(:simples_cbs))
+            group["gCBSSN"] = {"pCBSSN" => cbs[:rate], "vCBSSN" => cbs[:amount]}.compact
+          end
+          group
         end
 
         def ibs_part(values, rate_tag, amount_tag)

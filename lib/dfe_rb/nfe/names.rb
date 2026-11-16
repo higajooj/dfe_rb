@@ -59,7 +59,7 @@ module DfeRb
         },
         "emit" => {
           cnpj: "CNPJ", cpf: "CPF", name: "xNome", trade_name: "xFant", address: "enderEmit", state_registration: "IE",
-          st_state_registration: "IEST", municipal_registration: "IM", cnae: "CNAE", tax_regime: "CRT"
+          st_state_registration: "IEST", municipal_registration: "IM", cnae: "CNAE", tax_regime: "CRT", ibs_cbs_regime: "tpRegimeIBSCBS"
         },
         "dest" => {
           cnpj: "CNPJ", cpf: "CPF", foreign_id: "idEstrangeiro", name: "xNome", address: "enderDest",
@@ -74,7 +74,7 @@ module DfeRb
           cfop: "CFOP", unit: "uCom", quantity: "qCom", unit_price: "vUnCom", total: "vProd",
           taxable_gtin: "cEANTrib", taxable_unit: "uTrib", taxable_quantity: "qTrib",
           taxable_unit_price: "vUnTrib", freight: "vFrete", insurance: "vSeg", discount: "vDesc",
-          other_expenses: "vOutro", net_unit_price: "vUnComLiq", net_amount: "vProdLiq", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
+          other_expenses: "vOutro", simples_activity: "cAtivSN", net_unit_price: "vUnComLiq", net_amount: "vProdLiq", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
           fci: "nFCI", additional_info: "infAdProd", tax_total: "vTotTrib", ibs_cbs: "IBSCBS",
           selective_tax: "IS", icms_destination: "ICMSUFDest", import_tax: "II", returned_tax: "impostoDevol",
           referenced_dfe: "DFeReferenciado"
