@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- NT 2026.008 v1.01, the net value (production 14/12/2026): `net_unit_price:` (`vUnComLiq`) or `net_amount:` (`vProdLiq`) on an item, with the other worked out (I11c-20) and `vProdLiqTot` written as their sum; the validator checks them (I11c-20, W01a-10, W01a-20; rej. 1279, 1282, 1283). `i.icms forecast_amount:` writes the ICMS expected at the supply of an advance payment (NB01, `ICMSPrevistoPagtoAntecip`), checked on the NFC-e, on other notes and, from 01/03/2027 in production and 01/02/2027 in homologação, where it is missing (NB01-10, NB01-20, NB01-30; rej. 1280, 1281). RV B25-80 (rej. 1001) is checked with its four exceptions: a debit or credit note, or the receipt of a payment, carries IBS and CBS only. VB01-10 and VB01-20 skip an import (CFOP 3xxx). UB16-10 is gone from the NT, so the IBS/CBS base the gem fills is a default no longer compared.
+- NT 2026.008 contradicts itself on whether `vProd` carries IBS, CBS and IS from 2027. The gem follows the field table and the rules (it does, and is the gross value you give) and sums `vItem` by the rule's own addends, as before; the reading is `Totals::VITEM_ADDS_IBS_CBS_IS`, explained in the README.
 - The schemas follow the package PL_010h_v1.03 (13/11/2026): `nfe_4.00` gains `tpRegimeIBSCBS`, `cAtivSN`, `gTribSN` (`gIBSSN`, `gCBSSN`), `vUnComLiq`, `vProdLiq`, `vProdLiqTot`, `ICMSPrevistoPagtoAntecip` and `gPgtoVinc`, and `Evento_PL_010h_v1.03` ships the detail schemas of events 110300 and 412140. The NFC-e's `IBSCBS` no longer takes `gIBSCBSMono` in the schema. The Portal's aviso of 13/11/2026 moved NT 2026.005, 2026.006 and 2026.008 to 14/12/2026 in production.
 
 ## 0.19.0

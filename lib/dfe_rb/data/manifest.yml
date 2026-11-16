@@ -358,18 +358,26 @@ documents:
   - id: nt-2026.008
     document: NT 2026.008, Reforma Tributária do Consumo – Valor Líquido
     kind: nt
-    status: pending
-    dfe: [nfe]
-    version: null
-    current: "1.01"
+    status: implemented
+    dfe: [nfe, nfce, ibs_cbs]
+    version: "1.01"
     published: "2026-10-30"
     production: "2026-12-14"
-    implemented_in: []
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/resolver.rb, lib/dfe_rb/nfe/totals.rb, lib/dfe_rb/nfe/sugar.rb, lib/dfe_rb/nfe/names.rb, lib/dfe_rb/nfe/calculator.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 8134a3f1f460650262ce359566b7993ac3503037f24b223a4c8c53b237b50090
     note: >-
-      Not applied: vUnComLiq, vProdLiq, vProdLiqTot and NB01; removes UB16-10. Production moved
-      to 2026-12-14 (NB01-30 2027-03-01). v1.01 contradicts itself on whether vProd carries IBS/CBS/IS.
+      vUnComLiq, vProdLiq and vProdLiqTot are written (from either value of the item) and checked (I11c-20, W01a-10,
+      W01a-20), NB01 is built and checked (NB01-10, NB01-20, NB01-30 from 2027-03-01 in production and 2027-02-01 in
+      homologação), B25-80 is checked with its exceptions 1 to 4, and VB01-10 and VB01-20 spare an import (CFOP 3xxx).
+      UB16-10 is gone from the NT, so the IBS/CBS base the gem fills is a default no longer compared. I11c-10 (vProdLiq
+      required) is "implementação futura" and not checked. Production moved from 2026-11-16 to 2026-12-14 (Portal's aviso
+      of 2026-11-13); the NT's own tables still say 16/11. v1.01 contradicts itself on whether vProd carries IBS, CBS and
+      IS from 2027: its introduction says not, the I11 table and the "(contém vIBS, vCBS e vIS)" of VB01-10 and VB01-20
+      say it does, and no later NT settles it. The gem follows the table and the rules (vProd is the issuer's gross
+      value, never built from the taxes) and sums vItem by the rule's own addends, vIBS, vCBS and vIS included from
+      2027, in Totals::VITEM_ADDS_IBS_CBS_IS (README, "What vProd carries from 2027"). VB01-10 and VB01-20 are not
+      enforced by SEFAZ yet.
     issue: https://github.com/higajooj/dfe_rb/issues/14
   - id: nt-2026.010
     document: NT 2026.010, DANFE Reforma Tributária
