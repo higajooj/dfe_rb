@@ -278,9 +278,20 @@ RSpec.describe DfeRb::Nfe::Validator do
     end
 
     it "limits an issuer without IE to the CFOPs marked indExcIBSCBS, except on returns (I08-191)" do
-      expect(cfop_issues("5102", emit: {"IE" => nil})).to contain_exactly(a_string_matching(/5102 .* without state registration.*rej\. 159/))
-      expect(cfop_issues("5551", emit: {"IE" => nil})).to eq([])
-      expect(cfop_issues("5202", emit: {"IE" => nil}, ide: {"finNFe" => "4"})).to eq([])
+      production = {"tpAmb" => "1", "dhEmi" => "2026-11-16T10:00:00-03:00"}
+      no_ie = ->(cfop, **options) { cfop_issues(cfop, emit: {"IE" => nil}, ide: production.merge(options.fetch(:ide, {}))).grep(/rej\. 159/) }
+
+      expect(no_ie.call("5102")).to contain_exactly(a_string_matching(/5102 .* without state registration.*rej\. 159/))
+      expect(no_ie.call("5551")).to eq([])
+      expect(no_ie.call("5202", ide: {"finNFe" => "4"})).to eq([])
+    end
+
+    it "asks it from the days NT 2026.007 v1.11 gives: 26/10/2026 in homologação, 16/11/2026 in production (I08-191)" do
+      at = ->(environment, day) { cfop_issues("5102", emit: {"IE" => nil}, ide: {"tpAmb" => environment, "dhEmi" => day}).grep(/rej\. 159/) }
+
+      expect(at.call("1", "2026-11-15T23:59:00-03:00")).to eq([])
+      expect(at.call("2", "2026-10-25T23:59:00-03:00")).to eq([])
+      expect(at.call("2", "2026-10-26T00:00:00-03:00").size).to eq(1)
     end
 
     describe "the DIFAL group (NA01-20)" do

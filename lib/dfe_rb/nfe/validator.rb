@@ -10,6 +10,7 @@ module DfeRb
     # RVs and the NTs that amend them). Rules that depend on state tables stay with SEFAZ.
     class Validator
       include ReferenceRules
+      include NoIeRules
 
       TOLERANCE = BigDecimal("0.01")
       # When IBSCBS becomes mandatory for regime normal (RV UB12-10, NT 2025.002 v1.53), by
@@ -93,6 +94,7 @@ module DfeRb
         check_payment
         check_billing
         check_ibs_cbs
+        check_issuer_without_ie
         check_transport_retention
         check_technical_contact
         @issues
@@ -375,11 +377,12 @@ module DfeRb
           "(see DfeRb::Nfe::Tables.cfops.select(&:devolution?)) (rej. 327)"
       end
 
-      # RV I08-191 (NT 2026.007, SVRS): an issuer without IE, taxed only by IBS/CBS, may only
-      # use the CFOPs marked indExcIBSCBS, except on a return or a credit note of type 03.
+      # RV I08-191 (NT 2026.007 v1.11, SVRS): an issuer without IE, taxed only by IBS/CBS, may
+      # only use the CFOPs marked indExcIBSCBS, except on a return or a credit note of type
+      # 03; from the day v1.11 gives (NoIeRules::NO_IE_RULES_SINCE).
       def check_ibs_cbs_only_cfop(where, row)
         emit = @inf["emit"] or return
-        return unless emit["IE"].to_s.empty?
+        return unless emit["IE"].to_s.empty? && in_force?(NO_IE_RULES_SINCE)
         return if row.ibs_cbs_only?
         return if @ide["finNFe"].to_s == "4" || credit_note_type == "03"
 
