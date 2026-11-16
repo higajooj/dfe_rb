@@ -196,11 +196,16 @@ From 14/12/2026 in production (the Portal's aviso of 13/11/2026 moved it from 16
 | MEI (`:mei`) | none | no IBSCBS at all | none |
 
 ```ruby
-nfe.issuer tax_id: "...", tax_regime: :simples, ibs_cbs_regime: 1, ...   # the regular regime of the IBS/CBS
+# CRT 1 without the regular regime: no tpRegimeIBSCBS, no gIBSCBS, both groups of gTribSN
+nfe.issuer tax_id: "...", tax_regime: :simples, ...
 nfe.item do |i|
   i.simples_activity "01"                                                  # cAtivSN: 01, 02, 03, 04 or 90
   i.ibs_cbs class_code: "000001", simples_ibs: {rate: "1.00", amount: "1.00"}, simples_cbs: {rate: "0.50", amount: "0.50"}
 end
+
+# CRT 1 with the regular regime: tpRegimeIBSCBS 1 and the regular groups, no gTribSN
+nfe.issuer tax_id: "...", tax_regime: :simples, ibs_cbs_regime: 1, ...
+nfe.item { |i| i.simples_activity "01"; i.ibs_cbs class_code: "000001" }
 ```
 
 Every item of an optante, or of a regime normal issuer with the option pending, gives `simples_activity`. The effective rates and amounts of `gTribSN` (`pIBSSN`, `vIBSSN`, `pCBSSN`, `vCBSSN`) are yours, since the NT gives no base to work them out from: the gem totals them in `IBSCBSTot/gTribSN` (W59h to W59j), which the validator holds to the sum of the items (rej. 1275, 1276, 1277, 1284). It flags a MEI's IBSCBS and `tpRegimeIBSCBS`, a pair of CRT and `tpRegimeIBSCBS` the NT doesn't name, `cAtivSN` from an issuer who doesn't give it, and a group the table says "não informar". The table has no rejection codes, so what it says to "informar" is left to SEFAZ, and so is a return or refusal, whose IBSCBS mirrors the supply note and may carry the regime the supply had (§2.4). The rules apply from 14/12/2026 in production and 26/10/2026 in homologação, by `dhEmi`.

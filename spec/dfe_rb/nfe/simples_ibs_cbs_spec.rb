@@ -203,6 +203,51 @@ RSpec.describe "NT 2026.005 v1.00" do
     end
   end
 
+  describe "what a review of the rules found" do
+    let(:tree) do
+      lambda do |crt, finalidade: "1", imposto: {}, prod: {}, at: "2027-01-04T10:00:00-03:00"|
+        {"ide" => {"finNFe" => finalidade, "tpAmb" => "1", "dhEmi" => at}, "emit" => {"CRT" => crt},
+         "det" => [{"prod" => {"CFOP" => "5102"}.merge(prod), "imposto" => imposto}]}
+      end
+    end
+
+    it "lets a MEI's return carry the group it mirrors (§2.4), but not a supply" do
+      mirrored = {"IBSCBS" => {"gIBSCBS" => {"vBC" => "100.00"}}}
+
+      expect(DfeRb::Nfe::Validator.new(tree.call("4", finalidade: "4", imposto: mirrored)).issues.grep(/doesn't inform the IBS/)).to eq([])
+      expect(DfeRb::Nfe::Validator.new(tree.call("4", imposto: mirrored)).issues.grep(/doesn't inform the IBS/).size).to eq(1)
+    end
+
+    it "holds a MEI to the cAtivSN rule even without IBSCBS (§2.2)" do
+      issues = DfeRb::Nfe::Validator.new(tree.call("4", prod: {"cAtivSN" => "01"})).issues
+
+      expect(issues).to include(a_string_matching(%r{\Adet\[1\]/prod/cAtivSN: only a Simples Nacional issuer}))
+    end
+
+    it "bars gTribSN from CST 620, monophase fuels, whoever the issuer is (§2.3)" do
+      mono = {"IBSCBS" => {"CST" => "620", "gIBSCBSMono" => {}, "gTribSN" => {"gCBSSN" => {"pCBSSN" => "0.50", "vCBSSN" => "0.50"}}}}
+
+      expect(DfeRb::Nfe::Validator.new(tree.call("1", imposto: mono)).issues)
+        .to include("det[1]/imposto/IBSCBS/gTribSN: not informed with CST 620, monophase fuel taxation (NT 2026.005 §2.3)")
+      expect(DfeRb::Nfe::Validator.new(tree.call("3", imposto: mono)).issues.grep(/CST 620/).size).to eq(1)
+    end
+
+    it "keeps the law's CBS rate on a CRT 2 note dated before the rules apply" do
+      invoice = invoice_for(:simples_excess, at: "2026-10-25T10:00:00-03:00", activity: nil, ibs_uf: {rate: "0.10", amount: "0.10"},
+        ibs_municipal: {rate: "0", amount: "0"}, cbs: {rate: "0.90", amount: "0.90"}, base: "100.00")
+
+      expect(invoice.issues.grep(/pCBS/)).to eq([])
+      expect(text(doc(invoice), "//nfe:det[1]//nfe:gCBS/nfe:pCBS")).to eq("0.90")
+    end
+
+    it "takes the amounts of gTribSN with string keys too" do
+      invoice = invoice_for(:simples, simples_ibs: {"rate" => "1.00", "amount" => "1.00"}, simples_cbs: {"rate" => "0.50", "amount" => "0.50"})
+
+      expect(invoice.issues).to eq([])
+      expect(text(doc(invoice), "//nfe:det[1]//nfe:gCBSSN/nfe:vCBSSN")).to eq("0.50")
+    end
+  end
+
   describe "a return, whose IBSCBS mirrors the supply (§2.4)" do
     it "isn't held to the regime's groups, which the supply may have carried under another" do
       tree = {"ide" => {"finNFe" => "4", "tpAmb" => "1", "dhEmi" => "2027-01-04T10:00:00-03:00"}, "emit" => {"CRT" => "1"},

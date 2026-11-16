@@ -94,7 +94,7 @@ module DfeRb
       # NT 2026.005 v1.00 (the Simples Nacional's IBS and CBS): when its rules apply, by tpAmb.
       # Homologação by 26/10/2026; production moved from 16/11 to 14/12/2026 by the Portal's aviso
       # of 13/11/2026.
-      SIMPLES_IBS_CBS_RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+      SIMPLES_IBS_CBS_RULES_SINCE = SimplesIbsCbs::RULES_SINCE
       # The notes whose IBSCBS mirrors the supply note they refer to (NT 2026.005 §2.4), issued
       # perhaps under another regime than the issuer's today: a return, the credit notes 03 and 06
       # and the debit note 09.
@@ -349,17 +349,23 @@ module DfeRb
       def check_simples_ibs_cbs(where, item)
         return unless in_force?(SIMPLES_IBS_CBS_RULES_SINCE)
 
+        ibscbs = item.dig("imposto", "IBSCBS")
+        # CST 620 (monophase fuels) fills gIBSCBSMono and no gTribSN, whoever the issuer is.
+        if ibscbs && ibscbs["gTribSN"] && ibscbs["CST"].to_s == "620"
+          add "#{where}/imposto/IBSCBS/gTribSN: not informed with CST 620, monophase fuel taxation (NT 2026.005 §2.3)"
+        end
         layout = SimplesIbsCbs.layout(@inf["emit"]) or return
         add "emit/tpRegimeIBSCBS: #{layout.problem}" if layout.problem
-        ibscbs = item.dig("imposto", "IBSCBS")
-        if layout.mei
-          add "#{where}/imposto/IBSCBS: a MEI (CRT 4) doesn't inform the IBS/CBS group (NT 2026.005 §2.3)" if ibscbs
-          return
-        end
         if item.dig("prod", "cAtivSN") && !layout.activity
           add "#{where}/prod/cAtivSN: only a Simples Nacional issuer, or one whose option for it is pending (tpRegimeIBSCBS 2, 3 or 4), informs it (NT 2026.005 §2.2)"
         end
-        return if ibscbs.nil? || mirror_note? || layout.problem
+        return if ibscbs.nil? || mirror_note?
+
+        if layout.mei
+          add "#{where}/imposto/IBSCBS: a MEI (CRT 4) doesn't inform the IBS/CBS group (NT 2026.005 §2.3)"
+          return
+        end
+        return if layout.problem
 
         path = "#{where}/imposto/IBSCBS"
         add "#{path}/gIBSCBS: not informed by a Simples Nacional issuer without the regular regime of the IBS and the CBS (NT 2026.005 §2.3)" if layout.main == false && ibscbs["gIBSCBS"]
@@ -797,7 +803,7 @@ module DfeRb
         # As the XML writes it: 4 places at most.
         given = Calculator.percentage(sphere[rate_tag])
         # The CBS of an excess of the sublimit is in gTribSN: gIBSCBS carries it at zero (NT 2026.005 §2.3).
-        zero_cbs = rate_tag == "pCBS" && (sphere["gALCZFMCBS"] || SimplesIbsCbs.layout(@inf["emit"])&.zero_cbs)
+        zero_cbs = rate_tag == "pCBS" && (sphere["gALCZFMCBS"] || (in_force?(SIMPLES_IBS_CBS_RULES_SINCE) && SimplesIbsCbs.layout(@inf["emit"])&.zero_cbs))
         expected = zero_cbs ? BigDecimal(0) : Rates.ibs_cbs(year)[STANDARD_RATE_KEYS.fetch(rate_tag)]
         return if expected.nil? || given == expected
         return if rate_tag == "pCBS" && given.zero? && year < Rates::CBS_CHARGED_SINCE

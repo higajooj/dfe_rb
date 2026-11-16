@@ -193,10 +193,10 @@ module DfeRb
         # amount:}` for gIBSSN and `simples_cbs:` for gCBSSN.
         def simples_group(attributes)
           group = {}
-          if (ibs = attributes.delete(:simples_ibs))
+          if (ibs = attributes.delete(:simples_ibs)&.transform_keys(&:to_sym))
             group["gIBSSN"] = {"pIBSSN" => ibs[:rate], "vIBSSN" => ibs[:amount]}.compact
           end
-          if (cbs = attributes.delete(:simples_cbs))
+          if (cbs = attributes.delete(:simples_cbs)&.transform_keys(&:to_sym))
             group["gCBSSN"] = {"pCBSSN" => cbs[:rate], "vCBSSN" => cbs[:amount]}.compact
           end
           group

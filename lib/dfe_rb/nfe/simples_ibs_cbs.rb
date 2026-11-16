@@ -20,6 +20,9 @@ module DfeRb
     module SimplesIbsCbs
       NORMAL = "3"
       MEI = "4"
+      # When the NT's rules apply, by tpAmb: homologação by 26/10/2026; production moved from
+      # 16/11 to 14/12/2026 by the Portal's aviso of 13/11/2026.
+      RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
       SIMPLES = %w[1 2].freeze
       # tpRegimeIBSCBS 1 is the optante's choice of the regular regime; 2, 3 and 4 are the
       # regime normal issuer whose option for the Simples Nacional is pending.
@@ -56,6 +59,12 @@ module DfeRb
 
           Layout.new(activity: true, ibs_sn: regime == "2", cbs_sn: regime != "4")
         end
+      end
+
+      # Whether the NT applies to a note of environment `tp_amb` issued at `time`.
+      def in_force?(tp_amb, time)
+        since = RULES_SINCE[tp_amb.to_s]
+        !!(since && time && time >= since)
       end
 
       def unexpected(crt, regime)
