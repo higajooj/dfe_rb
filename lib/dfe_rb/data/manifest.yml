@@ -319,21 +319,30 @@ documents:
       production moved from 2026-11-16 to 2026-12-14 (Portal informe of 2026-11-13).
     issue: https://github.com/higajooj/dfe_rb/issues/13
   - id: nt-2026.007
-    document: NT 2026.007, Emissão de NF-e sem IE e RV de LCC
+    document: NT 2026.007, Emissão por Contribuinte exclusivo do IBS/CBS (NF-e sem IE e RV de LCC)
     kind: nt
     status: implemented
-    dfe: [nfe]
-    version: "1.00"
-    current: "1.11"
-    published: "2026-07"
-    production: "2026-11-03"
-    implemented_in: [lib/dfe_rb/nfe/validator.rb]
+    dfe: [nfe, nfce]
+    version: "1.11"
+    published: "2026-10-30"
+    production: "2026-11-16"
+    implemented_in: [lib/dfe_rb/nfe/validator.rb, lib/dfe_rb/nfe/no_ie_rules.rb, lib/dfe_rb/nfe/client.rb, lib/dfe_rb/nfe/endpoints.rb, lib/dfe_rb/nfe/document.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
-    sha256: 559fcd7d1b495549099498ff5c1ba4165f65d4b5ad5b34dbe802869d4619d917
+    sha256: b13006ce48488111ac077356e137817545957db6748cdf41a3eeea21818dd4e8
+    attachments:
+      - {file: NT 2026.007 v1.00, sha256: 559fcd7d1b495549099498ff5c1ba4165f65d4b5ad5b34dbe802869d4619d917}
     note: >-
-      Only I08-191 is checked. The rest of v1.00 (C17-42, C17-43, C18-50, N01-10, UB12-11...)
-      isn't; v1.10 (2026-10-01) relaxed the LCC checks in homologação, and v1.11 (2026-10-30,
-      SHA-256 b13006ce48488111ac077356e137817545957db6748cdf41a3eeea21818dd4e8) only moved dates.
+      Read in full at v1.11 (homologação until 26/10/2026, production 16/11/2026; the
+      13/11/2026 informe doesn't postpone it). v1.10 (2026-10-01) relaxed the LCC checks in
+      homologação and corrected 1C17-04 (cSitIE=0); v1.11 only moved dates. Checked here
+      (NoIeRules), from those days: C17-42 (156, an NFC-e needs the IE until 2033), C17-43
+      (157, a CNPJ issuer), C18-50 (158, no IEST), N01-10 (161, no ICMS but on a return and
+      the credit note 03) and UB12-11 (162, IBSCBS on every item), with I08-191 (159) and
+      C17-11 (166), which the client answers by sending the note, its lot's return, the
+      lookup of its key and, with `via: :svrs`, its events (1P10-40) to the SVRS. Left to SEFAZ, which
+      consults its databases: the LCC-RFB and CCC checks (12C02-10, 12C02-20, 12C21-20,
+      1P10-30, 1P10-32, 12E02 to 12G02, 1C17-02, 1C17-04, 5AF15-10 to 5BG17-20), and C17-20 (the IE's own check digit). B25-90, B02-10, C12-10
+      and P12-40 gain exceptions on the SVRS that the gem has no rule to relax.
     issue: https://github.com/higajooj/dfe_rb/issues/15
   - id: nt-2026.009
     document: NT 2026.009, Alteração de RV de CFOP
