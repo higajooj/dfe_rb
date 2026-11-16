@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The off-line NFC-e QR code's signature (`Nfce::QrCode.offline`) stays raw standard Base64, `+`, `/` and `=` included, as NT 2026.003 §4.3.2 (Tabela 2, 8th parameter, and its model URL) prints it; the code cites it, and a spec covers a signature holding all three. `QrCode.parse` and `signed_by?` now also read one a URL encoder touched (percent-encoded, `+` turned into spaces, or URL-safe Base64, padded or not), so a note's QR code printed in any of those forms still verifies. `QrCode.normalize_signature` does it. Whether each state's consultation page decodes the raw `+` is still to be confirmed in homologação (issue 4).
+
 ## 0.19.0
 
 - The DANFE Simplificado Tipo 2 (NT 2026.002 v1.11, NT 2026.003): an NF-e with `nfe.print_format :simplified_type_2` (`tpImp` 6), for a counter sale an NFC-e would cover, gets the NFC-e's QR code version 3 in `infNFeSupl`, at the NFC-e's addresses of its state, and `invoice.qr_code`, `consult_url` and the same on `SignedInvoice` and `AuthorizationResult`. It defaults to a final consumer (`indFinal` 1), whose IE it keeps, and in homologação to the first item's description RV I04-10 requires. `nfe.contingency :offline` issues it off-line (`tpEmis` 9), its QR code signed with the client's certificate. `Nfe::Client#sign` adds `infNFeSupl` to one handed in unsigned and refuses one signed without it (394), but a note of the Regime Especial NFF.
