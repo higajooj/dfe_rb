@@ -60,6 +60,23 @@ module DfeRb
           %(<xJust>#{escape(reason)}</xJust><chNFeRef>#{replacement}</chNFeRef>)
       end
 
+      # Vinculação Pagamento (110300, NT 2026.006): the transaction `transaction_id` of `method`
+      # (a tpMeioPgto), received by `receiver_cnpj` through the institution of `psp_cnpj_base`.
+      def payment_link_detail(state:, protocol:, transaction_id:, method:, receiver_cnpj:, psp_cnpj_base:)
+        %(<descEvento>Vinculacao Pagamento</descEvento><cOrgaoAutor>#{States.code(state)}</cOrgaoAutor>) +
+          %(<tpAutor>1</tpAutor><verAplic>#{escape("dfe_rb #{DfeRb::VERSION}")}</verAplic><nProt>#{protocol}</nProt>) +
+          %(<gPgto idTransacao="#{escape(transaction_id)}"><tpMeioPgto>#{method}</tpMeioPgto><CNPJReceb>#{receiver_cnpj}</CNPJReceb>) +
+          %(<CNPJBasePSP>#{psp_cnpj_base}</CNPJBasePSP></gPgto>)
+      end
+
+      # Cancelamento de Evento (110001, NT 2025.002): the event of type `type` whose
+      # authorization protocol is `protocol`.
+      def event_cancellation_detail(state:, type:, protocol:)
+        %(<descEvento>Cancelamento de Evento</descEvento><cOrgaoAutor>#{States.code(state)}</cOrgaoAutor>) +
+          %(<verAplic>#{escape("dfe_rb #{DfeRb::VERSION}")}</verAplic><tpEventoAut>#{type}</tpEventoAut>) +
+          %(<nProtEvento>#{protocol}</nProtEvento>)
+      end
+
       def correction_detail(text:)
         %(<descEvento>Carta de Correcao</descEvento><xCorrecao>#{escape(text)}</xCorrecao><xCondUso>#{CORRECTION_TERMS}</xCondUso>)
       end

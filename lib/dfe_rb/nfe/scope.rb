@@ -8,12 +8,13 @@ module DfeRb
 
       # Entries whose English name stands for a path rather than a single child.
       PATHS = {
-        "infNFe" => {payment: %w[pag detPag], payments: %w[pag detPag]}
+        "infNFe" => {payment: %w[pag detPag], payments: %w[pag detPag], payment_link: %w[gPgtoVinc gPgto], payment_links: %w[gPgtoVinc gPgto]}
       }.freeze
 
       # Positional shorthands for groups: `payment :money, "10.00"`.
       POSITIONAL = {
         "detPag" => %i[kind amount],
+        "gPgto" => %i[kind],
         "NFref" => %i[key],
         "gCred" => %i[code rate amount],
         "obsCont" => %i[field text]

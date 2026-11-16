@@ -97,6 +97,10 @@ module DfeRb
         "fat" => {number: "nFat", original_amount: "vOrig", discount: "vDesc", net_amount: "vLiq"},
         "dup" => {number: "nDup", due_date: "dVenc", amount: "vDup"},
         "pag" => {payments: "detPag", payment: "detPag", change: "vTroco"},
+        "gPgto" => {
+          kind: "tpMeioPgto", receiver_cnpj: "CNPJReceb", psp_cnpj_base: "CNPJBasePSP", transaction_id: "@idTransacao",
+          number: "@nPag"
+        },
         "detPag" => {
           payment_type: "indPag", kind: "tPag", description: "xPag", amount: "vPag", paid_on: "dPag", card: "card"
         },
@@ -155,7 +159,11 @@ module DfeRb
           foreign_acquired_no_similar: 7, domestic_imported_content_over_70: 8
         },
         "modBC" => {margin: 0, unit_price: 1, price_list: 2, operation_value: 3},
-        "tpIntegra" => {integrated: 1, not_integrated: 2}
+        "tpIntegra" => {integrated: 1, not_integrated: 2},
+        "tpMeioPgto" => {
+          bank_slip: "15", boleto: "15", dynamic_pix: "17", pix: "17", bank_transfer: "18", static_pix: "20",
+          automatic_pix: "23", book_transfer: "24"
+        }
       }.freeze
 
       module_function

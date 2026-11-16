@@ -187,6 +187,49 @@ module DfeRb
         send_event(key, "110110", sequence, detail, contingency: contingency?(key, via))
       end
 
+      # Links a payment transaction to an authorized note (Vinculação Pagamento, evento 110300,
+      # NT 2026.006), for a payment started before the note was issued or whose first link failed
+      # (a boleto, a dynamic Pix). `protocol` is the note's authorization protocol; `method` a
+      # tpMeioPgto of IT 2026.001 (a code or `:bank_slip`, `:pix`, `:bank_transfer`, `:static_pix`,
+      # `:automatic_pix`, `:book_transfer`); `receiver_cnpj` receives the money and
+      # `psp_cnpj_base` is the base CNPJ of its institution. One event links one transaction: give
+      # the next `sequence` for another (1 to 99). The author is the issuer (tpAutor 1).
+      def link_payment(key, protocol:, transaction_id:, method:, receiver_cnpj:, psp_cnpj_base:, sequence: 1)
+        key = AccessKey.parse(key.to_s)
+        protocol = protocol.to_s.strip
+        raise ArgumentError, "protocol must have 15 or 17 digits" unless protocol.match?(/\A(\d{15}|\d{17})\z/)
+        raise ArgumentError, "sequence must be between 1 and 99" unless (1..99).cover?(sequence)
+
+        code = method.is_a?(Symbol) ? Names.enum_value("tpMeioPgto", method) : method.to_s.rjust(2, "0")
+        problems = []
+        problems << "tpMeioPgto: #{code} is not a means of payment of IT 2026.001 (RV P26-10, rej. 1273)" unless Tables.payment_link_method(code)
+        problems << "CNPJReceb: #{receiver_cnpj} is not a valid CNPJ (RV P27-10, rej. 1274)" unless TaxId.cnpj?(receiver_cnpj)
+        raise ValidationError, problems unless problems.empty?
+
+        detail = Requests.payment_link_detail(state: key.state, protocol: protocol, transaction_id: Formatter.sanitize(transaction_id),
+          method: code, receiver_cnpj: TaxId.normalize(receiver_cnpj), psp_cnpj_base: TaxId.normalize(psp_cnpj_base))
+        problems = Events.detail_issues("110300", %(<detEvento xmlns="#{Signature::NFE}" versao="1.00">#{detail}</detEvento>))
+        raise ValidationError, problems unless problems.empty?
+
+        send_event(key, "110300", sequence, detail)
+      end
+
+      # Takes back an event of the issuer's (Cancelamento de Evento, evento 110001, NT 2025.002):
+      # `type` is the event's code ("110300"), `protocol` its own authorization protocol (not the
+      # note's) and `sequence` its nSeqEvento, which the cancellation carries as its own.
+      def cancel_event(key, type:, protocol:, sequence: 1)
+        key = AccessKey.parse(key.to_s)
+        protocol = protocol.to_s.strip
+        raise ArgumentError, "protocol must have 15 or 17 digits" unless protocol.match?(/\A(\d{15}|\d{17})\z/)
+        raise ArgumentError, "sequence must be between 1 and 99" unless (1..99).cover?(sequence)
+
+        detail = Requests.event_cancellation_detail(state: key.state, type: type.to_s, protocol: protocol)
+        problems = Events.detail_issues("110001", %(<detEvento xmlns="#{Signature::NFE}" versao="1.00">#{detail}</detEvento>))
+        raise ValidationError, problems unless problems.empty?
+
+        send_event(key, "110001", sequence, detail)
+      end
+
       # Declares a range of numbers as unused (inutilização).
       def inutilize(series:, from:, reason:, to: from, model: self.class::MODEL, year: @clock.now.year)
         raise ArgumentError, "from must not be greater than to" if from > to

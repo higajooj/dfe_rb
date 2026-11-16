@@ -101,6 +101,12 @@ module DfeRb
       MIRROR_CREDIT_NOTES = %w[03 06].freeze
       MIRROR_DEBIT_NOTE = "09"
 
+      # NT 2026.006 v1.01 (the link to the payment transaction, YC): when its rules apply, by
+      # tpAmb. Homologação by 26/10/2026; production moved from 03/11 to 16/11 and then to
+      # 14/12/2026 by the Portal's aviso of 13/11/2026. Nothing asks for the group in production
+      # in 2026: it is for the split payment, expected from 2027.
+      PAYMENT_LINK_RULES_SINCE = {"2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"), "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")}.freeze
+
       # csrt: the CSRT the invoice was built with, to check hashCSRT against.
       def initialize(infnfe, csrt: nil)
         @inf = infnfe
@@ -116,6 +122,7 @@ module DfeRb
         Array(@inf["det"]).each_with_index { |item, index| check_item(item, index + 1) }
         check_totals
         check_payment
+        check_payment_links
         check_billing
         check_ibs_cbs
         check_transport_retention
@@ -891,6 +898,26 @@ module DfeRb
           "the sum of the items' vIBSSN", 1277)
         check_amount("#{path}/vCBSSN", given["vCBSSN"], Totals.sum(carrying) { |group| group.dig("gCBSSN", "vCBSSN") },
           "the sum of the items' vCBSSN", 1284)
+      end
+
+      # RV YC03-10, YC04-20 (the schema forbids a repeated nPag or idTransacao, rej. 215), YC05-10
+      # (tpMeioPgto is in the table of IT 2026.001, rej. 1273) and YC06-10 (CNPJReceb is a valid
+      # CNPJ, rej. 1274), on each payment the note links (NT 2026.006).
+      def check_payment_links
+        links = Array(@inf.dig("gPgtoVinc", "gPgto"))
+        return if links.empty? || !in_force?(PAYMENT_LINK_RULES_SINCE)
+
+        %w[@nPag @idTransacao].each do |attribute|
+          values = links.filter_map { |link| link[attribute]&.to_s }
+          repeated = values.select { |value| values.count(value) > 1 }.uniq
+          rule, code = (attribute == "@nPag") ? ["YC03-10", "nPag"] : ["YC04-20", "idTransacao"]
+          repeated.each { |value| add "gPgtoVinc/gPgto: #{code} #{value} is repeated (RV #{rule}, rej. 215: the schema forbids it)" }
+        end
+        links.each_with_index do |link, index|
+          path = "gPgtoVinc/gPgto[#{index + 1}]"
+          add "#{path}/tpMeioPgto: #{link["tpMeioPgto"]} is not a means of payment of IT 2026.001 (RV YC05-10, rej. 1273)" unless Tables.payment_link_method(link["tpMeioPgto"])
+          add "#{path}/CNPJReceb: #{link["CNPJReceb"]} is not a valid CNPJ (RV YC06-10, rej. 1274)" unless TaxId.cnpj?(link["CNPJReceb"])
+        end
       end
 
       def check_payment

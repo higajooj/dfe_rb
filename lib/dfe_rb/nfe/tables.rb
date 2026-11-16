@@ -141,6 +141,9 @@ module DfeRb
       end
       DEFERRED_PAYMENTS = %w[90 91].freeze
 
+      # One means of payment a transaction linked to a note may use (tpMeioPgto, IT 2026.001).
+      PaymentLinkMethod = Struct.new(:code, :title)
+
       module_function
 
       # "Campo Grande" for "5002704", or nil (DfeRb::Cities).
@@ -207,6 +210,12 @@ module DfeRb
 
       def payment_methods = payment_index.values
 
+      # The PaymentLinkMethod for a tpMeioPgto ("17" or 17), or nil: the codes IT 2026.001 lists
+      # for the transaction a note or an event links to it (YC05, P26).
+      def payment_link_method(code) = payment_link_index[code.to_s.rjust(2, "0")]
+
+      def payment_link_methods = payment_link_index.values
+
       # Card brand names by tBand: {"01" => "Visa", ...}.
       def card_brands
         @card_brands ||= rows("card_brands.tsv").drop(1).to_h.freeze
@@ -260,6 +269,12 @@ module DfeRb
       def payment_index
         @payment_index ||= rows("payment_methods.tsv").drop(1).to_h do |code, from, title|
           [code, PaymentMethod.new(code: code, title: title, valid_from: from.empty? ? nil : from).freeze]
+        end.freeze
+      end
+
+      def payment_link_index
+        @payment_link_index ||= rows("payment_link_methods.tsv").drop(1).to_h do |code, title|
+          [code, PaymentLinkMethod.new(code: code, title: title).freeze]
         end.freeze
       end
 

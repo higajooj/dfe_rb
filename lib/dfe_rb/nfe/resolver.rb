@@ -62,6 +62,7 @@ module DfeRb
         items(inf, ide, state)
         inf["transp"] ||= {}
         inf["transp"]["modFrete"] = 9 if inf["transp"]["modFrete"].nil?
+        payment_links(inf)
         totals(inf)
         billing(inf)
         identify(inf, ide, emit)
@@ -245,6 +246,11 @@ module DfeRb
         end
         paid = Totals.sum(details) { |detail| detail["vPag"] }
         pag["vTroco"] ||= Totals.money(paid - invoice_total) if invoice_total.positive? && paid > invoice_total
+      end
+
+      # The links to payment transactions (YC) are numbered in the order given, from 1 (nPag).
+      def payment_links(inf)
+        Array(inf.dig("gPgtoVinc", "gPgto")).each_with_index { |link, index| link["@nPag"] ||= index + 1 }
       end
 
       def totals(inf)
