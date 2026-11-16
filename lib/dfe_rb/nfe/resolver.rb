@@ -202,6 +202,7 @@ module DfeRb
           prod["vUnTrib"] ||= prod["vUnCom"]
           prod["indTot"] ||= 1
           prod["vProd"] ||= Totals.money(Totals.number(prod["qCom"]) * Totals.number(prod["vUnCom"]))
+          net_value(prod)
           prod["CFOP"] = cfop(prod["CFOP"], ide) if prod["CFOP"]
         end
         # Spread before the taxes are computed, since freight, insurance, other expenses and the
@@ -213,6 +214,17 @@ module DfeRb
         rescue RateNotPublished => e
           @issues << e.message
         end
+      end
+
+      # The net value of an item (NT 2026.008) comes as a pair in the layout (I11a): given its
+      # net unit price the gem works out vProdLiq, and given vProdLiq alone, the unit price.
+      # Nothing is made up for an item that gives neither, since which taxes a price carries
+      # isn't the gem's to know.
+      def net_value(prod)
+        amount = Totals.net_item_amount(prod)
+        prod["vProdLiq"] ||= amount if amount
+        price = Totals.net_unit_price(prod)
+        prod["vUnComLiq"] ||= price if price
       end
 
       # A 3-digit CFOP ("102") gets the first digit the operation calls for ("6102").
@@ -239,6 +251,8 @@ module DfeRb
         given = inf["total"] || {}
         icms = Totals.icms_total(det).merge(given["ICMSTot"] || {})
         inf["total"] = given.merge("ICMSTot" => icms)
+        net = Totals.net_total(det)
+        inf["total"]["vProdLiqTot"] ||= net if net
         selective = Totals.selective_total(det)
         inf["total"]["ISTot"] ||= selective if selective
         ibs = Totals.ibs_cbs_total(det)

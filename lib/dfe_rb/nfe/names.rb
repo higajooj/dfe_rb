@@ -25,7 +25,8 @@ module DfeRb
         mono_base: "qBCMono", mono_ad_rem: "adRemICMS", mono_amount: "vICMSMono", mono_operation_amount: "vICMSMonoOp",
         mono_deferral_amount: "vICMSMonoDif", mono_deferral_base: "qBCMonoDif", mono_deferral_ad_rem: "adRemICMSDif",
         mono_retained_base: "qBCMonoReten", mono_retained_ad_rem: "adRemICMSReten", mono_retained_amount: "vICMSMonoReten",
-        mono_ret_base: "qBCMonoRet", mono_ret_ad_rem: "adRemICMSRet", mono_ret_amount: "vICMSMonoRet"
+        mono_ret_base: "qBCMonoRet", mono_ret_ad_rem: "adRemICMSRet", mono_ret_amount: "vICMSMonoRet",
+        forecast_amount: "vICMSPrevisto"
       }.freeze
 
       PIS = {cst: "CST", base: "vBC", rate: "pPIS", amount: "vPIS", quantity_base: "qBCProd", unit_rate: "vAliqProd"}.freeze
@@ -73,11 +74,12 @@ module DfeRb
           cfop: "CFOP", unit: "uCom", quantity: "qCom", unit_price: "vUnCom", total: "vProd",
           taxable_gtin: "cEANTrib", taxable_unit: "uTrib", taxable_quantity: "qTrib",
           taxable_unit_price: "vUnTrib", freight: "vFrete", insurance: "vSeg", discount: "vDesc",
-          other_expenses: "vOutro", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
+          other_expenses: "vOutro", net_unit_price: "vUnComLiq", net_amount: "vProdLiq", counts_in_total: "indTot", order_number: "xPed", order_item: "nItemPed",
           fci: "nFCI", additional_info: "infAdProd", tax_total: "vTotTrib", ibs_cbs: "IBSCBS",
           selective_tax: "IS", icms_destination: "ICMSUFDest", import_tax: "II", returned_tax: "impostoDevol",
           referenced_dfe: "DFeReferenciado"
         },
+        "total" => {net_total: "vProdLiqTot"},
         "gCred" => {code: "cCredPresumido", rate: "pCredPresumido", amount: "vCredPresumido"},
         "NFref" => {key: "refNFe", nfe: "refNFe", cte: "refCTe"},
         "obsCont" => {field: "@xCampo", text: "xTexto"},

@@ -25,6 +25,16 @@ module DfeRb
       DIRECT_VEHICLE_SALE = "2"
       # From this year IBS, CBS and IS enter vItem (RV VB01-10, exceção 1).
       IBS_CBS_IN_TOTAL_SINCE = 2027
+      # NT 2026.008 v1.01 contradicts itself on whether vProd carries IBS, CBS and IS from 2027:
+      # its introduction says vProd leaves them out and vItem has "todos os tributos", while the
+      # field table (I11: "a partir de 2027, os valores de IBS, CBS e IS compõem o Valor Total
+      # Bruto, exceto nas notas de importação") and the rule's "(+) vProd (contém vIBS, vCBS e
+      # vIS)" say it contains them. The gem reads the second: vProd is the gross value the issuer
+      # gives, and it is never built from the taxes. What the gem sums is the rule's own list of
+      # addends, which still names "(+) vIBS (+) vCBS (+) vIS" and still spares 2025 and 2026
+      # (exceção 1), and is what SEFAZ will compare vItem with. A later NT that settles the
+      # passage and drops those addends is followed by setting this to false.
+      VITEM_ADDS_IBS_CBS_IS = true
 
       module_function
 
@@ -156,13 +166,36 @@ module DfeRb
         unless direct_vehicle_sale?([item])
           amount += pick.call(ICMS_ST, "vICMSST") + pick.call(ICMS_FCP_ST, "vFCPST") + pick.call(ICMS_MONO, "vICMSMonoReten")
         end
-        if year && year >= IBS_CBS_IN_TOTAL_SINCE
+        if VITEM_ADDS_IBS_CBS_IS && year && year >= IBS_CBS_IN_TOTAL_SINCE
           group = imposto.dig("IBSCBS", "gIBSCBS") || {}
           mono = imposto.dig("IBSCBS", "gIBSCBSMono") || {}
           amount += money_of.call(group["vIBS"]) + money_of.call(group.dig("gCBS", "vCBS")) + money_of.call(imposto.dig("IS", "vIS"))
           amount += money_of.call(mono["vTotIBSMonoItem"]) + money_of.call(mono["vTotCBSMonoItem"]) unless direct_vehicle_sale?([item])
         end
         money(amount)
+      end
+
+      # vProdLiq, the net value of an item: its net unit price x its quantity (RV I11c-20, NT
+      # 2026.008), as the XML shows it. nil without a net unit price.
+      def net_item_amount(prod)
+        return if prod["vUnComLiq"].nil? || prod["vUnComLiq"] == ""
+
+        money(number(prod["vUnComLiq"]) * number(prod["qCom"]))
+      end
+
+      # vUnComLiq of an item given only its net value: vProdLiq / qCom to the 10 places the layout
+      # allows. nil without a net value or with no quantity.
+      def net_unit_price(prod)
+        quantity = number(prod["qCom"])
+        return if prod["vProdLiq"].nil? || prod["vProdLiq"] == "" || quantity.zero?
+
+        (number(prod["vProdLiq"]) / quantity).round(10, half: :up)
+      end
+
+      # vProdLiqTot (W01a): the sum of the items' vProdLiq, or nil when no item gives it.
+      def net_total(items)
+        net = items.filter_map { |item| item.dig("prod", "vProdLiq") }.reject { |value| value == "" }
+        sum(net) { |value| value }.then { |total| money(total) } unless net.empty?
       end
 
       # ISTot, required once any item carries <IS> (RV W31-20), or nil.

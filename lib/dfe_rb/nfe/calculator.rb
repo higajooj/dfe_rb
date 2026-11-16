@@ -292,7 +292,9 @@ module DfeRb
         percent(group["vBC"], rate) - money(sphere.dig("gDif", "vDif")) - money(sphere.dig("gDevTrib", "vDevTrib"))
       end
 
-      # gIBSCBS/vBC (UB16-10): the operation value without the taxes "por dentro".
+      # gIBSCBS/vBC: the operation value without the taxes "por dentro", as UB16-10 (rej. 1104) gave
+      # it. NT 2026.008 v1.00 removed that rule, so this is the base the gem fills when none is given,
+      # and SEFAZ no longer compares it.
       def ibs_cbs_base(item)
         imposto = item["imposto"] || {}
         _, icms = (imposto["ICMS"] || {}).first
