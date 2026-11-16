@@ -270,6 +270,9 @@ documents:
     implemented_in: [lib/dfe_rb/nfce/qr_code.rb, lib/dfe_rb/nfce/supplement.rb, lib/dfe_rb/nfe/invoice.rb, lib/dfe_rb/nfe/client.rb]
     source: Portal Nacional da NF-e, Notas Técnicas
     sha256: 2ef826027e0e8423ba9dc2f53ee7197f8bfdcc399a30459b72da977528600f13
+    note: >-
+      §4.3.2 (Tabela 2, 8th parameter, and its model URL) writes the off-line signature as raw
+      standard Base64, `+`, `/` and `=` included; the gem does the same (issue 4).
   - id: nt-2026.004
     document: NT 2026.004, Schema da NF-e e da NFC-e para o CNPJ alfanumérico
     kind: nt
@@ -664,6 +667,9 @@ documents:
 
 # What the gem is waiting for: announced, or left open by a published document, but not yet law.
 awaiting:
+  - what: Homologação evidence that a state's consultation page reads an off-line QR code's raw Base64 signature (`+`, `/`, `=`) as signed (MS at least, then the states clients use)
+    affects: Nfce::QrCode.offline
+    source: NT 2026.003 §4.3.2 prints it raw but says nothing of how the page decodes the query (issue 4)
   - what: The production date of RV UB12-10 (rej. 1115, IBSCBS missing on a regime normal note)
     affects: Validator::IBS_CBS_SINCE
     source: NT 2025.002 v1.53, UB12-10 Observação 2 ("implementação futura para produção")
