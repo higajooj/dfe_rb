@@ -47,18 +47,23 @@ module DfeRb
     end
 
     # Checks the signature inside `xml` (a signed document, event or request): digest of the
-    # referenced element and the signature over SignedInfo with the embedded certificate, in
-    # whichever of ALGORITHMS it names. Returns true, or the reason it fails.
-    def verify(xml)
+    # referenced element and the signature over SignedInfo with the embedded certificate.
+    # `digests` are the ALGORITHMS the document's layout allows (SHA-1 for the SEFAZ
+    # documents), and `id`, when given, the Id the signature must reference. Returns true,
+    # or the reason it fails.
+    def verify(xml, digests: %i[sha1], id: nil)
       namespaces = {"ds" => DS}
       document = Nokogiri::XML(xml)
       signature = document.at_xpath("//ds:Signature", namespaces) or return "no signature"
       reference = signature.at_xpath("ds:SignedInfo/ds:Reference", namespaces)
-      id = reference["URI"].to_s.delete_prefix("#")
-      target = document.at_xpath("//*[@Id='#{id}']") or return "referenced element #{id} not found"
+      referenced = reference["URI"].to_s.delete_prefix("#")
+      return "the signature references #{referenced}, not #{id}" if id && referenced != id
+
+      target = document.at_xpath("//*[@Id='#{referenced}']") or return "referenced element #{referenced} not found"
 
       digest = algorithm(signature.at_xpath("ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", namespaces)&.value, 1)
       return "unknown digest method" unless digest
+      return "#{digest.to_s.upcase} is not a digest this document takes (#{digests.join(", ")})" unless digests.include?(digest)
       return "the signature and digest methods differ" unless digest == algorithm(signature.at_xpath("ds:SignedInfo/ds:SignatureMethod/@Algorithm", namespaces)&.value, 0)
 
       expected = signature.at_xpath("ds:SignedInfo/ds:Reference/ds:DigestValue", namespaces).text.strip

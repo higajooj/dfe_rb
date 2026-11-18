@@ -43,6 +43,21 @@ RSpec.describe DfeRb::Nfse::Client do
       expect(client.sign(bad, strict: false).xml).to include("<pAliq>6.00</pAliq>")
     end
 
+    it "checks every input against the client's layout" do
+      other_layout = service_declaration(layout: :v1_01)
+      broken = DfeRb::Nfse::SignedDeclaration.new(xml: signed.xml.sub("<nDPS>1</nDPS>", "<nDPS>0</nDPS>"), id: signed.id, digest_value: signed.digest_value)
+
+      expect { client.sign(other_layout) }.to raise_error(DfeRb::ValidationError, /built for the layout v1_01, but this client sends nt009/)
+      expect { client.sign(broken) }.to raise_error(DfeRb::ValidationError, /nDPS/)
+    end
+
+    it "refuses a DPS signed elsewhere with a certificate of someone else than its issuer (E0718)" do
+      taker = DfeRb::Certificate.from_pkcs12(pkcs12_der(cnpj: NfseHelpers::TAKER), "cert-pass")
+      foreign = DfeRb::Nfse::Signature.sign_dps(declaration.to_xml, taker)
+
+      expect { client.sign(foreign) }.to raise_error(DfeRb::ValidationError, /the DPS's signature belongs to CNPJ root 11222333.*E0718/)
+    end
+
     it "refuses another environment and another issuer's certificate" do
       production = service_declaration(environment: :production, layout: :nt009)
       stranger = nfse_client(transport).tap { |c| c.instance_variable_set(:@certificate, nfse_certificate(cnpj: "11222333000181")) }
@@ -92,6 +107,29 @@ RSpec.describe DfeRb::Nfse::Client do
       expect(transport.calls_to(:dps).first.url).to eq("#{sefin}/dps/#{signed.id}")
     end
 
+    it "looks the DPS up when a success comes without the NFS-e, or with one it can't read" do
+      transport.answer(:issue, [201, {"chaveAcesso" => nfse_key}], [201, {"chaveAcesso" => nfse_key, "nfseXmlGZipB64" => "bm90IGd6aXA="}])
+      transport.answer(:dps, [200, {"idDps" => signed.id, "chaveAcesso" => nfse_key}])
+      transport.answer(:consult, [200, {"chaveAcesso" => nfse_key, "nfseXmlGZipB64" => gzip64(nfse_xml(signed.xml))}])
+
+      expect(client.issue(signed)).to be_recovered
+      expect(client.issue(signed)).to be_recovered
+    end
+
+    it "refuses a note whose DPS has another Id, even with the same digest text" do
+      forged = nfse_xml(signed.xml).sub(%(Id="#{signed.id}"), %(Id="#{signed.id.sub(/1\z/, "2")}"))
+      transport.answer(:issue, [201, {"chaveAcesso" => nfse_key, "nfseXmlGZipB64" => gzip64(forged)}])
+
+      expect { client.issue(signed, recover: false) }.to raise_error(DfeRb::Nfse::Conflict, /is of DPS.*2, not of/)
+    end
+
+    it "keeps E0014 in the error when the lookup fails" do
+      transport.answer(:issue, rejected_answer("E0014", "Serie e numero ja usados"))
+      transport.answer(:dps, error_answer(503, "E9999", "Indisponivel"))
+
+      expect { client.issue(signed) }.to raise_error(DfeRb::TransportError, /HTTP 503.*after E0014 Serie e numero ja usados/)
+    end
+
     it "recovers a series and number already used by this same DPS (E0014)" do
       transport.answer(:issue, rejected_answer("E0014"))
       transport.answer(:dps, [200, {"idDps" => signed.id, "chaveAcesso" => nfse_key}])
@@ -106,7 +144,7 @@ RSpec.describe DfeRb::Nfse::Client do
       transport.answer(:dps, [200, {"idDps" => signed.id, "chaveAcesso" => nfse_key}])
       transport.answer(:consult, [200, {"chaveAcesso" => nfse_key, "nfseXmlGZipB64" => gzip64(nfse_xml(other.xml))}])
 
-      expect { client.issue(signed) }.to raise_error(DfeRb::Nfse::Conflict, /another DPS inside/)
+      expect { client.issue(signed) }.to raise_error(DfeRb::Nfse::Conflict, /not this DPS/)
 
       lost = NfseHelpers::FakeRest.new
       lost.answer(:issue, error_answer(500, "E9999", "Falha"))
@@ -180,7 +218,8 @@ RSpec.describe DfeRb::Nfse::Client do
       expect(details[1].element_children.map(&:text)).to eq(["Manifestação de NFS-e - Rejeição do Intermediário", "5", "Valor do servico diverge do contratado"])
       expect(details[2].at_xpath("cMotivo").text).to eq("9")
       requests.each { |xml| expect(client.layout.event_issues(xml)).to eq([]) }
-      expect { client.reject(nfse_key) }.to raise_error(ArgumentError, /E1944/)
+      expect { client.reject(nfse_key) }.to raise_error(ArgumentError, /E1949/)
+      expect { client.reject(nfse_key, as: :provider) }.to raise_error(ArgumentError, /E1944/)
       expect { client.cancel(nfse_key, reason: "curto") }.to raise_error(ArgumentError, /15 to 255/)
       expect { client.confirm(nfse_key, as: :issuer) }.to raise_error(ArgumentError, /as: takes/)
     end
@@ -192,7 +231,7 @@ RSpec.describe DfeRb::Nfse::Client do
 
       expect(client.event(nfse_key, type: 101101).event_xml).to eq("<evento/>")
       expect(transport.calls_to(:event_query).first.url).to eq("#{sefin}/nfse/#{nfse_key}/eventos/101101/1")
-      expect(client.events(nfse_key).first).to have_attributes(event?: true, event_type: "CANCELAMENTO", xml: "<evento/>",
+      expect(client.events(nfse_key).documents.first).to have_attributes(event?: true, event_type: "CANCELAMENTO", xml: "<evento/>",
         filename: "#{nfse_key}_cancelamento_7-evento.xml")
     end
   end
@@ -218,7 +257,7 @@ RSpec.describe DfeRb::Nfse::Client do
 
       batch = client.distribute(after: 12, cpf: "529.982.247-25", batch: false)
 
-      expect(batch).to have_attributes(empty?: true, last_nsu: nil, found?: false)
+      expect(batch).to have_attributes(caught_up?: true, empty?: true, last_nsu: nil, found?: false, rejected?: false)
       expect(batch.errors.first.code).to eq("E2220")
       expect(transport.calls_to(:distribution).first.url).to end_with("/DFe/12?lote=false&cpfConsulta=52998224725")
       expect { client.distribute(cnpj: "1", cpf: "2") }.to raise_error(ArgumentError, /E2244/)

@@ -32,8 +32,14 @@ RSpec.describe DfeRb::Signature do
     expect(document.at_xpath("//ds:SignatureMethod/@Algorithm", "ds" => described_class::DS).value).to eq("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256")
     expect(document.at_xpath("//ds:DigestMethod/@Algorithm", "ds" => described_class::DS).value).to eq("http://www.w3.org/2001/04/xmlenc#sha256")
     expect(described_class.digest_value(sha256)).to match(%r{\A[A-Za-z0-9+/]{43}=\z})
-    expect(described_class.verify(sha256)).to be(true)
-    expect(described_class.verify(sha256.sub("<cUF>50</cUF>", "<cUF>51</cUF>"))).to eq("digest mismatch")
-    expect(described_class.verify(sha256.sub("xmldsig-more#rsa-sha256", "xmldsig#rsa-sha1"))).to eq("the signature and digest methods differ")
+    expect(described_class.verify(sha256, digests: %i[sha256])).to be(true)
+    expect(described_class.verify(sha256)).to eq("SHA256 is not a digest this document takes (sha1)")
+    expect(described_class.verify(sha256.sub("<cUF>50</cUF>", "<cUF>51</cUF>"), digests: %i[sha256])).to eq("digest mismatch")
+    expect(described_class.verify(sha256.sub("xmldsig-more#rsa-sha256", "xmldsig#rsa-sha1"), digests: %i[sha256])).to eq("the signature and digest methods differ")
+  end
+
+  it "checks the Id the signature references, when asked" do
+    expect(described_class.verify(signed, id: "MDFe1")).to be(true)
+    expect(described_class.verify(signed, id: "MDFe2")).to eq("the signature references MDFe1, not MDFe2")
   end
 end

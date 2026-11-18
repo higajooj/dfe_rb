@@ -793,7 +793,7 @@ documents:
     schemas: [lib/dfe_rb/xml/schemas/nfse_1.01_nt009]
     source: gov.br/nfse, Biblioteca, Documentação técnica, Produção Restrita
     sha256: 25fdcecc651a67a216496ab10d7566631e6ed10f721e37d62c7845dadb0ea267
-    note: NT 009's layout, also version 1.01. Produção restrita refuses a DPS of the production layout (E1235, 18/11/2026), so homologação builds this one.
+    note: NT 009's layout, also version 1.01. Produção restrita refuses a DPS of the production layout (E1235, 18/11/2026), so homologação builds this one. Its TSChaveNFSe puts the alphanumeric span of a key at positions 7 to 20, where TSIdNFSe and the key's formation put the inscription at 10 to 23, so an event for the key of a CNPJ with a letter in its last two places of the root or the branch fails the schema here as it would at the Sefin.
   - id: nfse-nt-009
     document: Nota Técnica SE/CGNFS-e nº 009, Reforma Tributária do Consumo
     kind: nt

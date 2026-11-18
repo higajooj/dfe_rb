@@ -76,6 +76,8 @@ module DfeRb
           real_estate: "imovel", movable_goods: "bensMoveis", values: "valores"
         },
         "gRefNFSe" => {key: "refNFSe", keys: "refNFSe"},
+        "imovel" => {city_code: "cMun", property_registration: "inscImobFisc", cib: "cCIB", address: "end", rental: "gLocacao", unit: "gUnidImob", units: "gUnidImob"},
+        "gUnidImob" => {property_registration: "inscImobFisc", cib: "cCIB", address: "end"},
         "dest" => PARTY,
         "gIBSCBS" => {cst: "CST", class_code: "cClassTrib", presumed_credit: "cCredPres", regular: "gTribRegular", deferral: "gDif"},
         "gTribRegular" => {cst: "CSTReg", class_code: "cClassTribReg"},

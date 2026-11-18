@@ -100,9 +100,12 @@ module DfeRb
 
       def found? = status == "DOCUMENTOS_LOCALIZADOS"
 
-      # No document after the NSU asked for (E2220): caught up.
+      # The ADN has no document after the NSU asked for (E2220), or for the key (E2240).
+      def caught_up? = status == "NENHUM_DOCUMENTO_LOCALIZADO"
+
       def empty? = documents.empty?
 
+      # Refused (a certificate, a proxy, a CNPJ of another root...): see `errors`.
       def rejected? = status == "REJEICAO"
     end
 

@@ -685,7 +685,9 @@ else
 end
 ```
 
-`issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another.
+`issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx, a success without a readable NFS-e) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another. A note is this DPS's when its key is the one answered, its DPS has this Id, and the digest of its `infDPS`, computed by the gem, is the one signed.
+
+`sign` checks every input against the client's layout: a `Declaration`, raw XML (which also gets the business rules) and a `SignedDeclaration` restored from storage. A DPS signed elsewhere must be signed by its issuer (E0718), in RSA-SHA256 or RSA-SHA1.
 
 The gem derives the DPS Id (`"DPS"` + city + CNPJ or CPF + series + number), `tpAmb`, `dhEmi` (in the offset of the issuing city's state), `dCompet` (its day), `serie`, `tpEmit`, `verAplic`, `finNFSe`, `indDest` (1 when a `recipient` is given) and, for a MEI, `indTotTrib`. It derives no tax: the Sefin computes the ISSQN base, rate and amount from the municipality's parameters (`client.rates` tells them in advance), and the IBS/CBS from its calculator.
 
@@ -716,7 +718,7 @@ client.request_cancellation(key, reason: "...")   # past the municipality's dead
 client.confirm(key, as: :taker)                   # or :provider, :intermediary
 client.reject(key, as: :taker, code: :values, reason: "Valor diverge do contratado")
 client.event(key, type: 101101)                   # an event read back from the Sefin
-client.events(key)                                # every event of a note, from the ADN
+client.events(key).documents                      # every event of a note, from the ADN
 ```
 
 Each event is signed in the certificate holder's name (`CNPJAutor` or `CPFAutor`) and returns an `EventResult` with `registered?`, the Sefin's `event_xml` to archive, `filename`, and its `errors`.
@@ -728,7 +730,7 @@ To replace a note, issue a new DPS that names it: `d.replaces key, reason: :othe
 ```ruby
 batch = client.distribute(after: last_nsu)   # NFS-e and events of interest to the certificate's holder
 batch.documents.each { |document| File.write(document.filename, document.xml) }
-batch.last_nsu; batch.empty?                 # empty: caught up (E2220)
+batch.last_nsu; batch.caught_up?             # caught up: nothing after that NSU (E2220); rejected? and errors otherwise
 client.distribute(after: 0, cnpj: "12345678000280")   # another establishment of the same root, or a proxy's grantor
 
 client.agreement("5002704").national_issuer?              # does the municipality issue through the Sefin Nacional?

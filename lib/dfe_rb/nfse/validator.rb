@@ -18,11 +18,16 @@ module DfeRb
       # Series of a DPS sent by the issuer's own application (E0010).
       OWN_APPLICATION_SERIES = 1..49_999
       # The anchored form of the production package's TSSerieDPS (see Layout::LITERAL_ANCHORS).
-      SERIES = /\A0{0,4}\d{1,5}\z/
-      # Construction services whose DPS carries the obra group, and no others (E0370, E0372).
+      SERIES = Layout::SERIES
+      # Construction services whose DPS carries the obra group, and no others but 99.01.01,
+      # which may (E0370, E0372).
       CONSTRUCTION = %w[070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901 141403 141404].freeze
-      # The real estate of the IBS/CBS group, under NT 009 (E0931, E0932).
-      REAL_ESTATE = %w[070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901].freeze
+      CONSTRUCTION_OPTIONAL = "990101"
+      # The construction services whose IBS/CBS group takes no imovel (E0931).
+      CIVIL_CONSTRUCTION = %w[070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901].freeze
+      # The operation indicators (cIndOp) of real estate, whose IBS/CBS group carries imovel
+      # and which no other takes (E0932, E0928), by layout.
+      REAL_ESTATE_OPERATIONS = {v1_01: %w[020101 020201 020301], nt009: %w[020101 020201 020202 020301 020401]}.freeze
       # Services with a tpOper (E0903, E0904): items 25.05, 15.09, 17.12 and 10.05.
       OPERATION_TYPE_SERVICES = %w[2505 1509 1712 1005].freeze
       IBS_CBS_SINCE = Date.new(2026, 1, 1)
@@ -233,8 +238,8 @@ module DfeRb
         given = inf.dig("serv", "obra")
         if CONSTRUCTION.include?(national_code) && !given
           add("serv/obra: the construction service #{national_code} carries the obra group (E0370)")
-        elsif given && !CONSTRUCTION.include?(national_code)
-          add("serv/obra: only the construction services take the obra group, not #{national_code} (E0372)")
+        elsif given && !CONSTRUCTION.include?(national_code) && national_code != CONSTRUCTION_OPTIONAL
+          add("serv/obra: only the construction services and 99.01.01 take the obra group, not #{national_code} (E0372)")
         end
       end
 
@@ -261,7 +266,8 @@ module DfeRb
         elsif received
           add("valores/vServPrest/vReceb: only the intermediary issuing the DPS gives it (E0424)")
         end
-        if received && amount && decimal(received) < amount
+        received_amount = decimal(received)
+        if received_amount && amount && received_amount < amount
           add("valores/vServPrest/vReceb: #{received} is less than vServ, #{amount.to_s("F")} (E0425)")
         end
 
@@ -272,8 +278,9 @@ module DfeRb
           add("valores/vDescCondIncond/#{tag}: must be more than zero and less than vServ (#{code})") unless discount.positive? && discount < amount
         end
 
-        rate = decimal(values_group.dig("vAjusteBC", "pAjusteBCISSQN"))
-        add("valores/vAjusteBC/pAjusteBCISSQN: must be more than 0 and at most 100 (E0453)") if rate && !(rate.positive? && rate <= 100)
+        path = @layout.nt009? ? %w[vAjusteBC pAjusteBCISSQN] : %w[vDedRed pDR]
+        rate = decimal(values_group.dig(*path))
+        add("valores/#{path.join("/")}: must be more than 0 and at most 100 (E0453)") if rate && !(rate.positive? && rate <= 100)
       end
 
       def municipal_tax
@@ -325,7 +332,8 @@ module DfeRb
           value = decimal(group[value_tag])
           next unless base && value
 
-          expected = (base * rate / 100).round(2, half: :up)
+          # Rounded half to even, within a cent (NT 007, 2.c).
+          expected = (base * rate / 100).round(2, half: :even)
           add("valores/trib/tribFed/piscofins/#{value_tag}: #{value.to_s("F")} is not vBCPisCofins x #{rate_tag} (#{expected.to_s("F")}) (#{product})") if (value - expected).abs > TOLERANCE
         end
       end
@@ -337,13 +345,13 @@ module DfeRb
         end
 
         amount = service_amount
-        totals.fetch("vTotTrib", {}).each do |tag, value|
-          next unless amount && decimal(value)
-
-          add("valores/trib/totTrib/vTotTrib/#{tag}: more than vServ (E0702)") if decimal(value) > amount
+        {"vTotTribFed" => "E0702", "vTotTribEst" => "E0703", "vTotTribMun" => "E0704"}.each do |tag, code|
+          value = decimal(totals.dig("vTotTrib", tag))
+          add("valores/trib/totTrib/vTotTrib/#{tag}: more than vServ (#{code})") if value && amount && value > amount
         end
-        totals.fetch("pTotTrib", {}).each do |tag, value|
-          add("valores/trib/totTrib/pTotTrib/#{tag}: more than 100% (E0706)") if decimal(value).to_f > 100
+        {"pTotTribFed" => "E0706", "pTotTribEst" => "E0707", "pTotTribMun" => "E0708"}.each do |tag, code|
+          value = decimal(totals.dig("pTotTrib", tag))
+          add("valores/trib/totTrib/pTotTrib/#{tag}: more than 100% (#{code})") if value && value > 100
         end
         add("valores/trib/totTrib/indTotTrib: an ME/EPP of the Simples Nacional informs its approximate taxes (E0712)") if simples == ME_EPP && totals.key?("indTotTrib")
         if simples == "1" && (totals.key?("indTotTrib") || totals.key?("pTotTribSN"))
@@ -367,7 +375,7 @@ module DfeRb
         recipient(group)
         operation_type(group)
         classification(group)
-        real_estate(group) if @layout.nt009?
+        real_estate(group)
       end
 
       def recipient(group)
@@ -410,6 +418,16 @@ module DfeRb
 
       def real_estate(group)
         property = group["imovel"]
+        operation = REAL_ESTATE_OPERATIONS.fetch(@layout.name).include?(group["cIndOp"].to_s)
+        if CIVIL_CONSTRUCTION.include?(national_code)
+          add("IBSCBS/imovel: the construction service #{national_code} takes no imovel group (E0931)") if property
+        elsif operation && !property
+          add("IBSCBS/imovel: the real estate operation #{group["cIndOp"]} carries the imovel group (E0932)")
+        elsif property && !operation
+          add("IBSCBS/imovel: only a real estate operation (cIndOp #{REAL_ESTATE_OPERATIONS.fetch(@layout.name).join(", ")}) takes the imovel group (E0928)")
+        end
+        return unless @layout.nt009?
+
         rental = national_code.start_with?("9903")
         if property
           city(property["cMun"], "IBSCBS/imovel/cMun", "E0929")

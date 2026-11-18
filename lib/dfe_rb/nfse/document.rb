@@ -25,6 +25,14 @@ module DfeRb
 
       def issuer_cpf = issuer_text("CPF")
 
+      # The X509 certificate inside the signature, or nil.
+      def signer
+        encoded = @root.at_xpath("ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", namespaces)&.text
+        OpenSSL::X509::Certificate.new(Base64.decode64(encoded)) if encoded
+      rescue OpenSSL::X509::CertificateError
+        nil
+      end
+
       # infDPS as the tag-keyed Hash the Validator reads, following `layout`'s schema.
       def to_infdps(layout) = tree(layout.dps.find("infDPS"))
 
@@ -73,14 +81,11 @@ module DfeRb
 
       def dps_id = text("NFSe/infNFSe/DPS/infDPS/@Id")
 
-      # The SHA-256 digest of the DPS inside (its signature's DigestValue, or computed from
-      # its infDPS), which tells whether it is the DPS sent.
-      def dps_digest_value
-        signed = text("NFSe/infNFSe/DPS/Signature/SignedInfo/Reference/DigestValue")
-        return signed if signed
-
+      # The digest of the infDPS inside, computed (not read from its signature), which tells
+      # whether it is the DPS sent.
+      def dps_digest(digest = Signature::DIGEST)
         node = @document.at_xpath("/nfse:NFSe/nfse:infNFSe/nfse:DPS/nfse:infDPS", Signature::NAMESPACES)
-        DfeRb::Signature.digest_of(node, Signature::DIGEST) if node
+        DfeRb::Signature.digest_of(node, digest) if node
       end
 
       # The <DPS> inside, namespaces intact.

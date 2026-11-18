@@ -18,6 +18,8 @@ module DfeRb
       CANCELLATION = "101101"
       CANCELLATION_REVIEW = "101103"
       CANCELLATION_REASONS = {error: 1, not_rendered: 2, other: 9}.freeze
+      # The rejection for another reason without one, by the party rejecting.
+      REJECTION_REASON_REQUIRED = {provider: "E1944", taker: "E1949", intermediary: "E1954"}.freeze
       REJECTION_REASONS = {duplicate: 1, issued_by_taker: 2, no_taxable_event: 3, tax_liability: 4, values: 5, other: 9}.freeze
       # The DPS's series and number already produced a note (E0014).
       DUPLICATE = "E0014"
@@ -53,22 +55,29 @@ module DfeRb
       # Validates and signs a Declaration, or raw <DPS> XML (signed or not). Returns a
       # SignedDeclaration. Store its `xml` before sending, so a lost answer can be resolved later.
       #
-      # Raw XML gets the same schema and business-rule checks as a Declaration, against this
-      # client's layout. Like any input it must be for this client's environment, and the
-      # certificate must belong to the DPS's issuer (E0718).
+      # Every input is checked against this client's layout. Raw XML also gets the business
+      # rules a Declaration gets; a SignedDeclaration (or one restored from storage) isn't
+      # checked against them again. Like any input it must be for this client's environment,
+      # the certificate must belong to the DPS's issuer, and so must the certificate inside
+      # a DPS signed elsewhere (E0718).
       #
       # `strict: false` skips the business-rule checks. The schema and value formats are always enforced.
       def sign(input, strict: true)
+        if input.is_a?(Declaration) && input.layout != layout
+          raise ValidationError, ["the declaration was built for the layout #{input.layout.name}, but this client sends #{layout.name}"]
+        end
+
         document = case input
         when Declaration then Document.new(input.to_xml(strict: strict))
         when SignedDeclaration then Document.new(input.xml)
-        else validated(Document.new(input), strict: strict)
+        else Document.new(input)
         end
+        validate(document, rules: strict && !input.is_a?(Declaration) && !input.is_a?(SignedDeclaration))
         check_environment(document)
         check_certificate(document)
 
         signed = document.signed? ? document.xml : Signature.sign_dps(document.xml, certificate)
-        problem = Signature.verify(signed)
+        problem = Signature.verify(signed, id: document.id)
         raise ValidationError, ["the signature does not verify: #{problem}"] unless problem == true
 
         result = SignedDeclaration.new(xml: signed, id: document.id, digest_value: Signature.digest_value(signed))
@@ -85,8 +94,8 @@ module DfeRb
       # Conflict.
       def issue(input, recover: true, strict: true)
         signed = sign(input, strict: strict)
-        reply = begin
-          answered(request(:post, :issue, body: {"dpsXmlGZipB64" => Requests.pack(signed.xml)}))
+        result = begin
+          issue_result(signed, answered(request(:post, :issue, body: {"dpsXmlGZipB64" => Requests.pack(signed.xml)})))
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
@@ -94,12 +103,16 @@ module DfeRb
           return recovered_quietly(signed, e) || raise(e)
         end
 
-        result = issue_result(signed, reply)
         if recover && result.duplicate?
-          found = recovered(signed, cause: result)
+          found = begin
+            recovered(signed, cause: result)
+          rescue TransportError => e
+            raise TransportError.new("#{e.message}, looking the DPS up after #{result.code} #{result.message}",
+              maybe_processed: e.maybe_processed?, http_status: e.http_status)
+          end
           return found if found
         end
-        check_note(signed, result) if result.issued?
+        check_note(signed, result.note, key: result.key) if result.issued?
         result
       end
 
@@ -115,7 +128,7 @@ module DfeRb
       def consult(key)
         key = access_key(key)
         reply = answered(request(:get, :consult, key: key))
-        xml = Requests.unpack(reply.json["nfseXmlGZipB64"]) if reply.success? && reply.json["nfseXmlGZipB64"]
+        xml = Requests.unpack(payload(reply, "nfseXmlGZipB64")) if reply.success?
         ConsultResult.new(key: key, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"), nfse_xml: xml)
       end
 
@@ -124,7 +137,7 @@ module DfeRb
       def find(dps)
         id = dps_id(dps)
         reply = answered(request(:get, :dps, id: id))
-        key = reply.json["chaveAcesso"] if reply.success?
+        key = payload(reply, "chaveAcesso") if reply.success?
         LookupResult.new(id: id, key: key, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"))
       end
 
@@ -160,11 +173,13 @@ module DfeRb
 
       # Rejects the note, as one of its parties (events 202205, 203206, 204207). `code`:
       # :duplicate, :issued_by_taker, :no_taxable_event, :tax_liability, :values or :other,
-      # which needs a `reason` (E1944).
+      # which needs a `reason` (E1944, E1949, E1954).
       def reject(key, as: :taker, code: :other, reason: nil)
         type = REJECTIONS.fetch(as) { raise ArgumentError, "as: takes #{REJECTIONS.keys.map(&:inspect).join(", ")}" }
         number = reason_code(REJECTION_REASONS, code)
-        raise ArgumentError, "a rejection for another reason (:other) says why: give reason: (E1944)" if number == 9 && reason.nil?
+        if number == 9 && reason.nil?
+          raise ArgumentError, "a rejection for another reason (:other) says why: give reason: (#{REJECTION_REASON_REQUIRED.fetch(as)})"
+        end
 
         send_event(key, type, Requests.reason(code: number, text: reason && justification(reason)))
       end
@@ -176,11 +191,10 @@ module DfeRb
         event_result(key, type.to_s, reply, nil)
       end
 
-      # Every event of a note the ADN holds (GET /contribuintes/NFSe/{key}/Eventos), as
-      # DistributedDocuments.
+      # Every event of a note the ADN holds (GET /contribuintes/NFSe/{key}/Eventos): a
+      # DistributionBatch whose documents are the events.
       def events(key)
-        reply = answered(request(:get, :events, key: access_key(key)))
-        documents(reply.json)
+        batch(answered(request(:get, :events, key: access_key(key))))
       end
 
       # The NFS-e and events of interest to a taxpayer after `after` (an NSU, exclusive),
@@ -198,12 +212,7 @@ module DfeRb
         query = {"lote" => batch}
         query["cnpjConsulta"] = TaxId.normalize(cnpj) if cnpj
         query["cpfConsulta"] = TaxId.normalize(cpf) if cpf
-        reply = answered(request(:get, :distribution, query: query, nsu: Integer(after)))
-        json = reply.json
-        DistributionBatch.new(
-          status: json["StatusProcessamento"], documents: documents(json), alerts: Message.list(json, "Alertas"),
-          errors: Message.list(json, "Erros"), http_status: reply.status, query: json["TipoConsulta"]
-        )
+        batch(answered(request(:get, :distribution, query: query, nsu: Integer(after))))
       end
 
       # A municipality's agreement with the Sistema Nacional (parametrização, convênio):
@@ -260,9 +269,11 @@ module DfeRb
           maybe_processed: true, http_status: reply.status)
       end
 
+      # A success without the NFS-e may hide a note the Sefin generated, so it is a
+      # TransportError the issue recovers from, like a lost answer.
       def issue_result(signed, reply, recovered: false)
         json = reply.json || {}
-        xml = Requests.unpack(json["nfseXmlGZipB64"]) if reply.success? && json["nfseXmlGZipB64"]
+        xml = Requests.unpack(payload(reply, "nfseXmlGZipB64")) if reply.success?
         IssueResult.new(
           id: json["idDps"] || json["idDPS"] || signed.id, key: json["chaveAcesso"], http_status: reply.status,
           processed_at: json["dataHoraProcessamento"], alerts: Message.list(json, "alertas"), errors: Message.list(json, "erros", "erro"),
@@ -270,15 +281,35 @@ module DfeRb
         )
       end
 
-      # The note must carry the very DPS sent.
-      def check_note(signed, result)
-        note = result.note
-        unless note.dps_id == signed.id
-          raise Conflict, "the Sefin answered with the NFS-e of #{note.dps_id}, not of #{signed.id}, the DPS sent; look it up with find"
+      # The note must be the one answered for, and carry the very DPS sent: its Id, and an
+      # infDPS whose digest, computed here, is the signed one's.
+      def check_note(signed, note, key:)
+        unless note.key == key
+          raise Conflict, "the Sefin answered about #{key}, but the NFS-e it sent is #{note.key}"
         end
-        return if note.dps_digest_value.nil? || note.dps_digest_value == signed.digest_value
+        unless note.dps_id == signed.id
+          raise Conflict, "the NFS-e #{note.key} is of #{note.dps_id}, not of #{signed.id}, the DPS sent"
+        end
+        digest = note.dps_digest(Signature.digest_algorithm(signed.xml))
+        return if digest == signed.digest_value
 
-        raise Conflict, "the NFS-e #{note.key} carries a DPS whose digest is #{note.dps_digest_value}, not #{signed.digest_value}, the DPS sent"
+        raise Conflict, "the NFS-e #{note.key} carries another DPS than the one sent (digest #{digest.inspect}, not #{signed.digest_value})"
+      end
+
+      # The field of a successful answer, which an answer without it, or that isn't JSON, lacks.
+      def payload(reply, field)
+        value = reply.json&.[](field)
+        return value if value.is_a?(String) && !value.empty?
+
+        raise TransportError.new("HTTP #{reply.status} without #{field} in the answer", maybe_processed: true, http_status: reply.status)
+      end
+
+      def batch(reply)
+        json = reply.json || {}
+        DistributionBatch.new(
+          status: json["StatusProcessamento"], documents: documents(json), alerts: Message.list(json, "Alertas"),
+          errors: Message.list(json, "Erros"), http_status: reply.status, query: json["TipoConsulta"]
+        )
       end
 
       def recovered_quietly(signed, cause)
@@ -298,9 +329,11 @@ module DfeRb
         return unless consulted.found?
 
         note = consulted.note
-        unless note.dps_digest_value == signed.digest_value
-          raise Conflict, "the Sefin already holds #{note.key} for #{signed.id} with another DPS inside; " \
-            "the DPS being sent differs from the one stored (#{cause.respond_to?(:message) ? cause.message : cause})"
+        begin
+          check_note(signed, note, key: found.key)
+        rescue Conflict => e
+          raise Conflict, "the Sefin already holds #{found.key} for #{signed.id}, but not this DPS: #{e.message} " \
+            "(#{cause.respond_to?(:message) ? cause.message : cause})"
         end
 
         IssueResult.new(id: signed.id, key: note.key, http_status: consulted.http_status, processed_at: note.processed_at,
@@ -320,7 +353,7 @@ module DfeRb
       end
 
       def event_result(key, type, reply, signed)
-        xml = Requests.unpack(reply.json["eventoXmlGZipB64"]) if reply.success? && reply.json["eventoXmlGZipB64"]
+        xml = Requests.unpack(payload(reply, "eventoXmlGZipB64")) if reply.success?
         EventResult.new(key: key, type: type, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"),
           request_xml: signed, event_xml: xml)
       end
@@ -341,12 +374,10 @@ module DfeRb
         state ? States.now(state, @clock) : @clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
       end
 
-      def validated(document, strict:)
+      def validate(document, rules:)
         problems = layout.dps_issues(document.xml)
-        problems += Validator.new(document.to_infdps(layout), layout: layout).issues if strict && problems.empty?
+        problems += Validator.new(document.to_infdps(layout), layout: layout).issues if rules && problems.empty?
         raise ValidationError, problems unless problems.empty?
-
-        document
       end
 
       def check_environment(document)
@@ -365,13 +396,25 @@ module DfeRb
         problems << "the certificate expired on #{certificate.expires_at.utc.iso8601}" if certificate.expired?(now)
         problems << "the certificate is not valid yet (starts #{certificate.not_before.utc.iso8601})" if certificate.not_before > now
 
+        problems << owner_problem("the certificate", certificate.cnpj, certificate.cpf, document)
+        if document.signed? && (signer = document.signer)
+          id = Certificate.tax_id_of(signer).to_s
+          problems << owner_problem("the DPS's signature", (id if id.length == 14), (id if id.length == 11), document)
+        end
+        problems.compact!
+        raise ValidationError, problems unless problems.empty?
+      end
+
+      # Whom a certificate names against the DPS's issuer: the same CNPJ root, or the same
+      # CPF. One that names no one is left for the Sefin to judge.
+      def owner_problem(what, holder_cnpj, holder_cpf, document)
         cnpj = document.issuer_cnpj
         cpf = document.issuer_cpf
-        holder = certificate.cnpj ? "CNPJ root #{certificate.cnpj_root}" : ("CPF #{certificate.cpf}" if certificate.cpf)
-        if holder && ((cnpj && cnpj[0, 8] != certificate.cnpj_root) || (cpf && cpf != certificate.cpf))
-          problems << "the certificate belongs to #{holder} but the DPS's issuer is #{cnpj || cpf} (E0718)"
-        end
-        raise ValidationError, problems unless problems.empty?
+        holder = holder_cnpj ? "CNPJ root #{holder_cnpj[0, 8]}" : ("CPF #{holder_cpf}" if holder_cpf)
+        return if holder.nil?
+
+        mismatch = (cnpj && cnpj[0, 8] != holder_cnpj.to_s[0, 8]) || (cpf && cpf != holder_cpf)
+        "#{what} belongs to #{holder} but the DPS's issuer is #{cnpj || cpf} (E0718)" if mismatch
       end
 
       def access_key(key)

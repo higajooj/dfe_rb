@@ -8,9 +8,10 @@ module DfeRb
       FILES = %w[tiposComplexos_v1.01.xsd tiposSimples_v1.01.xsd].freeze
       EVENT_FILES = %w[tiposEventos_v1.01.xsd tiposComplexos_v1.01.xsd tiposSimples_v1.01.xsd].freeze
       # libxml2 reads the ^ and $ of the production package's TSSerieDPS pattern
-      # ("^0{0,4}\d{1,5}$") as characters, so it refuses every series. Validator checks the
-      # series instead, with the pattern anchored as intended.
-      LITERAL_ANCHORS = /\[facet 'pattern'\] The value '[^']*' is not accepted by the pattern '\^0\{0,4\}\\d\{1,5\}\$'/
+      # ("^0{0,4}\d{1,5}$") as characters, so it refuses every series. That message is
+      # dropped for a series the pattern, anchored as intended, takes.
+      LITERAL_ANCHORS = /\[facet 'pattern'\] The value '([^']*)' is not accepted by the pattern '\^0\{0,4\}\\d\{1,5\}\$'/
+      SERIES = /\A0{0,4}\d{1,5}\z/
 
       attr_reader :name, :package, :version, :description
 
@@ -46,7 +47,10 @@ module DfeRb
         prefixed = document.xpath("//*").find { |node| node.namespace&.prefix }
         return ["<#{prefixed.namespace.prefix}:#{prefixed.name}>: namespace prefixes are not allowed (E1228)"] if prefixed
 
-        Xsd.issues(document, package: package, file: file).grep_v(LITERAL_ANCHORS)
+        Xsd.issues(document, package: package, file: file).reject do |message|
+          value = message[LITERAL_ANCHORS, 1] or next false
+          value.match?(SERIES)
+        end
       rescue Nokogiri::XML::SyntaxError => e
         ["not well-formed XML: #{e.message}"]
       end

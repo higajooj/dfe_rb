@@ -91,6 +91,46 @@ RSpec.describe DfeRb::Nfse::Validator do
     expect(issues { |d| d.replaces nfse_key, reason: :other }).to include(a_string_matching(/E0078/))
   end
 
+  it "lets 99.01.01 carry the obra group, and keeps the imovel group to real estate" do
+    optional = issues do |d|
+      d.service national_code: "990101"
+      d.serv["obra"] = {"cCIB" => "12345678"}
+    end
+
+    expect(optional).not_to include(a_string_matching(/E0372/))
+    expect(issues { |d| d.ibs_cbs operation_indicator: "020101" }).to include(a_string_matching(/E0932/))
+    expect(issues(layout: :v1_01) { |d| d.ibs_cbs operation_indicator: "020101" }).to include(a_string_matching(/E0932/))
+    expect(issues { |d| d.ibs_cbs operation_indicator: "020202" }).to include(a_string_matching(/E0932/))
+    expect(issues(layout: :v1_01) { |d| d.ibs_cbs operation_indicator: "020202" }).not_to include(a_string_matching(/E0932/))
+    expect(issues { |d| d.ibs_cbs real_estate: {city_code: NfseHelpers::CITY} }).to include(a_string_matching(/E0928/))
+  end
+
+  it "rounds the PIS half to even, within a cent, and reads the production deduction rate" do
+    pis = ->(value) { issues { |d| d.federal pis_cofins: {cst: "01", base: "100.50", pis_rate: "1.00", pis: value} } }
+
+    expect(pis.call("1.00")).not_to include(a_string_matching(/E0694/))
+    expect(pis.call("0.99")).not_to include(a_string_matching(/E0694/))
+    expect(pis.call("1.02")).to include(a_string_matching(/E0694/))
+    expect(issues(layout: :v1_01) { |d| d.values { |v| v.deductions rate: "150.00" } }).to include(a_string_matching(/vDedRed\/pDR.*E0453/))
+  end
+
+  it "names each approximate tax's own code, and survives an amount it can't read" do
+    found = issues do |d|
+      d.provider simples: :none
+      d.prest["regTrib"].delete("regApTribSN")
+      d.approximate_taxes federal: "1.00", state: "2000.00", municipal: "1.00"
+    end
+
+    expect(found).to include(a_string_matching(/vTotTribEst.*E0703/))
+    expect { service_declaration(clock: clock) { |d| d.received "abc" }.issues }.not_to raise_error
+  end
+
+  it "refuses a series that isn't digits in the production layout" do
+    xml = service_declaration(clock: clock, layout: :v1_01).to_xml.sub("<serie>1</serie>", "<serie>abc</serie>")
+
+    expect(DfeRb::Nfse::Layouts.fetch(:v1_01).dps_issues(xml)).to include(a_string_matching(/'abc'/))
+  end
+
   it "refuses a city outside the IBGE table" do
     expect(issues { |d| d.service city_code: "5002799" }).to include(a_string_matching(/cLocPrestacao: 5002799.*E0302/))
   end

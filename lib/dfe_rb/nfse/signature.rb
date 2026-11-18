@@ -15,9 +15,17 @@ module DfeRb
 
       def sign_event(xml, certificate) = DfeRb::Signature.sign(xml, certificate, namespace: NAMESPACE, container: "pedRegEvento", signed: "infPedReg", digest: DIGEST)
 
-      def verify(xml) = DfeRb::Signature.verify(xml)
+      # SHA-256, or SHA-1 for a DPS another application signed (the Sefin's API names no
+      # algorithm); `id` is the Id the signature must reference.
+      def verify(xml, id: nil) = DfeRb::Signature.verify(xml, digests: %i[sha256 sha1], id: id)
 
       def digest_value(xml) = DfeRb::Signature.digest_value(xml)
+
+      # The digest a signed document's signature uses (:sha256 or :sha1).
+      def digest_algorithm(xml)
+        uri = Nokogiri::XML(xml).at_xpath("//ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", "ds" => DS)&.value
+        DfeRb::Signature.algorithm(uri, 1) || DIGEST
+      end
     end
 
     # A signed DPS ready to send. Store `xml` before transmitting: the NFS-e the Sefin
