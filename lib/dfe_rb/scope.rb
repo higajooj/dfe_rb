@@ -14,8 +14,10 @@ module DfeRb
     @cache = {}
 
     class << self
+      # Cached per element object, not per path: two layouts of a document (the NFS-e's) have
+      # elements at the same path with different children.
       def for(element, vocabulary)
-        @cache[[vocabulary, element.path]] ||= new(element, vocabulary)
+        (@cache[vocabulary] ||= {}.compare_by_identity)[element] ||= new(element, vocabulary)
       end
     end
 
