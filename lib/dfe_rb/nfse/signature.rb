@@ -1,7 +1,5 @@
 module DfeRb
   module Nfse
-    # DfeRb::Signature for the NFS-e documents the issuer signs: the DPS (infDPS) and the
-    # request to register an event (infPedReg), in RSA-SHA256 with a SHA-256 digest.
     module Signature
       DS = DfeRb::Signature::DS
       NAMESPACES = {"nfse" => NAMESPACE, "ds" => DS}.freeze
@@ -21,10 +19,9 @@ module DfeRb
 
       def digest_value(xml) = DfeRb::Signature.digest_value(xml)
 
-      # The digest a signed document's signature uses (:sha256 or :sha1).
       def digest_algorithm(xml)
         uri = Nokogiri::XML(xml).at_xpath("//ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", "ds" => DS)&.value
-        DfeRb::Signature.algorithm(uri, 1) || DIGEST
+        DfeRb::Signature.by_digest_method(uri) || DIGEST
       end
     end
 

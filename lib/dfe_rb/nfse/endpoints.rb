@@ -18,17 +18,17 @@ module DfeRb
         }
       }.freeze
 
-      # Service => [host, path].
+      Service = Data.define(:host, :path)
       SERVICES = {
-        issue: [:sefin, "/nfse"],
-        consult: [:sefin, "/nfse/%{key}"],
-        dps: [:sefin, "/dps/%{id}"],
-        event: [:sefin, "/nfse/%{key}/eventos"],
-        event_query: [:sefin, "/nfse/%{key}/eventos/%{type}/%{sequence}"],
-        distribution: [:adn, "/contribuintes/DFe/%{nsu}"],
-        events: [:adn, "/contribuintes/NFSe/%{key}/Eventos"],
-        agreement: [:adn, "/parametrizacao/%{city}/convenio"],
-        rates: [:adn, "/parametrizacao/%{city}/%{code}/%{date}/aliquota"]
+        issue: Service.new(host: :sefin, path: "/nfse"),
+        consult: Service.new(host: :sefin, path: "/nfse/%{key}"),
+        dps: Service.new(host: :sefin, path: "/dps/%{id}"),
+        event: Service.new(host: :sefin, path: "/nfse/%{key}/eventos"),
+        event_query: Service.new(host: :sefin, path: "/nfse/%{key}/eventos/%{type}/%{sequence}"),
+        distribution: Service.new(host: :adn, path: "/contribuintes/DFe/%{nsu}"),
+        events: Service.new(host: :adn, path: "/contribuintes/NFSe/%{key}/Eventos"),
+        agreement: Service.new(host: :adn, path: "/parametrizacao/%{city}/convenio"),
+        rates: Service.new(host: :adn, path: "/parametrizacao/%{city}/%{code}/%{date}/aliquota")
       }.freeze
 
       module_function
@@ -37,9 +37,9 @@ module DfeRb
       #
       #   Endpoints.url(environment: :homologacao, service: :consult, key: "5002704...")
       def url(environment:, service:, overrides: {}, **params)
-        host, path = SERVICES.fetch(service) { raise ArgumentError, "unknown service: #{service.inspect} (#{SERVICES.keys.join(", ")})" }
-        base = overrides[host] || BASES.fetch(host).fetch(Environment.normalize(environment))
-        base.to_s.chomp("/") + format(path, **params.transform_values { |value| ERB::Util.url_encode(value.to_s) })
+        definition = SERVICES.fetch(service) { raise ArgumentError, "unknown service: #{service.inspect} (#{SERVICES.keys.join(", ")})" }
+        base = overrides[definition.host] || BASES.fetch(definition.host).fetch(Environment.normalize(environment))
+        base.to_s.chomp("/") + format(definition.path, **params.transform_values { |value| ERB::Util.url_encode(value.to_s) })
       end
     end
   end

@@ -2,6 +2,13 @@ module DfeRb
   module Nfse
     NAMESPACE = "http://www.sped.fazenda.gov.br/nfse"
 
+    # The time now in the offset of the state of a municipality (an IBGE code), whole hours
+    # as the layouts take; Brasília's when the code names no state.
+    def self.local_time(city_code, clock = Time)
+      state = States::CODES.key(city_code.to_s[0, 2].to_i) if city_code.to_s.match?(/\A\d{7}\z/)
+      state ? States.now(state, clock) : clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
+    end
+
     # A version of the DPS layout, read from its bundled XSD package (DfeRb::Schema): the
     # tree the builder and the writer follow, and the schema documents are checked against.
     class Layout
@@ -24,10 +31,8 @@ module DfeRb
 
       def directory = File.join(Xsd::DIRECTORY, package)
 
-      # The <DPS> element.
       def dps = (@dps ||= DfeRb::Schema.new(directory: directory, files: FILES, type: "TCDPS", tag: "DPS").root)
 
-      # The <pedRegEvento> element.
       def event = (@event ||= DfeRb::Schema.new(directory: directory, files: EVENT_FILES, type: "TCPedRegEvt", tag: "pedRegEvento").root)
 
       # Messages for everything in a <DPS> that breaks this layout's schema. A namespace

@@ -7,22 +7,18 @@ module DfeRb
       ISSUER_GROUPS = {"1" => "prest", "2" => "toma", "3" => "interm"}.freeze
       MEI = "2"
 
-      # The emission time, which must stay the same across resolves of one declaration so a
-      # retry sends the same document. Held by the Declaration.
-      Memo = Struct.new(:issued_at)
+      Emission = Struct.new(:issued_at)
 
-      # Problems that stopped a field from being derived, as validation messages.
       attr_reader :issues
 
-      def initialize(environment:, layout:, memo:, clock: Time)
+      def initialize(environment:, layout:, emission:, clock: Time)
         @environment = Environment.normalize(environment)
         @layout = layout
-        @memo = memo
+        @emission = emission
         @clock = clock
         @issues = []
       end
 
-      # `infDPS` (tag-keyed Hash) => a resolved copy.
       def call(infdps)
         @issues = []
         inf = Marshal.load(Marshal.dump(infdps))
@@ -33,7 +29,7 @@ module DfeRb
         inf["tpEmit"] ||= 1
         dates(inf)
         purpose(inf)
-        ibs_cbs(inf)
+        recipient_indicator(inf)
         approximate_taxes(inf)
         identify(inf)
         inf
@@ -58,8 +54,6 @@ module DfeRb
 
       private
 
-      # Formatted codes typed by a person ("11.222.333/0001-81", "79170-000") become what
-      # the layout takes.
       def normalize(data, element)
         element.each_element do |child|
           next unless data.key?(child.tag)
@@ -73,19 +67,15 @@ module DfeRb
         end
       end
 
-      # dhEmi now, in the offset of the issuing city's state; dCompet its day.
       def dates(inf)
-        city = inf["cLocEmi"].to_s
-        state = States::CODES.key(city[0, 2].to_i) if city.match?(/\A\d{7}\z/)
-        @memo.issued_at ||= state ? States.now(state, @clock) : @clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
-        inf["dhEmi"] ||= @memo.issued_at
+        @emission.issued_at ||= Nfse.local_time(inf["cLocEmi"], @clock)
+        inf["dhEmi"] ||= @emission.issued_at
         issued = inf["dhEmi"]
         inf["dCompet"] ||= issued.respond_to?(:to_date) ? issued.to_date : Date.parse(issued.to_s)
       rescue Date::Error
         nil
       end
 
-      # finNFSe 0, the only one the layouts take: in infDPS under NT 009, in IBSCBS before it.
       def purpose(inf)
         if @layout.dps.find("infDPS").find("finNFSe")
           inf["finNFSe"] ||= 0
@@ -94,16 +84,13 @@ module DfeRb
         end
       end
 
-      # indDest says whether the IBS/CBS recipient is someone else than the taker: it is
-      # when a recipient (dest) is given.
-      def ibs_cbs(inf)
+      def recipient_indicator(inf)
         group = inf["IBSCBS"]
         return unless group.is_a?(Hash)
 
         group["indDest"] ||= group["dest"] ? 1 : 0
       end
 
-      # A MEI informs no approximate taxes unless it chooses to (indTotTrib 0).
       def approximate_taxes(inf)
         regime = inf.dig("prest", "regTrib", "opSimpNac").to_s
         trib = (inf["valores"] ||= {})["trib"] ||= {}

@@ -1,11 +1,8 @@
-# Shared helpers for the NFS-e specs: a transport that answers like the Sefin Nacional and
-# the ADN, a ready DPS and the NFS-e the Sefin would generate from it.
 module NfseHelpers
   PROVIDER = "11444777000161"
   TAKER = "11222333000181"
-  CITY = "5002704" # Campo Grande/MS
+  CAMPO_GRANDE = "5002704"
 
-  # Records each request and answers from a queue per service, matched by URL.
   class FakeRest
     Call = Struct.new(:method, :url, :body)
 
@@ -22,7 +19,6 @@ module NfseHelpers
       @answers = Hash.new { |hash, key| hash[key] = [] }
     end
 
-    # status and json, an exception, or a callable taking the request body.
     def answer(service, *responses)
       @answers[service].concat(responses)
       self
@@ -48,20 +44,19 @@ module NfseHelpers
   def nfse_certificate(cnpj: PROVIDER) = DfeRb::Certificate.from_pkcs12(pkcs12_der(cnpj: cnpj), "cert-pass")
 
   def nfse_client(transport = FakeRest.new, **options)
-    DfeRb::Nfse::Client.new(certificate: nfse_certificate, city: CITY, transport: transport, **options)
+    DfeRb::Nfse::Client.new(certificate: nfse_certificate, city: CAMPO_GRANDE, transport: transport, **options)
   end
 
-  def taker_address = {street: "Rua B", number: "1", district: "Centro", city_code: CITY, zip: "79002-000"}
+  def taker_address = {street: "Rua B", number: "1", district: "Centro", city_code: CAMPO_GRANDE, zip: "79002-000"}
 
-  # A software house of the Simples Nacional billing a company in its city.
   def service_declaration(builder = DfeRb::Nfse::Declaration, number: 1, **options, &block)
     build = builder.respond_to?(:build_declaration) ? builder.method(:build_declaration) : builder.method(:new)
-    options = {city: CITY}.merge(options) unless builder.respond_to?(:build_declaration)
+    options = {city: CAMPO_GRANDE}.merge(options) unless builder.respond_to?(:build_declaration)
     build.call(**options) do |dps|
       dps.number number
       dps.provider cnpj: PROVIDER, simples: :me_epp, simples_regime: :simples, special_regime: :none
       dps.taker cnpj: TAKER, name: "CLIENTE SA", address: taker_address
-      dps.service national_code: "010101", description: "Desenvolvimento de software sob encomenda", city_code: CITY, nbs: "115021000"
+      dps.service national_code: "010101", description: "Desenvolvimento de software sob encomenda", city_code: CAMPO_GRANDE, nbs: "115021000"
       dps.amount "1000.00"
       dps.issqn :taxable
       dps.withholding :none
@@ -71,16 +66,14 @@ module NfseHelpers
     end
   end
 
-  # A document as the APIs answer it: GZip in Base64, as is.
   def gzip64(xml)
     buffer = StringIO.new("".b)
     Zlib::GzipWriter.new(buffer).tap { |gzip| gzip.write(xml) }.close
     Base64.strict_encode64(buffer.string)
   end
 
-  def nfse_key(number: 1) = "#{CITY}21#{PROVIDER}#{number.to_s.rjust(13, "0")}26111234567890"
+  def nfse_key(number: 1) = "#{CAMPO_GRANDE}21#{PROVIDER}#{number.to_s.rjust(13, "0")}26111234567890"
 
-  # The <NFSe> the Sefin would generate around a signed DPS.
   def nfse_xml(signed_xml, key: nfse_key)
     dps = signed_xml.sub(/\A<\?xml[^>]*\?>/, "")
     %(<NFSe xmlns="#{DfeRb::Nfse::NAMESPACE}" versao="1.01"><infNFSe Id="NFS#{key}"><xLocEmi>Campo Grande</xLocEmi>) +

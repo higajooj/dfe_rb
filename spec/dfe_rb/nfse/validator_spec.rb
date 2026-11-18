@@ -102,7 +102,7 @@ RSpec.describe DfeRb::Nfse::Validator do
     expect(issues(layout: :v1_01) { |d| d.ibs_cbs operation_indicator: "020101" }).to include(a_string_matching(/E0932/))
     expect(issues { |d| d.ibs_cbs operation_indicator: "020202" }).to include(a_string_matching(/E0932/))
     expect(issues(layout: :v1_01) { |d| d.ibs_cbs operation_indicator: "020202" }).not_to include(a_string_matching(/E0932/))
-    expect(issues { |d| d.ibs_cbs real_estate: {city_code: NfseHelpers::CITY} }).to include(a_string_matching(/E0928/))
+    expect(issues { |d| d.ibs_cbs real_estate: {city_code: NfseHelpers::CAMPO_GRANDE} }).to include(a_string_matching(/E0928/))
   end
 
   it "rounds the PIS half to even, within a cent, and reads the production deduction rate" do

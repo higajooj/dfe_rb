@@ -18,10 +18,8 @@ module DfeRb
       CANCELLATION = "101101"
       CANCELLATION_REVIEW = "101103"
       CANCELLATION_REASONS = {error: 1, not_rendered: 2, other: 9}.freeze
-      # The rejection for another reason without one, by the party rejecting.
       REJECTION_REASON_REQUIRED = {provider: "E1944", taker: "E1949", intermediary: "E1954"}.freeze
       REJECTION_REASONS = {duplicate: 1, issued_by_taker: 2, no_taxable_event: 3, tax_liability: 4, values: 5, other: 9}.freeze
-      # The DPS's series and number already produced a note (E0014).
       DUPLICATE = "E0014"
       DOCUMENT_KINDS = {"NFSE" => :nfse, "EVENTO" => :event, "DPS" => :dps, "PEDIDO_REGISTRO_EVENTO" => :event_request, "CNC" => :cnc}.freeze
 
@@ -95,17 +93,16 @@ module DfeRb
       def issue(input, recover: true, strict: true)
         signed = sign(input, strict: strict)
         result = begin
-          issue_result(signed, answered(request(:post, :issue, body: {"dpsXmlGZipB64" => Requests.pack(signed.xml)})))
+          issue_result(signed, raise_if_server_failed(request(:post, :issue, body: {"dpsXmlGZipB64" => Requests.pack(signed.xml)})))
         rescue TransportError => e
           raise unless recover && e.maybe_processed?
 
-          # If the lookup fails too, the first error stands.
-          return recovered_quietly(signed, e) || raise(e)
+          return look_up_issued_quietly(signed, e) || raise(e)
         end
 
         if recover && result.duplicate?
           found = begin
-            recovered(signed, cause: result)
+            look_up_issued(signed, cause: result)
           rescue TransportError => e
             raise TransportError.new("#{e.message}, looking the DPS up after #{result.code} #{result.message}",
               maybe_processed: e.maybe_processed?, http_status: e.http_status)
@@ -127,8 +124,8 @@ module DfeRb
       # The NFS-e of `key` (GET /nfse/{key}), for its parties.
       def consult(key)
         key = access_key(key)
-        reply = answered(request(:get, :consult, key: key))
-        xml = Requests.unpack(payload(reply, "nfseXmlGZipB64")) if reply.success?
+        reply = raise_if_server_failed(request(:get, :consult, key: key))
+        xml = Requests.unpack(require_field(reply, "nfseXmlGZipB64")) if reply.success?
         ConsultResult.new(key: key, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"), nfse_xml: xml)
       end
 
@@ -136,8 +133,8 @@ module DfeRb
       # Declaration or the Id. Only the provider, the taker and the intermediary get it.
       def find(dps)
         id = dps_id(dps)
-        reply = answered(request(:get, :dps, id: id))
-        key = payload(reply, "chaveAcesso") if reply.success?
+        reply = raise_if_server_failed(request(:get, :dps, id: id))
+        key = require_field(reply, "chaveAcesso") if reply.success?
         LookupResult.new(id: id, key: key, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"))
       end
 
@@ -187,14 +184,14 @@ module DfeRb
       # An event registered for a note (GET /nfse/{key}/eventos/{type}/{sequence}).
       def event(key, type:, sequence: 1)
         key = access_key(key)
-        reply = answered(request(:get, :event_query, key: key, type: type, sequence: sequence))
+        reply = raise_if_server_failed(request(:get, :event_query, key: key, type: type, sequence: sequence))
         event_result(key, type.to_s, reply, nil)
       end
 
       # Every event of a note the ADN holds (GET /contribuintes/NFSe/{key}/Eventos): a
       # DistributionBatch whose documents are the events.
       def events(key)
-        batch(answered(request(:get, :events, key: access_key(key))))
+        batch(raise_if_server_failed(request(:get, :events, key: access_key(key))))
       end
 
       # The NFS-e and events of interest to a taxpayer after `after` (an NSU, exclusive),
@@ -212,7 +209,7 @@ module DfeRb
         query = {"lote" => batch}
         query["cnpjConsulta"] = TaxId.normalize(cnpj) if cnpj
         query["cpfConsulta"] = TaxId.normalize(cpf) if cpf
-        batch(answered(request(:get, :distribution, query: query, nsu: Integer(after))))
+        batch(raise_if_server_failed(request(:get, :distribution, query: query, nsu: Integer(after))))
       end
 
       # A municipality's agreement with the Sistema Nacional (parametrização, convênio):
@@ -220,7 +217,7 @@ module DfeRb
       # [name, state] pair.
       def agreement(city = self.city)
         code = city_code(city)
-        json = answered(request(:get, :agreement, city: code)).json
+        json = raise_if_server_failed(request(:get, :agreement, city: code)).json
         parameters = json["parametrosConvenio"] || {}
         Agreement.new(
           city: code, found: !json["parametrosConvenio"].nil?, national_data: parameters["aderenteAmbienteNacional"],
@@ -237,7 +234,7 @@ module DfeRb
         raise ArgumentError, "service is the 6-digit national code (cTribNac), got #{service.inspect}" unless national.match?(/\A\d{6}\z/)
 
         formatted = "#{national.scan(/../).join(".")}.#{municipal_code}"
-        json = answered(request(:get, :rates, city: code, code: formatted, date: on.strftime("%Y-%m-%d"))).json
+        json = raise_if_server_failed(request(:get, :rates, city: code, code: formatted, date: on.strftime("%Y-%m-%d"))).json
         listed = (json["aliquotas"] || {}).values.flatten.map do |entry|
           Rate.new(incidence: entry["Incidencia"], rate: entry["Aliq"] && BigDecimal(entry["Aliq"].to_s),
             starts_on: entry["DtIni"] && Date.parse(entry["DtIni"]), ends_on: entry["DtFim"] && Date.parse(entry["DtFim"]))
@@ -259,9 +256,7 @@ module DfeRb
         transport.request(method, address, body)
       end
 
-      # The reply, unless it is a server failure: a 5xx is an answer that may hide a processed
-      # request, so it is a TransportError the issue recovers from.
-      def answered(reply)
+      def raise_if_server_failed(reply)
         return reply unless reply.status >= 500
 
         detail = Message.list(reply.json, "erros", "erro", "Erros").join("; ")
@@ -269,11 +264,9 @@ module DfeRb
           maybe_processed: true, http_status: reply.status)
       end
 
-      # A success without the NFS-e may hide a note the Sefin generated, so it is a
-      # TransportError the issue recovers from, like a lost answer.
       def issue_result(signed, reply, recovered: false)
         json = reply.json || {}
-        xml = Requests.unpack(payload(reply, "nfseXmlGZipB64")) if reply.success?
+        xml = Requests.unpack(require_field(reply, "nfseXmlGZipB64")) if reply.success?
         IssueResult.new(
           id: json["idDps"] || json["idDPS"] || signed.id, key: json["chaveAcesso"], http_status: reply.status,
           processed_at: json["dataHoraProcessamento"], alerts: Message.list(json, "alertas"), errors: Message.list(json, "erros", "erro"),
@@ -281,8 +274,6 @@ module DfeRb
         )
       end
 
-      # The note must be the one answered for, and carry the very DPS sent: its Id, and an
-      # infDPS whose digest, computed here, is the signed one's.
       def check_note(signed, note, key:)
         unless note.key == key
           raise Conflict, "the Sefin answered about #{key}, but the NFS-e it sent is #{note.key}"
@@ -296,8 +287,7 @@ module DfeRb
         raise Conflict, "the NFS-e #{note.key} carries another DPS than the one sent (digest #{digest.inspect}, not #{signed.digest_value})"
       end
 
-      # The field of a successful answer, which an answer without it, or that isn't JSON, lacks.
-      def payload(reply, field)
+      def require_field(reply, field)
         value = reply.json&.[](field)
         return value if value.is_a?(String) && !value.empty?
 
@@ -312,16 +302,13 @@ module DfeRb
         )
       end
 
-      def recovered_quietly(signed, cause)
-        recovered(signed, cause: cause)
+      def look_up_issued_quietly(signed, cause)
+        look_up_issued(signed, cause: cause)
       rescue TransportError
         nil
       end
 
-      # Looks the DPS up after a lost answer or a duplicate report. Returns the result when
-      # the Sefin holds a note of this very DPS, nil when it holds none (safe to send again),
-      # and raises Conflict when the note carries another DPS.
-      def recovered(signed, cause:)
+      def look_up_issued(signed, cause:)
         found = find(signed)
         return unless found.found?
 
@@ -343,17 +330,17 @@ module DfeRb
       def send_event(key, type, detail)
         key = access_key(key)
         unsigned = Requests.event(key: key, type: type, author: certificate.tax_id, detail: detail, environment: environment,
-          at: event_time(key), version: layout.version)
+          at: Nfse.local_time(key[0, 7], @clock), version: layout.version)
         signed = Signature.sign_event(unsigned, certificate)
         problems = layout.event_issues(signed)
         raise ValidationError, problems unless problems.empty?
 
-        reply = answered(request(:post, :event, key: key, body: {"pedidoRegistroEventoXmlGZipB64" => Requests.pack(signed)}))
+        reply = raise_if_server_failed(request(:post, :event, key: key, body: {"pedidoRegistroEventoXmlGZipB64" => Requests.pack(signed)}))
         event_result(key, type, reply, signed)
       end
 
       def event_result(key, type, reply, signed)
-        xml = Requests.unpack(payload(reply, "eventoXmlGZipB64")) if reply.success?
+        xml = Requests.unpack(require_field(reply, "eventoXmlGZipB64")) if reply.success?
         EventResult.new(key: key, type: type, http_status: reply.status, errors: Message.list(reply.json, "erros", "erro"),
           request_xml: signed, event_xml: xml)
       end
@@ -366,12 +353,6 @@ module DfeRb
             generated_at: entry["DataHoraGeracao"]
           )
         end
-      end
-
-      # The event's time in the offset of the state of the note's issuing city.
-      def event_time(key)
-        state = States::CODES.key(key[0, 2].to_i)
-        state ? States.now(state, @clock) : @clock.now.getlocal(States::DEFAULT_UTC_OFFSET)
       end
 
       def validate(document, rules:)
@@ -388,8 +369,6 @@ module DfeRb
           "but this client talks to #{environment} (E0006)"]
       end
 
-      # The certificate must be valid and belong to the DPS's issuer: the same CNPJ root, or
-      # the same CPF (E0718). One that names no one is left for the Sefin to judge.
       def check_certificate(document)
         now = @clock.now
         problems = []
@@ -405,8 +384,6 @@ module DfeRb
         raise ValidationError, problems unless problems.empty?
       end
 
-      # Whom a certificate names against the DPS's issuer: the same CNPJ root, or the same
-      # CPF. One that names no one is left for the Sefin to judge.
       def owner_problem(what, holder_cnpj, holder_cpf, document)
         cnpj = document.issuer_cnpj
         cpf = document.issuer_cpf

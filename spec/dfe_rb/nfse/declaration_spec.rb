@@ -12,10 +12,10 @@ RSpec.describe DfeRb::Nfse::Declaration do
   end
 
   it "derives the Id, the environment, the dates, the series and the issuer type" do
-    expect(dps.id).to eq("DPS#{NfseHelpers::CITY}2#{NfseHelpers::PROVIDER}00001000000000000001")
+    expect(dps.id).to eq("DPS#{NfseHelpers::CAMPO_GRANDE}2#{NfseHelpers::PROVIDER}00001000000000000001")
     expect(xml.at_xpath("/DPS/infDPS/@Id").value).to eq(dps.id)
     expect(at("tpAmb")).to eq("2")
-    expect(at("dhEmi")).to eq("2026-11-18T10:30:00-04:00") # Campo Grande's offset
+    expect(at("dhEmi")).to eq("2026-11-18T10:30:00-04:00")
     expect(at("dCompet")).to eq("2026-11-18")
     expect(at("serie")).to eq("1")
     expect(at("tpEmit")).to eq("1")
@@ -32,11 +32,11 @@ RSpec.describe DfeRb::Nfse::Declaration do
   end
 
   it "fills the groups by their English names, through the levels it flattens" do
-    expect(at("cLocEmi")).to eq(NfseHelpers::CITY)
+    expect(at("cLocEmi")).to eq(NfseHelpers::CAMPO_GRANDE)
     expect(at("prest/regTrib/opSimpNac")).to eq("3")
     expect(at("prest/regTrib/regApTribSN")).to eq("1")
     expect(at("toma/end/endNac/CEP")).to eq("79002000")
-    expect(at("serv/locPrest/cLocPrestacao")).to eq(NfseHelpers::CITY)
+    expect(at("serv/locPrest/cLocPrestacao")).to eq(NfseHelpers::CAMPO_GRANDE)
     expect(at("serv/cServ/cTribNac")).to eq("010101")
     expect(at("valores/vServPrest/vServ")).to eq("1000.00")
     expect(at("valores/trib/tribMun/tribISSQN")).to eq("1")
@@ -52,7 +52,7 @@ RSpec.describe DfeRb::Nfse::Declaration do
     end
     document = Nokogiri::XML(declaration.to_xml).tap(&:remove_namespaces!)
 
-    expect(document.at_xpath("//cLocEmi").text).to eq(NfseHelpers::CITY)
+    expect(document.at_xpath("//cLocEmi").text).to eq(NfseHelpers::CAMPO_GRANDE)
     expect(document.at_xpath("//toma/CPF").text).to eq("52998224725")
     expect(document.at_xpath("//toma/CNPJ")).to be_nil
   end

@@ -18,7 +18,6 @@ module DfeRb
         issued_on: "dtEmiDoc", service_date: "dtCompDoc"
       }.freeze
 
-      # Per element tag. "infDPS" is the declaration itself.
       FIELDS = {
         "infDPS" => {
           environment: "tpAmb", issued_at: "dhEmi", software_version: "verAplic", series: "serie", number: "nDPS",
@@ -113,15 +112,12 @@ module DfeRb
 
       module_function
 
-      # snake_case form of an official tag: "cTribNac" => "c_trib_nac".
       def snake(tag)
         tag.gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
       end
 
-      # English name => tag table for an element tag.
       def table_for(tag) = FIELDS[tag] || {}
 
-      # The coded value for a friendly symbol on the field `tag`.
       def enum_value(tag, symbol)
         table = ENUMS[tag]
         return symbol.to_s unless table

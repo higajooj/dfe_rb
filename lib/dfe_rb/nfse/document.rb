@@ -1,6 +1,5 @@
 module DfeRb
   module Nfse
-    # A <DPS> handed in as XML (DfeRb::Document).
     class Document < DfeRb::Document
       ROOT = "DPS"
       INFO = "infDPS"
@@ -8,7 +7,6 @@ module DfeRb
       ID_PREFIX = "DPS"
       ISSUERS = {"1" => "prest", "2" => "toma", "3" => "interm"}.freeze
 
-      # The DPS Id ("DPS" + 42 characters), or nil.
       def id
         value = info&.[]("Id").to_s
         value if value.match?(/\ADPS[0-9]{8}[0-9A-Z]{14}[0-9]{20}\z/)
@@ -20,12 +18,10 @@ module DfeRb
 
       def layout_version = @root["versao"]
 
-      # The CNPJ or CPF of whom tpEmit names: the provider, the taker or the intermediary.
       def issuer_cnpj = issuer_text("CNPJ")
 
       def issuer_cpf = issuer_text("CPF")
 
-      # The X509 certificate inside the signature, or nil.
       def signer
         encoded = @root.at_xpath("ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", namespaces)&.text
         OpenSSL::X509::Certificate.new(Base64.decode64(encoded)) if encoded
@@ -33,7 +29,6 @@ module DfeRb
         nil
       end
 
-      # infDPS as the tag-keyed Hash the Validator reads, following `layout`'s schema.
       def to_infdps(layout) = tree(layout.dps.find("infDPS"))
 
       private

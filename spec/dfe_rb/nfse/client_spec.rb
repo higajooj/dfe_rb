@@ -269,7 +269,7 @@ RSpec.describe DfeRb::Nfse::Client do
       transport.answer(:agreement, [200, {"parametrosConvenio" => {"aderenteAmbienteNacional" => 1, "aderenteEmissorNacional" => 1}, "mensagem" => "ok"}])
       transport.answer(:rates, [200, {"aliquotas" => {"01.01.01.000" => [{"Incidencia" => "SIM", "Aliq" => 2.0, "DtIni" => "2025-12-19T00:00:00", "DtFim" => nil}]}}])
 
-      expect(client.agreement).to have_attributes(found?: true, national_issuer?: true, national_data?: true, city: NfseHelpers::CITY)
+      expect(client.agreement).to have_attributes(found?: true, national_issuer?: true, national_data?: true, city: NfseHelpers::CAMPO_GRANDE)
       rates = client.rates(["Goiania", "GO"], service: "01.01.01", on: Date.new(2026, 11, 18))
 
       expect(transport.calls_to(:rates).first.url).to eq("#{adn}/parametrizacao/5208707/01.01.01.000/2026-11-18/aliquota")

@@ -12,16 +12,13 @@ module DfeRb
     # Anything responding to #request(method, url, body) and returning a Reply can stand in
     # for it (tests, proxies, retries).
     class Transport
-      include MutualTls
-
       # status: the HTTP status. json: the parsed body (a Hash), or nil. body: the raw text.
       Reply = Data.define(:status, :json, :body) do
         def success? = status.between?(200, 299)
       end
 
       METHODS = {get: Net::HTTP::Get, post: Net::HTTP::Post, head: Net::HTTP::Head}.freeze
-      # GZip payloads blanked out of logged bodies.
-      LOGGED_PAYLOADS = /("(?:dpsXmlGZipB64|nfseXmlGZipB64|pedidoRegistroEventoXmlGZipB64|eventoXmlGZipB64|ArquivoXml|xmlGZipB64)"\s*:\s*")[^"]*(")/
+      FILTERED_PAYLOADS = /("(?:dpsXmlGZipB64|nfseXmlGZipB64|pedidoRegistroEventoXmlGZipB64|eventoXmlGZipB64|ArquivoXml|xmlGZipB64)"\s*:\s*")[^"]*(")/
 
       attr_reader :certificate, :timeouts
 
@@ -29,7 +26,7 @@ module DfeRb
         @certificate = certificate
         @timeouts = DfeRb::Transport::DEFAULT_TIMEOUTS.merge(timeouts)
         @logger = logger
-        @ssl_options = ssl_options
+        @connection = MutualTls.new(certificate: certificate, timeouts: @timeouts, ssl_options: ssl_options)
       end
 
       # `body` (a Hash) goes as JSON.
@@ -44,7 +41,7 @@ module DfeRb
         log(:info) { "NFS-e #{method.upcase} #{url}" }
         log(:debug) { "request: #{filter(http_request.body)}" } if body
 
-        response = connect(uri) { |http| http.request(http_request) }
+        response = @connection.start(uri) { |http| http.request(http_request) }
         text = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
         log(:debug) { "response #{response.code}: #{filter(text)}" }
         reply(uri, response.code.to_i, text, method)
@@ -67,7 +64,12 @@ module DfeRb
         nil
       end
 
-      def filter(text) = text.to_s.gsub(LOGGED_PAYLOADS, '\1[FILTERED]\2')
+      def log(level, &block)
+        target = @logger || DfeRb.logger
+        target&.public_send(level, &block)
+      end
+
+      def filter(text) = text.to_s.gsub(FILTERED_PAYLOADS, '\1[FILTERED]\2')
     end
   end
 end

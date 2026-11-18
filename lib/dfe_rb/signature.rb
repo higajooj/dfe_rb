@@ -10,10 +10,11 @@ module DfeRb
   module Signature
     DS = "http://www.w3.org/2000/09/xmldsig#"
     C14N = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
-    # Digest => [SignatureMethod, DigestMethod].
+    Algorithm = Data.define(:signature_method, :digest_method)
     ALGORITHMS = {
-      sha1: ["#{DS}rsa-sha1", "#{DS}sha1"],
-      sha256: ["http://www.w3.org/2001/04/xmldsig-more#rsa-sha256", "http://www.w3.org/2001/04/xmlenc#sha256"]
+      sha1: Algorithm.new(signature_method: "#{DS}rsa-sha1", digest_method: "#{DS}sha1"),
+      sha256: Algorithm.new(signature_method: "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+        digest_method: "http://www.w3.org/2001/04/xmlenc#sha256")
     }.freeze
 
     module_function
@@ -24,7 +25,7 @@ module DfeRb
     #
     #   Signature.sign(xml, certificate, namespace: "http://www.portalfiscal.inf.br/mdfe", container: "MDFe", signed: "infMDFe")
     def sign(xml, certificate, namespace:, container:, signed:, digest: :sha1)
-      signature_method, digest_method = ALGORITHMS.fetch(digest)
+      algorithm = ALGORITHMS.fetch(digest)
       namespaces = {"doc" => namespace, "ds" => DS}
       document = Nokogiri::XML(xml.to_s)
       parent = document.at_xpath("/doc:#{container}", namespaces) or raise ArgumentError, "no <#{container}> element to sign"
@@ -34,9 +35,9 @@ module DfeRb
 
       signature = parent.add_child(
         %(<Signature xmlns="#{DS}"><SignedInfo><CanonicalizationMethod Algorithm="#{C14N}"/>) +
-        %(<SignatureMethod Algorithm="#{signature_method}"/><Reference URI="##{id}"><Transforms>) +
+        %(<SignatureMethod Algorithm="#{algorithm.signature_method}"/><Reference URI="##{id}"><Transforms>) +
         %(<Transform Algorithm="#{DS}enveloped-signature"/><Transform Algorithm="#{C14N}"/></Transforms>) +
-        %(<DigestMethod Algorithm="#{digest_method}"/><DigestValue>#{digest_of(target, digest)}</DigestValue></Reference></SignedInfo>) +
+        %(<DigestMethod Algorithm="#{algorithm.digest_method}"/><DigestValue>#{digest_of(target, digest)}</DigestValue></Reference></SignedInfo>) +
         %(<SignatureValue/><KeyInfo><X509Data><X509Certificate>#{certificate.base64}</X509Certificate></X509Data></KeyInfo></Signature>)
       ).first
       signed_info = signature.at_xpath("ds:SignedInfo", namespaces).canonicalize(Nokogiri::XML::XML_C14N_1_0)
@@ -61,10 +62,10 @@ module DfeRb
 
       target = document.at_xpath("//*[@Id='#{referenced}']") or return "referenced element #{referenced} not found"
 
-      digest = algorithm(signature.at_xpath("ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", namespaces)&.value, 1)
+      digest = by_digest_method(signature.at_xpath("ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", namespaces)&.value)
       return "unknown digest method" unless digest
       return "#{digest.to_s.upcase} is not a digest this document takes (#{digests.join(", ")})" unless digests.include?(digest)
-      return "the signature and digest methods differ" unless digest == algorithm(signature.at_xpath("ds:SignedInfo/ds:SignatureMethod/@Algorithm", namespaces)&.value, 0)
+      return "the signature and digest methods differ" unless digest == by_signature_method(signature.at_xpath("ds:SignedInfo/ds:SignatureMethod/@Algorithm", namespaces)&.value)
 
       expected = signature.at_xpath("ds:SignedInfo/ds:Reference/ds:DigestValue", namespaces).text.strip
       return "digest mismatch" unless digest_of(target, digest) == expected
@@ -83,7 +84,8 @@ module DfeRb
       Base64.strict_encode64(OpenSSL::Digest.new(digest.to_s.upcase).digest(node.canonicalize(Nokogiri::XML::XML_C14N_1_0)))
     end
 
-    # The ALGORITHMS key whose URI at `position` (0: signature, 1: digest) is `uri`.
-    def algorithm(uri, position) = ALGORITHMS.find { |_, uris| uris[position] == uri }&.first
+    def by_digest_method(uri) = ALGORITHMS.find { |_, algorithm| algorithm.digest_method == uri }&.first
+
+    def by_signature_method(uri) = ALGORITHMS.find { |_, algorithm| algorithm.signature_method == uri }&.first
   end
 end

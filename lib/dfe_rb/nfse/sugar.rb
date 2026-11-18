@@ -73,16 +73,12 @@ module DfeRb
       end
     end
 
-    # What the DPS layout says to the builder (DfeRb::Scope): its names, the levels it
-    # flattens and its conveniences.
     module Vocabulary
-      # Levels whose fields are reachable straight from their parent's scope.
       FLATTEN = {
         "infDPS" => %w[valores], "prest" => %w[regTrib], "end" => %w[endNac], "serv" => %w[locPrest cServ infoCompl],
         "valores" => %w[vServPrest vDescCondIncond trib], "trib" => %w[tribMun tribFed gIBSCBS], "IBSCBS" => %w[valores]
       }.freeze
 
-      # Positional shorthands for groups: `replaces "3550...", reason: :other`.
       POSITIONAL = {"subst" => %i[key]}.freeze
 
       module_function

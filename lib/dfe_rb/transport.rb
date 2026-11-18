@@ -3,21 +3,18 @@ require "openssl"
 require "nokogiri"
 
 module DfeRb
-  # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
-  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>, unless the endpoint names its
-  # own request and result tags (the national distribution, the other DF-e). It fetches no WSDL.
-  #
-  # Anything responding to #post(endpoint, xml) can stand in for it (tests, proxies, retries).
   # The HTTPS connection every DF-e service takes: mutual TLS with the certificate, TLS 1.2
-  # or later, the ICP-Brasil roots, and connection failures as TransportError. A class that
-  # includes it has #certificate, #timeouts, @ssl_options and @logger.
-  module MutualTls
-    private
+  # or later and the given trust store. What goes wrong on the wire becomes a TransportError
+  # saying whether the server may have acted on the request.
+  class MutualTls
+    def initialize(certificate:, timeouts:, ssl_options:)
+      @certificate = certificate
+      @timeouts = timeouts
+      @ssl_options = ssl_options
+    end
 
-    # Opens the connection to `uri` and yields it; maps what goes wrong on the wire to
-    # TransportError, saying whether the server may have acted on the request.
-    def connect(uri, &block)
-      Net::HTTP.start(uri.host, uri.port, **http_options, &block)
+    def start(uri, &block)
+      Net::HTTP.start(uri.host, uri.port, **options, &block)
     rescue Net::OpenTimeout, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError => e
       raise TransportError.new("could not connect to #{uri.host}: #{e.message}", maybe_processed: false)
     rescue OpenSSL::SSL::SSLError => e
@@ -26,34 +23,34 @@ module DfeRb
       raise TransportError.new("#{e.class.name.split("::").last} talking to #{uri.host}: #{e.message}", maybe_processed: true)
     end
 
-    def http_options
+    private
+
+    def options
       {
         use_ssl: true,
-        cert: certificate.certificate,
-        key: certificate.private_key,
-        extra_chain_cert: certificate.chain.empty? ? nil : certificate.chain,
+        cert: @certificate.certificate,
+        key: @certificate.private_key,
+        extra_chain_cert: @certificate.chain.empty? ? nil : @certificate.chain,
         cert_store: @ssl_options[:ssl_cert_store],
         verify_mode: (@ssl_options[:ssl_verify_mode] == :peer) ? OpenSSL::SSL::VERIFY_PEER : OpenSSL::SSL::VERIFY_NONE,
         min_version: OpenSSL::SSL::TLS1_2_VERSION,
-        open_timeout: timeouts[:open],
-        write_timeout: timeouts[:write],
-        read_timeout: timeouts[:read]
+        open_timeout: @timeouts[:open],
+        write_timeout: @timeouts[:write],
+        read_timeout: @timeouts[:read]
       }
-    end
-
-    def log(level, &block)
-      target = @logger || DfeRb.logger
-      target&.public_send(level, &block)
     end
   end
 
+  # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
+  # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>, unless the endpoint names its
+  # own request and result tags (the national distribution, the other DF-e). It fetches no WSDL.
+  #
+  # Anything responding to #post(endpoint, xml) can stand in for it (tests, proxies, retries).
   class Transport
     DEFAULT_TIMEOUTS = {open: 10, write: 30, read: 60}.freeze
     SOAP_ENVELOPE_NAMESPACE = "http://www.w3.org/2003/05/soap-envelope"
     # The element the payload goes in, for an endpoint that names none.
     REQUEST_TAG = "nfeDadosMsg"
-
-    include MutualTls
 
     attr_reader :certificate, :timeouts
 
@@ -61,7 +58,7 @@ module DfeRb
       @certificate = certificate
       @timeouts = DEFAULT_TIMEOUTS.merge(timeouts)
       @logger = logger
-      @ssl_options = ssl_options
+      @connection = MutualTls.new(certificate: certificate, timeouts: @timeouts, ssl_options: ssl_options)
     end
 
     # endpoint: anything with #url, #namespace and #operation (see Nfe::Endpoints), and
@@ -130,7 +127,7 @@ module DfeRb
       request["Content-Type"] = %(application/soap+xml; charset=utf-8; action="#{endpoint.namespace}/#{endpoint.operation}")
       request.body = envelope
 
-      response = connect(uri) { |http| http.request(request) }
+      response = @connection.start(uri) { |http| http.request(request) }
       body = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
 
       # SOAP faults come with HTTP 500 and are reported by extract_result. A 404 is the service
@@ -141,6 +138,11 @@ module DfeRb
       end
 
       body
+    end
+
+    def log(level, &block)
+      target = @logger || DfeRb.logger
+      target&.public_send(level, &block)
     end
   end
 end

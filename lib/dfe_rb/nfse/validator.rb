@@ -14,21 +14,13 @@ module DfeRb
       INTERMEDIARY = "3"
       MEI = "2"
       ME_EPP = "3"
-      NOT_TAXABLE = %w[2 3 4].freeze # tribISSQN: immunity, export, not levied
-      # Series of a DPS sent by the issuer's own application (E0010).
+      NOT_TAXABLE = Names::ENUMS["tribISSQN"].values_at(:immune, :export, :not_levied).map(&:to_s).freeze
       OWN_APPLICATION_SERIES = 1..49_999
-      # The anchored form of the production package's TSSerieDPS (see Layout::LITERAL_ANCHORS).
       SERIES = Layout::SERIES
-      # Construction services whose DPS carries the obra group, and no others but 99.01.01,
-      # which may (E0370, E0372).
       CONSTRUCTION = %w[070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901 141403 141404].freeze
       CONSTRUCTION_OPTIONAL = "990101"
-      # The construction services whose IBS/CBS group takes no imovel (E0931).
       CIVIL_CONSTRUCTION = %w[070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901].freeze
-      # The operation indicators (cIndOp) of real estate, whose IBS/CBS group carries imovel
-      # and which no other takes (E0932, E0928), by layout.
       REAL_ESTATE_OPERATIONS = {v1_01: %w[020101 020201 020301], nt009: %w[020101 020201 020202 020301 020401]}.freeze
-      # Services with a tpOper (E0903, E0904): items 25.05, 15.09, 17.12 and 10.05.
       OPERATION_TYPE_SERVICES = %w[2505 1509 1712 1005].freeze
       IBS_CBS_SINCE = Date.new(2026, 1, 1)
       # NT 009 makes the IBS/CBS group mandatory from this competence (E0855); its layout's
@@ -151,8 +143,6 @@ module DfeRb
         city(data.dig("end", "endNac", "cMun"), "#{path}/end/endNac/cMun", city) if data.dig("end", "endNac")
       end
 
-      # What the issuer leaves out of its own group: the Sefin reads its name and address
-      # from the registers.
       def issuer_party
         if issuer_type == PROVIDER
           add("prest/NIF: the provider issuing the DPS is identified by CNPJ or CPF (E0112)") if provider["NIF"]

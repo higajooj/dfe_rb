@@ -29,7 +29,7 @@ module DfeRb
         @layout = layout ? Layouts.fetch(layout) : Layouts.default(@environment)
         @clock = clock
         @infdps = {}
-        @memo = Resolver::Memo.new
+        @emission = Resolver::Emission.new
         scope.city(*Array(city)) if city
         given = (attributes || {}).merge(fields)
         scope.__assign(given) unless given.empty?
@@ -71,7 +71,7 @@ module DfeRb
       private
 
       def resolve
-        resolver = Resolver.new(environment: environment, layout: @layout, memo: @memo, clock: @clock)
+        resolver = Resolver.new(environment: environment, layout: @layout, emission: @emission, clock: @clock)
         tree = resolver.call(@infdps)
         [tree, resolver.issues]
       end

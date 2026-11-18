@@ -12,7 +12,6 @@ module DfeRb
 
     FRACTION = /\\\.(?:\[0-9\]|\[1-9\]|0)\{(\d+)(?:,(\d+))?\}/
     FIXED_DIGITS = /\A\[0-9\]\{(\d+)\}\z/
-    # Date-only types written from a Time: TData (SEFAZ) and TSData (NFS-e).
     DATE_TYPES = %w[TData TSData].freeze
 
     module_function
@@ -83,7 +82,6 @@ module DfeRb
       text.scrub.unicode_normalize(:nfc).gsub(/[[:cntrl:]]+/, " ").strip
     end
 
-    # TDec (SEFAZ) and TSDec (NFS-e) types.
     def decimal_type?(type) = type&.name.to_s.match?(/\ATS?Dec/)
 
     def parse_decimal(value)
