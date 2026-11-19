@@ -18,7 +18,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), the CT-e, the DAMDFE and the DANFSe, municipal NFS-e systems outside the Sistema Nacional, and the MDF-e's ANTT payment events.
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.21.0"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.22.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.
@@ -683,6 +683,19 @@ if result.issued?
 else
   result.errors.each { |error| puts "#{error.code} #{error.description}" }      # E0312 O código de tributação...
 end
+```
+
+A note read back (`result.note`, `consult(key).note`, or `DfeRb::Nfse::Note.new(xml)` for one the ADN distributed to you as taker) gives its parties, service, dates and values, what was withheld as BigDecimal, and the DPS inside:
+
+```ruby
+note = DfeRb::Nfse::Note.new(xml)
+note.provider.tax_id; note.provider.name; note.taker&.name          # Party: tax_id, nif, name, municipal_registration, city_code, email
+note.service.national_code; note.service.description                 # Service: national_code, municipal_code, description, nbs, city_code, national_name
+note.issued_at; note.competence_on; note.series; note.dps_number
+note.service_amount; note.unconditional_discount; note.conditional_discount
+note.iss_withholding                 # :none, :taker or :intermediary (tpRetISSQN)
+note.withheld.irrf; note.withheld.to_h   # iss, social_security (vRetCP), irrf, csll, and pis and cofins when tpRetPisCofins says so
+note.total_withheld                  # vTotalRet, else the sum
 ```
 
 `issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx, a success without a readable NFS-e) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another. A note is this DPS's when its key is the one answered, its DPS has this Id, and the digest of its `infDPS`, computed by the gem, is the one signed.

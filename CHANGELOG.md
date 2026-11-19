@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.0
+
+- `Nfse::Note` reads what an issuer and a taker keep of a note: `provider` (from `emit`), `taker` and `intermediary` (`Nfse::Party`: tax_id, nif, name, municipal_registration, city_code, email), `service` (`Nfse::Service`: cTribNac, cTribMun, description, NBS, place of service and the Sefin's `xTribNac`), `issued_at`, `competence_on`, `series`, `dps_number`, `environment`, `incidence_city_code`, `service_amount` and the discounts as BigDecimal, `iss_withholding` (`:none`, `:taker`, `:intermediary`) and `withheld` (`Nfse::Withholdings`: the ISSQN when withheld, vRetCP, vRetIRRF, vRetCSLL, and vPis and vCofins when tpRetPisCofins says they were withheld), with `total_withheld` (vTotalRet, else the sum).
+
 ## 0.21.0
 
 - **NFS-e of the Padrão Nacional**, through the Sistema Nacional NFS-e (issue 27). `DfeRb::Nfse::Client.new(certificate:, city:)` builds the DPS (`build_declaration`, English names over the official XSD, every field also by tag), validates and signs it (RSA-SHA256), and sends it to the Sefin Nacional (`issue`, `issue!`, POST /nfse, JSON over mutual TLS with the XML in GZip and Base64), which answers with the NFS-e (`IssueResult#nfse_xml`, `#note`). A lost answer, a success without a readable NFS-e, or E0014 is resolved by looking the DPS up (GET /dps/{id}) and checking the note found: its key, its DPS's Id and the digest of its `infDPS`, computed (`recovered?`, `Conflict`). `consult`, `find`, `issued?`, `cancel` (101101), `request_cancellation` (101103), `confirm` and `reject` as provider, taker or intermediary, `event` and `events`; the ADN's `distribute` by NSU, and the municipal parameters `agreement` and `rates`.
