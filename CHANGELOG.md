@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0
 
 - `Nfse::Note` reads what an issuer and a taker keep of a note: `provider` (from `emit`), `taker` and `intermediary` (`Nfse::Party`: tax_id, nif, name, municipal_registration, city_code, email), `service` (`Nfse::Service`: cTribNac, cTribMun, description, NBS, place of service and the Sefin's `xTribNac`), `issued_at`, `competence_on`, `series`, `dps_number`, `environment`, `incidence_city_code`, `service_amount` and the discounts as BigDecimal, `iss_withholding` (`:none`, `:taker`, `:intermediary`) and `withheld` (`Nfse::Withholdings`: the ISSQN when withheld, vRetCP, vRetIRRF, vRetCSLL, and vPis and vCofins when tpRetPisCofins says they were withheld), with `total_withheld` (vTotalRet, else the sum).
 
