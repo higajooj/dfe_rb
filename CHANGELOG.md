@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.0
+
+- `Nfse::Note#signature_problem` (and `signed?`) checks the Sefin's signature over `infNFSe`, the one referencing `NFS` + the key, apart from the DPS's inside it: nil when its digest and value check out with the certificate it carries, else why not. `DfeRb::Signature.verify` takes `of:`, the Id whose signature to check in a document signed more than once; without it, the first signature is checked, as before.
+
 ## 0.22.0
 
 - `Nfse::Note` reads what an issuer and a taker keep of a note: `provider` (from `emit`), `taker` and `intermediary` (`Nfse::Party`: tax_id, nif, name, municipal_registration, city_code, email), `service` (`Nfse::Service`: cTribNac, cTribMun, description, NBS, place of service and the Sefin's `xTribNac`), `issued_at`, `competence_on`, `series`, `dps_number`, `environment`, `incidence_city_code`, `service_amount` and the discounts as BigDecimal, `iss_withholding` (`:none`, `:taker`, `:intermediary`) and `withheld` (`Nfse::Withholdings`: the ISSQN when withheld, vRetCP, vRetIRRF, vRetCSLL, and vPis and vCofins when tpRetPisCofins says they were withheld), with `total_withheld` (vTotalRet, else the sum).

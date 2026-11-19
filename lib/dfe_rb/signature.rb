@@ -50,12 +50,18 @@ module DfeRb
     # Checks the signature inside `xml` (a signed document, event or request): digest of the
     # referenced element and the signature over SignedInfo with the embedded certificate.
     # `digests` are the ALGORITHMS the document's layout allows (SHA-1 for the SEFAZ
-    # documents), and `id`, when given, the Id the signature must reference. Returns true,
-    # or the reason it fails.
-    def verify(xml, digests: %i[sha1], id: nil)
+    # documents), and `id`, when given, the Id the signature must reference. A document
+    # signed twice (an NFS-e: its DPS, then the Sefin) has the first checked, or the one
+    # referencing `of`. Returns true, or the reason it fails.
+    def verify(xml, digests: %i[sha1], id: nil, of: nil)
       namespaces = {"ds" => DS}
       document = Nokogiri::XML(xml)
-      signature = document.at_xpath("//ds:Signature", namespaces) or return "no signature"
+      signature = if of
+        document.xpath("//ds:Signature", namespaces).find { |node| node.at_xpath("ds:SignedInfo/ds:Reference/@URI", namespaces)&.value == "##{of}" } or
+          return "no signature references #{of}"
+      else
+        document.at_xpath("//ds:Signature", namespaces) or return "no signature"
+      end
       reference = signature.at_xpath("ds:SignedInfo/ds:Reference", namespaces)
       referenced = reference["URI"].to_s.delete_prefix("#")
       return "the signature references #{referenced}, not #{id}" if id && referenced != id

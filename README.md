@@ -18,7 +18,7 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), the CT-e, the DAMDFE and the DANFSe, municipal NFS-e systems outside the Sistema Nacional, and the MDF-e's ANTT payment events.
 
 ```ruby
-gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.22.0"
+gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.23.0"
 ```
 
 Ruby 3.3+. Official terms are kept where there is no good translation (*homologação*, *chave de acesso*, *inutilização*, *protocolo*); the field names below are English, and every field is also reachable by its official tag name.
@@ -696,7 +696,10 @@ note.service_amount; note.unconditional_discount; note.conditional_discount
 note.iss_withholding                 # :none, :taker or :intermediary (tpRetISSQN)
 note.withheld.irrf; note.withheld.to_h   # iss, social_security (vRetCP), irrf, csll, and pis and cofins when tpRetPisCofins says so
 note.total_withheld                  # vTotalRet, else the sum
+note.signature_problem               # nil when the Sefin's signature over infNFSe checks out, else why not
 ```
+
+A note that comes as a file, from anyone, should be taken only when `signature_problem` is nil: it checks the Sefin's signature (the one referencing `NFS` + the key, not the DPS's inside), its digest and its value with the certificate it carries. `DfeRb::Signature.verify(xml, of: id)` checks the signature of a given Id in any document signed more than once.
 
 `issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx, a success without a readable NFS-e) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another. A note is this DPS's when its key is the one answered, its DPS has this Id, and the digest of its `infDPS`, computed by the gem, is the one signed.
 

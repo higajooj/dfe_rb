@@ -121,6 +121,20 @@ module DfeRb
 
       def filename = "#{key}-nfse.xml"
 
+      # Whether the Sefin's signature over infNFSe checks out (its digest and value, with
+      # the certificate it carries): true, or the reason it doesn't. A note that comes as
+      # a file, from anyone, is taken only so.
+      def signature_problem
+        return "the note has no access key" unless key
+
+        result = DfeRb::Signature.verify(xml, digests: %i[sha256 sha1], of: "NFS#{key}")
+        (result == true) ? nil : result
+      rescue ArgumentError, NoMethodError, OpenSSL::OpenSSLError => e
+        e.message
+      end
+
+      def signed? = signature_problem.nil?
+
       # The provider, as the Sefin wrote it from the registers (emit).
       def provider
         party("NFSe/infNFSe/emit", city: "enderNac/cMun")
