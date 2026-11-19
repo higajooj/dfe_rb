@@ -93,3 +93,27 @@ RSpec.describe DfeRb::Nfse::Note do
     expect(described_class.new(received_xml(federal: false, iss_withholding: "1")).withheld.any?).to be(false)
   end
 end
+
+RSpec.describe DfeRb::Nfse::Note, "signature" do
+  let(:client) { nfse_client }
+  let(:signed) { client.sign(service_declaration(client)) }
+  let(:sefin) { nfse_certificate(cnpj: "05621288000140") }
+
+  def sefin_signed(xml)
+    DfeRb::Signature.sign(xml, sefin, namespace: DfeRb::Nfse::NAMESPACE, container: "NFSe", signed: "infNFSe", digest: :sha256)
+  end
+
+  it "checks the Sefin's signature over infNFSe, not the DPS's" do
+    note = described_class.new(sefin_signed(nfse_xml(signed.xml)))
+
+    expect(note.signature_problem).to be_nil
+    expect(note).to be_signed
+  end
+
+  it "tells an unsigned or tampered note" do
+    expect(described_class.new(nfse_xml(signed.xml)).signature_problem).to eq("no signature references NFS#{nfse_key}")
+
+    tampered = sefin_signed(nfse_xml(signed.xml)).sub("<vISSQN>20.00</vISSQN>", "<vISSQN>2.00</vISSQN>")
+    expect(described_class.new(tampered).signature_problem).to eq("digest mismatch")
+  end
+end
