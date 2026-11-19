@@ -1,3 +1,5 @@
+require "bigdecimal"
+
 module DfeRb
   module Nfse
     class Document < DfeRb::Document
@@ -39,10 +41,35 @@ module DfeRb
       end
     end
 
-    # An NFS-e the Sefin Nacional generated (<NFSe>), read for what an issuer keeps: its
-    # access key and number, the processing time and status, the values it computed, and the
-    # DPS it carries.
+    # A party of a note: the provider (emit), the taker or the intermediary. `tax_id` is the
+    # CNPJ or CPF, nil for a foreigner known by `nif`.
+    Party = Data.define(:tax_id, :nif, :name, :municipal_registration, :city_code, :email)
+
+    # The service a note is for (serv/cServ, serv/locPrest) and the national code's name
+    # the Sefin wrote (xTribNac).
+    Service = Data.define(:national_code, :municipal_code, :description, :nbs, :city_code, :national_name)
+
+    # What the taker (or the intermediary) withheld of each tax, as BigDecimal, zero when
+    # nothing: the ISSQN, the social security (vRetCP, INSS), the IRRF, the CSLL, and the PIS
+    # and the COFINS when tpRetPisCofins says they were withheld.
+    Withholdings = Data.define(:iss, :social_security, :irrf, :csll, :pis, :cofins) do
+      def total = to_h.values.sum
+
+      def any? = total.positive?
+    end
+
+    # An NFS-e the Sefin Nacional generated (<NFSe>), read for what its issuer and its taker
+    # keep: its access key and number, the processing time and status, its parties, service
+    # and values, what was withheld, and the DPS it carries.
     class Note
+      # tpRetISSQN.
+      ISS_WITHHOLDING = {"1" => :none, "2" => :taker, "3" => :intermediary}.freeze
+      # The tpRetPisCofins codes under which each tax was withheld (Anexo I; the CSLL's own
+      # amount, vRetCSLL, is given apart).
+      PIS_WITHHELD = %w[1 3 4 5 9].freeze
+      COFINS_WITHHELD = %w[1 3 4 6 7].freeze
+      DPS = "NFSe/infNFSe/DPS/infDPS"
+
       attr_reader :xml
 
       def initialize(xml)
@@ -94,7 +121,85 @@ module DfeRb
 
       def filename = "#{key}-nfse.xml"
 
+      # The provider, as the Sefin wrote it from the registers (emit).
+      def provider
+        party("NFSe/infNFSe/emit", city: "enderNac/cMun")
+      end
+
+      # The taker named in the DPS, or nil.
+      def taker = party("#{DPS}/toma")
+
+      def intermediary = party("#{DPS}/interm")
+
+      # When the DPS was issued (dhEmi) and the competence it declares (dCompet).
+      def issued_at = time(text("#{DPS}/dhEmi"))
+
+      def competence_on = date(text("#{DPS}/dCompet"))
+
+      def series = text("#{DPS}/serie")
+
+      def dps_number = text("#{DPS}/nDPS")
+
+      # 1: production, 2: produção restrita (the DPS's tpAmb).
+      def environment = text("#{DPS}/tpAmb")
+
+      def service
+        Service.new(
+          national_code: text("#{DPS}/serv/cServ/cTribNac"), municipal_code: text("#{DPS}/serv/cServ/cTribMun"),
+          description: text("#{DPS}/serv/cServ/xDescServ"), nbs: text("#{DPS}/serv/cServ/cNBS"),
+          city_code: text("#{DPS}/serv/locPrest/cLocPrestacao"), national_name: text("NFSe/infNFSe/xTribNac")
+        )
+      end
+
+      # Where the ISSQN is due (cLocIncid), when it is.
+      def incidence_city_code = text("NFSe/infNFSe/cLocIncid")
+
+      # The service's value and its discounts, as BigDecimal (zero when absent).
+      def service_amount = decimal("#{DPS}/valores/vServPrest/vServ")
+
+      def unconditional_discount = decimal("#{DPS}/valores/vDescCondIncond/vDescIncond")
+
+      def conditional_discount = decimal("#{DPS}/valores/vDescCondIncond/vDescCond")
+
+      # Who withholds the ISSQN: :none, :taker or :intermediary.
+      def iss_withholding = ISS_WITHHOLDING[text("#{DPS}/valores/trib/tribMun/tpRetISSQN")]
+
+      def iss_withheld? = %i[taker intermediary].include?(iss_withholding)
+
+      def withheld
+        federal = "#{DPS}/valores/trib/tribFed"
+        pis_cofins = text("#{federal}/piscofins/tpRetPisCofins")
+        Withholdings.new(
+          iss: iss_withheld? ? decimal("NFSe/infNFSe/valores/vISSQN") : BigDecimal(0),
+          social_security: decimal("#{federal}/vRetCP"), irrf: decimal("#{federal}/vRetIRRF"), csll: decimal("#{federal}/vRetCSLL"),
+          pis: PIS_WITHHELD.include?(pis_cofins) ? decimal("#{federal}/piscofins/vPis") : BigDecimal(0),
+          cofins: COFINS_WITHHELD.include?(pis_cofins) ? decimal("#{federal}/piscofins/vCofins") : BigDecimal(0)
+        )
+      end
+
+      # vTotalRet as the Sefin computed it, else the sum of what was withheld.
+      def total_withheld
+        stated = text("NFSe/infNFSe/valores/vTotalRet")
+        (stated.nil? || stated.empty?) ? withheld.total : BigDecimal(stated)
+      end
+
       private
+
+      def party(path, city: "end/endNac/cMun")
+        return unless @plain.at_xpath("/#{path}")
+
+        Party.new(tax_id: text("#{path}/CNPJ") || text("#{path}/CPF"), nif: text("#{path}/NIF"), name: text("#{path}/xNome"),
+          municipal_registration: text("#{path}/IM"), city_code: text("#{path}/#{city}"), email: text("#{path}/email"))
+      end
+
+      def decimal(path)
+        value = text(path)
+        (value.nil? || value.empty?) ? BigDecimal(0) : BigDecimal(value)
+      end
+
+      def time(value) = value && Time.iso8601(value)
+
+      def date(value) = value && Date.iso8601(value)
 
       def text(path)
         attribute = path.split("/@", 2)

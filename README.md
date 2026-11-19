@@ -685,6 +685,19 @@ else
 end
 ```
 
+A note read back (`result.note`, `consult(key).note`, or `DfeRb::Nfse::Note.new(xml)` for one the ADN distributed to you as taker) gives its parties, service, dates and values, what was withheld as BigDecimal, and the DPS inside:
+
+```ruby
+note = DfeRb::Nfse::Note.new(xml)
+note.provider.tax_id; note.provider.name; note.taker&.name          # Party: tax_id, nif, name, municipal_registration, city_code, email
+note.service.national_code; note.service.description                 # Service: national_code, municipal_code, description, nbs, city_code, national_name
+note.issued_at; note.competence_on; note.series; note.dps_number
+note.service_amount; note.unconditional_discount; note.conditional_discount
+note.iss_withholding                 # :none, :taker or :intermediary (tpRetISSQN)
+note.withheld.irrf; note.withheld.to_h   # iss, social_security (vRetCP), irrf, csll, and pis and cofins when tpRetPisCofins says so
+note.total_withheld                  # vTotalRet, else the sum
+```
+
 `issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx, a success without a readable NFS-e) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another. A note is this DPS's when its key is the one answered, its DPS has this Id, and the digest of its `infDPS`, computed by the gem, is the one signed.
 
 `sign` checks every input against the client's layout: a `Declaration`, raw XML (which also gets the business rules) and a `SignedDeclaration` restored from storage. A DPS signed elsewhere must be signed by its issuer (E0718), in RSA-SHA256 or RSA-SHA1.
