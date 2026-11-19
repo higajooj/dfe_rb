@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0
 
 - **NFS-e of the Padrão Nacional**, through the Sistema Nacional NFS-e (issue 27). `DfeRb::Nfse::Client.new(certificate:, city:)` builds the DPS (`build_declaration`, English names over the official XSD, every field also by tag), validates and signs it (RSA-SHA256), and sends it to the Sefin Nacional (`issue`, `issue!`, POST /nfse, JSON over mutual TLS with the XML in GZip and Base64), which answers with the NFS-e (`IssueResult#nfse_xml`, `#note`). A lost answer, a success without a readable NFS-e, or E0014 is resolved by looking the DPS up (GET /dps/{id}) and checking the note found: its key, its DPS's Id and the digest of its `infDPS`, computed (`recovered?`, `Conflict`). `consult`, `find`, `issued?`, `cancel` (101101), `request_cancellation` (101103), `confirm` and `reject` as provider, taker or intermediary, `event` and `events`; the ADN's `distribute` by NSU, and the municipal parameters `agreement` and `rates`.
 - Two layouts, both numbered 1.01 (`Nfse::Layouts`): `:v1_01`, the package of 09/02/2026 that production validates, and `:nt009`, NT 009's package of 20/10/2026 that produção restrita runs and that refuses the other (E1235, seen live). The client builds the one of its environment; `layout:` picks another.

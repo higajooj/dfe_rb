@@ -18,7 +18,7 @@
 #   note            anything a reader of the row needs
 #   issue           the GitHub issue tracking what's left
 #
-# Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal on 2026-11-15, and gov.br/nfse on 2026-11-18.
+# Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal and gov.br/nfse on 2026-11-18.
 
 documents:
   # ---------------------------------------------------------------- NF-e and NFC-e: manuals
