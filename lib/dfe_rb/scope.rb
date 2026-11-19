@@ -15,7 +15,7 @@ module DfeRb
 
     class << self
       def for(element, vocabulary)
-        @cache[[vocabulary, element.path]] ||= new(element, vocabulary)
+        (@cache[vocabulary] ||= {}.compare_by_identity)[element] ||= new(element, vocabulary)
       end
     end
 

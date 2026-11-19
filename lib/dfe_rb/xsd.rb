@@ -32,7 +32,7 @@ module DfeRb
     # libxml2 says "Element '{ns}vNF': [facet 'pattern'] The value 'x' is not accepted by the
     # pattern '...'": drop the namespace noise and keep the line.
     def readable(error)
-      error.message.strip.gsub(%r{\{http://www\.portalfiscal\.inf\.br/\w+\}}, "").gsub("{http://www.w3.org/2000/09/xmldsig#}", "ds:")
+      error.message.strip.gsub(%r{\{http://www\.(?:portalfiscal\.inf\.br|sped\.fazenda\.gov\.br)/\w+\}}, "").gsub("{http://www.w3.org/2000/09/xmldsig#}", "ds:")
     end
   end
 end

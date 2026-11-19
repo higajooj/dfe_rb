@@ -12,6 +12,7 @@ module DfeRb
 
     FRACTION = /\\\.(?:\[0-9\]|\[1-9\]|0)\{(\d+)(?:,(\d+))?\}/
     FIXED_DIGITS = /\A\[0-9\]\{(\d+)\}\z/
+    DATE_TYPES = %w[TData TSData].freeze
 
     module_function
 
@@ -81,7 +82,7 @@ module DfeRb
       text.scrub.unicode_normalize(:nfc).gsub(/[[:cntrl:]]+/, " ").strip
     end
 
-    def decimal_type?(type) = type&.name.to_s.start_with?("TDec")
+    def decimal_type?(type) = type&.name.to_s.match?(/\ATS?Dec/)
 
     def parse_decimal(value)
       raise Invalid, "expected a number, got #{value.inspect}" unless value.strip.match?(/\A[+-]?\d+(\.\d+)?\z/)
@@ -147,7 +148,7 @@ module DfeRb
     end
 
     def format_time(time, type)
-      return time.strftime("%Y-%m-%d") if type&.name == "TData"
+      return time.strftime("%Y-%m-%d") if DATE_TYPES.include?(type&.name)
 
       time = time.to_time if time.is_a?(DateTime) # keeps the offset; DateTime has no utc_offset
 

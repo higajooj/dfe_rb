@@ -7,7 +7,7 @@ RSpec.describe "the compliance manifest" do
   documents = manifest.fetch("documents")
   kinds = %w[moc nt it schema table law guide certificate]
   statuses = %w[implemented pending out_of_scope]
-  areas = %w[nfe nfce mdfe events distribution ibs_cbs efd]
+  areas = %w[nfe nfce mdfe nfse events distribution ibs_cbs efd]
 
   it "describes each document with the same fields" do
     documents.each do |row|
@@ -41,10 +41,10 @@ RSpec.describe "the compliance manifest" do
     expect(packages - listed).to eq([])
   end
 
-  it "covers the NF-e, the NFC-e, the MDF-e, events, distribution and the IBS/CBS tables" do
+  it "covers the NF-e, the NFC-e, the MDF-e, the NFS-e, events, distribution and the IBS/CBS tables" do
     implemented = documents.select { |row| row["status"] == "implemented" }.flat_map { |row| row["dfe"] }
 
-    expect(implemented.uniq).to include("nfe", "nfce", "mdfe", "events", "distribution", "ibs_cbs")
+    expect(implemented.uniq).to include("nfe", "nfce", "mdfe", "nfse", "events", "distribution", "ibs_cbs")
   end
 
   it "keeps what a row not followed leaves out, and what the gem is waiting for, in words" do

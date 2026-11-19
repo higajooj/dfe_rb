@@ -11,10 +11,11 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Emit NFC-e** (modelo 65, layout 4.00) through `DfeRb::Nfce::Client`: the same builder, with the QR code version 3 (no CSC), its off-line contingency, the cancellation by substitution and the rules of modelo 65. See [NFC-e](#nfc-e).
 - **Print an NF-e as the DANFE Simplificado Tipo 2** (`tpImp` 6), for a counter sale an NFC-e would otherwise cover: the NFC-e's QR code, on-line or off-line, and its rules. See [DANFE Simplificado Tipo 2](#danfe-simplificado-tipo-2).
 - **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
+- **Issue NFS-e** of the Padrão Nacional through the Sistema Nacional NFS-e (the Sefin Nacional's API, JSON over mutual TLS): build the DPS in the production layout or NT 009's (IBS/CBS included), validate, sign, issue, look up, cancel, confirm or reject as a party, and the ADN's distribution and municipal parameters. See [NFS-e](#nfs-e).
 - **Write the EFD ICMS/IPI** (SPED Fiscal) of a period: its registers, the blocks' openings and closings and Block 9, an NF-e's or NFC-e's C100, C101, C170 and C190 from its XML, and the apurações of Block E. See [EFD ICMS/IPI](#efd-icmsipi).
 - **Write the EFD-Contribuições** (PIS/Pasep and COFINS) of a period up to December 2026: its registers, an NF-e's C100 and C170 or an NFC-e's C175 with their PIS and COFINS, the apuração of Block M and the credits carried in Block 1. See [EFD-Contribuições](#efd-contribuições).
 
-Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), other DF-e (CT-e, NFS-e), the DAMDFE and the MDF-e's ANTT payment events.
+Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), the CT-e, the DAMDFE and the DANFSe, municipal NFS-e systems outside the Sistema Nacional, and the MDF-e's ANTT payment events.
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.19.0"
@@ -652,6 +653,90 @@ distribution.fetch_nsu("42")                        # one specific document
 
 It returns MDF-e (`ManifestDocument`) and their events (`EventDocument`) of interest to the certificate's holder that someone else issued, such as those naming it in `autXML`, with the same results, cursor rules and failure handling as the NF-e's distribution. A consumption block is cStat 678 here.
 
+## NFS-e
+
+The NFS-e of the Padrão Nacional goes through the Sistema Nacional NFS-e. The issuer sends a signed DPS (Declaração de Prestação de Serviço) to the Sefin Nacional, which checks it against the national registers and the municipality's parameters and answers in the same call with the NFS-e, signed by it. Everything is JSON over mutual TLS with the certificate; the XML travels compressed with GZip in Base64. Homologação is the Sistema Nacional's "produção restrita".
+
+```ruby
+client = DfeRb::Nfse::Client.new(certificate: certificate, city: "5002704")   # or city: ["Campo Grande", "MS"]; homologação unless told otherwise
+
+dps = client.build_declaration do |d|
+  d.number 1                                     # series 1 unless given (1 to 49999 for your own application)
+  d.provider cnpj: "12.345.678/0001-95", simples: :me_epp, simples_regime: :simples, special_regime: :none
+  d.taker cnpj: "11.222.333/0001-81", name: "CLIENTE SA",
+    address: {street: "Rua B", number: "1", district: "Centro", city_code: "5002704", zip: "79002-000"}
+  d.service national_code: "010101", description: "Desenvolvimento de software sob encomenda", city_code: "5002704", nbs: "115021000"
+  d.amount "1000.00"
+  d.issqn :taxable                               # or :immune, :export, :not_levied
+  d.withholding :none                            # or :taker, :intermediary
+  d.approximate_taxes simples_rate: "6.00"       # or federal:, state:, municipal: (amounts), rates: {...}, :not_informed
+  d.ibs_cbs operation_indicator: "030101", cst: "000", class_code: "000001"
+end
+
+dps.issues                                       # every problem found locally, as messages
+signed = client.sign(dps)                        # store signed.xml before sending
+result = client.issue(signed)
+
+if result.issued?
+  File.write(result.filename, result.nfse_xml)   # <key>-nfse.xml: the Sefin's NFS-e, with your DPS inside
+  result.key; result.number; result.note.iss_amount; result.note.consult_url   # the DANFSe's QR code address
+else
+  result.errors.each { |error| puts "#{error.code} #{error.description}" }      # E0312 O código de tributação...
+end
+```
+
+`issue` returns a result whatever the Sefin says; `issue!` raises `DfeRb::Nfse::Rejected`. When the answer is lost (a timeout, an HTTP 5xx, a success without a readable NFS-e) or the Sefin says the series and number already produced a note (E0014), the client looks the DPS up by its Id and returns that note if it carries this same DPS (`result.recovered?`), or raises `Conflict` if it carries another. A note is this DPS's when its key is the one answered, its DPS has this Id, and the digest of its `infDPS`, computed by the gem, is the one signed.
+
+`sign` checks every input against the client's layout: a `Declaration`, raw XML (which also gets the business rules) and a `SignedDeclaration` restored from storage. A DPS signed elsewhere must be signed by its issuer (E0718), in RSA-SHA256 or RSA-SHA1.
+
+The gem derives the DPS Id (`"DPS"` + city + CNPJ or CPF + series + number), `tpAmb`, `dhEmi` (in the offset of the issuing city's state), `dCompet` (its day), `serie`, `tpEmit`, `verAplic`, `finNFSe`, `indDest` (1 when a `recipient` is given) and, for a MEI, `indTotTrib`. It derives no tax: the Sefin computes the ISSQN base, rate and amount from the municipality's parameters (`client.rates` tells them in advance), and the IBS/CBS from its calculator.
+
+The provider issuing its own DPS is identified by CNPJ or CPF only: leave its name and address out, since the Sefin reads them from the registers (E0121, E0128). Give `municipal_registration:` only where the municipality's CNC holds one (E0116, E0120).
+
+Local validation covers the layout and the rules of Anexo I that need nothing but the DPS: check digits, what each issuer type fills, the Simples Nacional and special regimes against rates and withholdings, values against the service's, the PIS and the COFINS against their base, the groups some services carry (construction, events, real estate), the IBS/CBS group's own consistency, and the dates. Each message names its code, such as `(E0600)`. What needs the national registers or the municipality's parameters stays with the Sefin. `strict: false` on `to_xml`, `issues`, `sign` and `issue` keeps only the layout checks.
+
+### Layouts
+
+Two versions of the 1.01 layout are in force, and they differ in shape. The client picks the one its environment validates, and `layout:` picks another:
+
+| Layout | Package | Where | What changes |
+| --- | --- | --- | --- |
+| `:v1_01` | `nfse_1.01` (09/02/2026) | production | the layout every production issuer sends today |
+| `:nt009` | `nfse_1.01_nt009` (20/10/2026) | produção restrita (homologação) | NT 009: alphanumeric CNPJ, `vAjusteBC` instead of `vDedRed` and `gReeRepRes`, `finNFSe` in `infDPS`, CST and cClassTrib straight under `IBSCBS/valores/trib`, `imovel` and `bensMoveis` reshaped, and the IBS/CBS group mandatory from the competence 01/10/2026 (E0855; the Simples Nacional's from 2027) |
+
+Produção restrita refuses a DPS of the production layout (E1235), so build for the layout of the environment you send to. The English names are the same in both; a name whose group a layout lacks (`deductions` under NT 009, `base_adjustment` before it) is refused with a suggestion. When the CGNFS-e publishes NT 009's schedule for production, `Layouts::DEFAULTS` follows it in a release.
+
+### After issuing
+
+```ruby
+client.consult(key).status            # :found, :not_found or :forbidden (you're no party to it); .note reads it
+client.find(signed)                   # the key of the note a DPS produced (for its parties)
+client.issued?(signed.id)             # whether a DPS produced a note, for anyone
+
+client.cancel(key, reason: "Servico nao prestado por desistencia", code: :not_rendered)   # :error, :not_rendered, :other
+client.request_cancellation(key, reason: "...")   # past the municipality's deadline: a fiscal review (101103)
+client.confirm(key, as: :taker)                   # or :provider, :intermediary
+client.reject(key, as: :taker, code: :values, reason: "Valor diverge do contratado")
+client.event(key, type: 101101)                   # an event read back from the Sefin
+client.events(key).documents                      # every event of a note, from the ADN
+```
+
+Each event is signed in the certificate holder's name (`CNPJAutor` or `CPFAutor`) and returns an `EventResult` with `registered?`, the Sefin's `event_xml` to archive, `filename`, and its `errors`.
+
+To replace a note, issue a new DPS that names it: `d.replaces key, reason: :other, description: "..."`. The Sefin generates the new note and cancels the old one by substitution (event 105102) in the same call.
+
+### Distribution and municipal parameters
+
+```ruby
+batch = client.distribute(after: last_nsu)   # NFS-e and events of interest to the certificate's holder
+batch.documents.each { |document| File.write(document.filename, document.xml) }
+batch.last_nsu; batch.caught_up?             # caught up: nothing after that NSU (E2220); rejected? and errors otherwise
+client.distribute(after: 0, cnpj: "12345678000280")   # another establishment of the same root, or a proxy's grantor
+
+client.agreement("5002704").national_issuer?              # does the municipality issue through the Sefin Nacional?
+client.rates("5002704", service: "010101", on: Date.today).rate   # its ISSQN rate for a service
+```
+
 ## EFD ICMS/IPI
 
 `DfeRb::Efd::IcmsIpi` writes the EFD ICMS/IPI (SPED Fiscal) a taxpayer delivers each month, the file its accountant imports into the PVA, validates, signs and transmits. The registers follow the Guia Prático (Ato COTEPE/ICMS 44/2018); `Version.for(last_day)` gives `COD_VER`, for periods from 2020 to 2026.
@@ -885,13 +970,15 @@ The lot (`authorize` with an Array of two or more notes), `resume` and `Requests
 DFE_RB_LIVE=1 DFE_RB_PFX=empresa.pfx DFE_RB_PFX_PASSWORD=... bundle exec rspec spec/live
 ```
 
-They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`. The lifecycle examples authorize and cancel a DANFE Simplificado Tipo 2 too, on-line and off-line. `spec/live/nfce_homologacao_spec.rb` checks every NFC-e authorizer and, with the same issuer variables, authorizes, cancels and inutilizes NFC-e, issues one off-line and cancels another by substitution; the issuer must be accredited for the NFC-e at its state. `spec/live/mdfe_homologacao_spec.rb` does the same for the MDF-e; its lifecycle (authorize, consult, add a driver, close, cancel) needs an issuer accredited for the MDF-e and an NF-e to carry, as its header says.
+They confirm the SOAP contract and every service with your certificate, including national distribution and a mixed manifestation lot. Distribution checks consume your homologação query quota and can return an existing 656 block; set `DFE_RB_LIVE_LAST_NSU` to your coordinated cursor. Optional `DFE_RB_LIVE_NSU` and `DFE_RB_LIVE_DISTRIBUTION_KEY` control targeted checks. The full lifecycle example (authorize, consult, correct, cancel, inutilize) also needs an issuer registered at the state: see the header of `spec/live/nfe_homologacao_spec.rb`. The lifecycle examples authorize and cancel a DANFE Simplificado Tipo 2 too, on-line and off-line. `spec/live/nfce_homologacao_spec.rb` checks every NFC-e authorizer and, with the same issuer variables, authorizes, cancels and inutilizes NFC-e, issues one off-line and cancels another by substitution; the issuer must be accredited for the NFC-e at its state. `spec/live/mdfe_homologacao_spec.rb` does the same for the MDF-e; its lifecycle (authorize, consult, add a driver, close, cancel) needs an issuer accredited for the MDF-e and an NF-e to carry, as its header says. `spec/live/nfse_homologacao_spec.rb` checks the Sistema Nacional NFS-e's produção restrita with any certificate (a DPS and an event reach the registers' checks, lookups, distribution, parameters); its lifecycle (issue, find, cancel) needs an issuer registered in a municipality of the national issuer, set in `DFE_RB_LIVE_NFSE_CITY`.
 
 ## Legislation
 
 Built from MOC 7.0 (Anexo I v7.03) and the NTs up to NT 2026.009, with the layout read from the `PL_010f_v1.04` schema package. Distribution uses `PL_NFeDistDFe_104` (NT 2014.002 v1.40); recipient manifestations follow NT 2020.001 v1.60, the unchanged official manifestation detail schemas, and the generic event schemas from `PL_010d_v1.03` for alphanumeric identities. Contingency follows Anexo III of the MOC and NT 2014.001 v1.41 (EPEC), with each state's SVC taken from the Portal Nacional's "Relação de Serviços Web", which has changed since Anexo III was written; consulta cadastro follows MOC 5.6 and `PL_010d_v1.03`. Where the MOC and later NTs disagree, the NTs and the schema win (synchronous authorization only, 7-day late-issue window, 4-digit `cStat`, alphanumeric CNPJ, no inutilização in AC, BA and SP).
 
 The NFC-e follows the same MOC and Anexo I, the rules each NT gives modelo 65 (NT 2015.002, 2018.004 for the cancellation by substitution, 2023.001, 2023.002 v1.01, 2023.003 v1.40, 2024.001, 2025.001 v1.03 for the QR code version 3, NT 2025.002, 2026.002 v1.11), with the parameters of the QR code as NT 2026.003 tabulates them and Anexo IV for the off-line contingency. The DANFE Simplificado Tipo 2 follows NT 2026.002 v1.11 and NT 2026.003 v1.00. Where an NT lists fewer CFOPs than another, the gem takes the wider list. Its web services come from the SVRS DF-e portal's "Relação de Serviços Web" (MG, missing there, from its own authorizer's answer), and the QR code and consultation addresses from the Portal Nacional da NFC-e (`nfce.encat.org`).
+
+The NFS-e follows the Anexos I and II of the Sistema Nacional NFS-e (v1.01 of 09/02/2026 and 22/01/2026 for production, and their produção restrita editions of 20/10/2026, NT 009 v1.01), with the layouts read from the packages `nfse-esquemas_xsd-v1-01-20260209` and `esquemas_prod_restrita_20261020`. Its API contract is the OpenAPI the Sefin Nacional, the ADN Contribuinte and the Parametrização publish (read on 18/11/2026, behind mutual TLS), with the contributors' manuals of the Emissor Público Nacional (v1.2) and of the ADN. The DPS is signed in RSA-SHA256, which produção restrita takes. The DANFSe (NT 008) is not printed; `Note#consult_url` gives its QR code's address.
 
 The MDF-e is built from the MOC MDF-e 3.00b (with its Anexo I) and the NTs up to NT 2026.001, with the layout read from the `PL_MDFe_300b_NT012025_1.05` schema package; its distribution follows NT 2015.002 and `PL_MDFeDistDFe_100`. Its web service addresses are the SVRS portal's "Relação de Serviços Web".
 
@@ -936,6 +1023,9 @@ Edited by hand:
 | Lists the NFC-e rules consult, most of which the DANFE Simplificado Tipo 2 shares | in `nfce/validator.rb`: `CFOPS`, `SALE_CFOPS`, `ST_CFOPS`, `CSTS`, `CSOSNS`, `STATE_CFOPS`, `BARRED` and `BARRED_ITEM` (both), `BARRED_NFCE` and `BARRED_NFCE_ITEM` (modelo 65 only) | the RVs of modelo 65, NT 2026.002 and the NTs that amend them | an NT changes a rule of modelo 65 or of `tpImp` 6 |
 | Web service addresses, each state's authorizer and SVC, and who offers consulta cadastro | `nfe/endpoints.rb` (`AUTHORIZERS`, `PATHS`, `CONTINGENCY`, `REGISTRY_URLS`, `REGISTRY_SVRS`), `States::OWN_AUTHORIZER`, `SVAN` and `SVC_AN`, `nfe/distribution/endpoints.rb` | "Relação de Serviços Web" (`dfe-portal.svrs.rs.gov.br/Nfe/Servicos` and the Portal Nacional) | a state moves to or from a SEFAZ Virtual, or an address changes |
 | Status codes the client acts on | `nfe/status_codes.rb` | Anexo I §4.4 and the NTs | an NT adds a `cStat` that changes the flow |
+| NFS-e layouts and which one each environment validates | `lib/dfe_rb/xml/schemas/nfse_*`, `Nfse::Layouts::ALL` and `DEFAULTS` | gov.br/nfse, "Documentação Atual" and "Produção Restrita" | a new schema package, or NT 009's production schedule |
+| NFS-e rules | `nfse/validator.rb` (each rule cites its E-code), with `CONSTRUCTION`, `REAL_ESTATE`, `OPERATION_TYPE_SERVICES` and the dates `IBS_CBS_SINCE`, `IBS_CBS_REQUIRED_SINCE`, `IBS_CBS_REQUIRED_SIMPLES_SINCE` | Anexo I of the Sistema Nacional NFS-e and the NTs SE/CGNFS-e | each edition of Anexo I |
+| NFS-e API hosts | `nfse/endpoints.rb` (`BASES`, `SERVICES`) | the OpenAPI documents of the Sefin Nacional and the ADN | an address changes |
 | ICP-Brasil root CAs | `lib/dfe_rb/certs/icp-brasil.pem` (v5, v10, v11, v12; v5 expires 02/03/2029) | `acraiz.icpbrasil.gov.br/credenciadas/RAIZ` | ITI publishes a new root, or one expires |
 
 State tables (internal ICMS and FCP rates, cBenef x CST, MVAs) aren't shipped, so they are the application's to keep current.

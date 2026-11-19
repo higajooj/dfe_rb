@@ -3,6 +3,44 @@ require "openssl"
 require "nokogiri"
 
 module DfeRb
+  # The HTTPS connection every DF-e service takes: mutual TLS with the certificate, TLS 1.2
+  # or later and the given trust store. What goes wrong on the wire becomes a TransportError
+  # saying whether the server may have acted on the request.
+  class MutualTls
+    def initialize(certificate:, timeouts:, ssl_options:)
+      @certificate = certificate
+      @timeouts = timeouts
+      @ssl_options = ssl_options
+    end
+
+    def start(uri, &block)
+      Net::HTTP.start(uri.host, uri.port, **options, &block)
+    rescue Net::OpenTimeout, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError => e
+      raise TransportError.new("could not connect to #{uri.host}: #{e.message}", maybe_processed: false)
+    rescue OpenSSL::SSL::SSLError => e
+      raise TransportError.new("TLS error talking to #{uri.host}: #{e.message}", maybe_processed: false)
+    rescue Net::ReadTimeout, Net::WriteTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE => e
+      raise TransportError.new("#{e.class.name.split("::").last} talking to #{uri.host}: #{e.message}", maybe_processed: true)
+    end
+
+    private
+
+    def options
+      {
+        use_ssl: true,
+        cert: @certificate.certificate,
+        key: @certificate.private_key,
+        extra_chain_cert: @certificate.chain.empty? ? nil : @certificate.chain,
+        cert_store: @ssl_options[:ssl_cert_store],
+        verify_mode: (@ssl_options[:ssl_verify_mode] == :peer) ? OpenSSL::SSL::VERIFY_PEER : OpenSSL::SSL::VERIFY_NONE,
+        min_version: OpenSSL::SSL::TLS1_2_VERSION,
+        open_timeout: @timeouts[:open],
+        write_timeout: @timeouts[:write],
+        read_timeout: @timeouts[:read]
+      }
+    end
+  end
+
   # SOAP 1.2 over HTTPS with mutual TLS, as the SEFAZ web services expect. Sends the payload
   # in <nfeDadosMsg> and returns the XML inside <nfeResultMsg>, unless the endpoint names its
   # own request and result tags (the national distribution, the other DF-e). It fetches no WSDL.
@@ -20,7 +58,7 @@ module DfeRb
       @certificate = certificate
       @timeouts = DEFAULT_TIMEOUTS.merge(timeouts)
       @logger = logger
-      @ssl_options = ssl_options
+      @connection = MutualTls.new(certificate: certificate, timeouts: @timeouts, ssl_options: ssl_options)
     end
 
     # endpoint: anything with #url, #namespace and #operation (see Nfe::Endpoints), and
@@ -89,7 +127,7 @@ module DfeRb
       request["Content-Type"] = %(application/soap+xml; charset=utf-8; action="#{endpoint.namespace}/#{endpoint.operation}")
       request.body = envelope
 
-      response = Net::HTTP.start(uri.host, uri.port, **http_options) { |http| http.request(request) }
+      response = @connection.start(uri) { |http| http.request(request) }
       body = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
 
       # SOAP faults come with HTTP 500 and are reported by extract_result. A 404 is the service
@@ -100,27 +138,6 @@ module DfeRb
       end
 
       body
-    rescue Net::OpenTimeout, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError => e
-      raise TransportError.new("could not connect to #{uri.host}: #{e.message}", maybe_processed: false)
-    rescue OpenSSL::SSL::SSLError => e
-      raise TransportError.new("TLS error talking to #{uri.host}: #{e.message}", maybe_processed: false)
-    rescue Net::ReadTimeout, Net::WriteTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE => e
-      raise TransportError.new("#{e.class.name.split("::").last} talking to #{uri.host}: #{e.message}", maybe_processed: true)
-    end
-
-    def http_options
-      {
-        use_ssl: true,
-        cert: certificate.certificate,
-        key: certificate.private_key,
-        extra_chain_cert: certificate.chain.empty? ? nil : certificate.chain,
-        cert_store: @ssl_options[:ssl_cert_store],
-        verify_mode: (@ssl_options[:ssl_verify_mode] == :peer) ? OpenSSL::SSL::VERIFY_PEER : OpenSSL::SSL::VERIFY_NONE,
-        min_version: OpenSSL::SSL::TLS1_2_VERSION,
-        open_timeout: timeouts[:open],
-        write_timeout: timeouts[:write],
-        read_timeout: timeouts[:read]
-      }
     end
 
     def log(level, &block)

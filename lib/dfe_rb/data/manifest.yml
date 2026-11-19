@@ -5,7 +5,7 @@
 #   kind            moc, nt, it, schema, table (a table published outside an NT or IT), law, guide, certificate
 #   status          implemented; pending: published and not followed yet (note says what's left);
 #                   out_of_scope: published, but about something the gem doesn't do (note says why)
-#   dfe             what it touches: nfe, nfce, mdfe, events, distribution, ibs_cbs, efd
+#   dfe             what it touches: nfe, nfce, mdfe, nfse, events, distribution, ibs_cbs, efd
 #   version         the version the gem follows
 #   current         the newest version published, when the gem follows an older one
 #   published       publication, as the document dates it (yyyy-mm or yyyy-mm-dd); null if it doesn't
@@ -18,7 +18,7 @@
 #   note            anything a reader of the row needs
 #   issue           the GitHub issue tracking what's left
 #
-# Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal on 2026-11-15.
+# Checked against the Portal Nacional da NF-e, the SVRS portals and the MDF-e portal on 2026-11-15, and gov.br/nfse on 2026-11-18.
 
 documents:
   # ---------------------------------------------------------------- NF-e and NFC-e: manuals
@@ -731,7 +731,149 @@ documents:
     note: No copy kept in the legislation library.
 
 # What the gem is waiting for: announced, or left open by a published document, but not yet law.
+  # ---------------------------------------------------------------- NFS-e (Sistema Nacional NFS-e)
+  - id: nfse-anexo-i
+    document: Anexo I, SEFIN/ADN, leiaute e regras de negócio da DPS e da NFS-e (ANEXO_I-SEFIN_ADN-DPS_NFSe-SNNFSe)
+    kind: moc
+    status: implemented
+    dfe: [nfse]
+    version: "1.01"
+    published: "2026-02-09"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/validator.rb, lib/dfe_rb/nfse/resolver.rb, lib/dfe_rb/nfse/names.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Documentação Atual
+    sha256: de5bc492959eadc8bfa7540e16939995924f2188f743648eaf84d3b31e9eeb7c
+    note: The rules of the production layout (Layouts :v1_01). The validator checks those that need nothing but the DPS, each message naming its E-code; those that consult the CNC, the CNPJ and CPF registers, the Simples Nacional, the municipality's parameters or the IBS/CBS calculator stay with the Sefin.
+  - id: nfse-anexo-i-producao-restrita
+    document: Anexo I, SEFIN/ADN, leiaute e regras de negócio da DPS e da NFS-e, produção restrita (NT 009)
+    kind: moc
+    status: implemented
+    dfe: [nfse, ibs_cbs]
+    version: "1.01"
+    published: "2026-10-20"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/validator.rb, lib/dfe_rb/nfse/resolver.rb, lib/dfe_rb/nfse/names.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Produção Restrita
+    sha256: 72b05981c8882cdd807f3acf901b669465360f9cf1b9d9e235ac4363dacfb2d8
+    note: The rules of the NT 009 layout (Layouts :nt009), which produção restrita runs. E0855 makes the IBS/CBS group mandatory from the competence 01/10/2026; the layout's note puts the Simples Nacional's from 2027, and the validator follows the note for an optant.
+  - id: nfse-anexo-ii
+    document: Anexo II, SEFIN/ADN, leiaute e regras do pedido de registro de evento e do evento (ANEXO_II-SEFIN_ADN-PedRegEvt_Evt-SNNFSe)
+    kind: moc
+    status: implemented
+    dfe: [nfse, events]
+    version: "1.01"
+    published: "2026-01-22"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/requests.rb, lib/dfe_rb/nfse/client.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Documentação Atual
+    sha256: 5abe83d7e51023ffa979cc466c628399f3e4bbf03c293b5b1a0817e873eb428e
+    note: The events an issuer or a party registers (101101, 101103, 202201, 203202, 204203, 202205, 203206, 204207). The municipality's and the CGNFS-e's own events (105xxx, 205xxx, 305xxx) are read, not sent. The produção restrita edition of 20/10/2026 (sha256 6e0660d18def5dc674923f0e2f3731ada5bdbfac966f1dc615c090104d28688d) differs only in the alphanumeric CNPJ.
+  - id: nfse-esquemas-1.01
+    document: NFSe, esquemas XSD (nfse-esquemas_xsd-v1-01-20260209), folder Schemas/1.01
+    kind: schema
+    status: implemented
+    dfe: [nfse, events]
+    version: "1.01"
+    published: "2026-02-09"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/layouts.rb]
+    schemas: [lib/dfe_rb/xml/schemas/nfse_1.01]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Documentação Atual
+    sha256: e7935cbd9470527c6cc32984c1b2263e614183bf0139ce2733eaaed2de9a8072
+    note: What the Sefin Nacional validates in production. libxml2 reads TSSerieDPS's "^0{0,4}\d{1,5}$" with literal anchors and refuses every series, so Layout drops that one message and Validator checks the series.
+  - id: nfse-esquemas-producao-restrita
+    document: NFSe, esquemas XSD de produção restrita (esquemas_prod_restrita_20261020)
+    kind: schema
+    status: implemented
+    dfe: [nfse, events, ibs_cbs]
+    version: "1.01"
+    published: "2026-10-20"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/layouts.rb]
+    schemas: [lib/dfe_rb/xml/schemas/nfse_1.01_nt009]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Produção Restrita
+    sha256: 25fdcecc651a67a216496ab10d7566631e6ed10f721e37d62c7845dadb0ea267
+    note: NT 009's layout, also version 1.01. Produção restrita refuses a DPS of the production layout (E1235, 18/11/2026), so homologação builds this one. Its TSChaveNFSe puts the alphanumeric span of a key at positions 7 to 20, where TSIdNFSe and the key's formation put the inscription at 10 to 23, so an event for the key of a CNPJ with a letter in its last two places of the root or the branch fails the schema here as it would at the Sefin.
+  - id: nfse-nt-009
+    document: Nota Técnica SE/CGNFS-e nº 009, Reforma Tributária do Consumo
+    kind: nt
+    status: implemented
+    dfe: [nfse, ibs_cbs]
+    version: "1.01"
+    published: "2026-09-11"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/layouts.rb, lib/dfe_rb/nfse/names.rb, lib/dfe_rb/nfse/resolver.rb, lib/dfe_rb/nfse/validator.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, RTC
+    sha256: cc86c9402e317e84eb3a9f48bbd5e0b8e3dcd84f2645700190c84d45bf1ea58e
+    note: Consolidates NT 001 to 005 and 007 into the layout of the produção restrita package. Its schedule for production is to be published (§1); until then production keeps Layouts :v1_01.
+  - id: nfse-nt-008
+    document: Nota Técnica SE/CGNFS-e nº 008, DANFSe
+    kind: nt
+    status: out_of_scope
+    dfe: [nfse]
+    version: "1.02"
+    published: "2026-07-14"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/document.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, RTC
+    sha256: 1265f403aedcdc5f08b3049dcc18a15c2bc155f51afccf3d12690fef2f4fb0ff
+    note: The gem prints no document. Note#consult_url gives the address the DANFSe's QR code carries (§2.4). The ADN's DANFSe API is suspended by this NT.
+  - id: nfse-nt-006-010
+    document: Notas Técnicas SE/CGNFS-e nº 006 e 010, leiaute da NFS-e Via e manifestação do adquirente
+    kind: nt
+    status: out_of_scope
+    dfe: [nfse]
+    version: "1.00"
+    published: "2026-09-11"
+    production: null
+    implemented_in: []
+    source: gov.br/nfse, NFS-e Via, Documentação técnica
+    sha256: 18cd169f76f7f94975f031d7d14d39baa67c42714d2f031c2b62d791589af104
+    note: The NFS-e Via is the toll concessionaires' note, sent asynchronously to its own environment. NT 006 v1.00's sha256 is 1a09fbc420958f519f5476eb773c5d5f7e87ff99cbace08a9f7ed7b18221aa2f.
+  - id: nfse-manual-api-emissor
+    document: Manual dos Contribuintes, Guia para utilização das APIs do Emissor Público Nacional
+    kind: guide
+    status: implemented
+    dfe: [nfse]
+    version: "1.2"
+    published: "2025-10"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/client.rb, lib/dfe_rb/nfse/endpoints.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Documentação Atual
+    sha256: ac2f36e34ff565cc36d67c5d67415c33cc09f27b2dea006e8da9bcd2ddce5581
+    note: The JSON contract comes from the OpenAPI documents (next rows); the manual gives what each service does.
+  - id: nfse-manual-api-adn
+    document: Manual dos Contribuintes, Guia de utilização das APIs do ADN
+    kind: guide
+    status: implemented
+    dfe: [nfse, distribution]
+    version: "1.0"
+    published: "2026-02-12"
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/client.rb]
+    source: gov.br/nfse, Biblioteca, Documentação técnica, Documentação Atual
+    sha256: 9ffc97d8b1be4c80a440b3569b0027df61265b9e75ef69437f21f9481a9a1d6d
+    note: Distribution by NSU with cnpjConsulta/cpfConsulta, and the events of a key.
+  - id: nfse-openapi
+    document: OpenAPI of the Sefin Nacional (SefinNacional/swagger/docs/v1), of the ADN Contribuinte and of the Parametrização (swagger/v1/swagger.json)
+    kind: guide
+    status: implemented
+    dfe: [nfse, events, distribution]
+    version: "v1"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/nfse/client.rb, lib/dfe_rb/nfse/endpoints.rb, lib/dfe_rb/nfse/transport.rb, lib/dfe_rb/nfse/results.rb]
+    source: sefin.nfse.gov.br/SefinNacional/swagger/docs/v1, adn.nfse.gov.br/contribuintes and /parametrizacao (mutual TLS)
+    sha256: null
+    note: Read on 18/11/2026 in both environments. Without cnpjConsulta, produção restrita's distribution answers REJEICAO with no error, so the client always names the taxpayer.
+
 awaiting:
+  - what: The production schedule of NT 009's layout (Layouts :nt009), which produção restrita runs since 20/10/2026
+    affects: Nfse::Layouts::DEFAULTS
+    source: NT 009 v1.01 §1 ("Será publicado no portal da NFS-e o cronograma de implantação")
+  - what: An issue-to-cancellation lifecycle in produção restrita with an issuer registered in a municipality of the national issuer. On 18/11/2026 the DPS and the event passed the schema and the signature (RSA-SHA256) and stopped at the registers (E0084, E1831), and Sidrolândia, the registered MS issuer's city, has no national issuer there
+    affects: Nfse::Client
+    source: spec/live/nfse_homologacao_spec.rb
   - what: Homologação evidence that a state's consultation page reads an off-line QR code's raw Base64 signature (`+`, `/`, `=`) as signed, at a state whose page checks it. MS (16/11/2026) shows the note from the raw, the percent-encoded and a tampered signature alike, so its page doesn't check the signature and proves nothing either way
     affects: Nfce::QrCode.offline
     source: NT 2026.003 §4.3.2 prints it raw but says nothing of how the page decodes the query (issue 4)
