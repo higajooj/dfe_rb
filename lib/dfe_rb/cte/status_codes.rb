@@ -23,7 +23,7 @@ module DfeRb
 
       def authorized?(code) = [AUTHORIZED, AUTHORIZED_LATE].include?(code.to_i)
 
-      def duplicate?(code) = [DUPLICATE, DUPLICATE_DIFFERENT_KEY].include?(code.to_i)
+      def duplicate?(code) = code.to_i == DUPLICATE
 
       def consumption_blocked?(code) = CONSUMPTION_BLOCKED.include?(code.to_i)
 

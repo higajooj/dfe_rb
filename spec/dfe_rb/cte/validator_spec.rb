@@ -71,4 +71,81 @@ RSpec.describe DfeRb::Cte::Validator do
       cte.payment_link "99", transaction_id: "TX1", receiver_cnpj: cte_issuer, psp_cnpj_base: "11444777"
     end).to include(match(/NT 2026\.001 L12, rej\. 1003/))
   end
+
+  it "enforces offline contingency (tpEmis 2) rollout dates and keeps EPEC (tpEmis 4) for reconciliation" do
+    before_prod = Struct.new(:now).new(Time.new(2026, 12, 13, 23, 59, 0, "-03:00"))
+    after_prod = Struct.new(:now).new(Time.new(2026, 12, 14, 0, 0, 0, "-03:00"))
+    before_hom = Struct.new(:now).new(Time.new(2026, 10, 25, 23, 59, 0, "-03:00"))
+
+    expect(issues_for(environment: :production, certificate: cte_certificate, clock: before_prod) do |cte|
+      cte.contingency :offline, since: before_prod.now - 60, reason: "Sem conexao com a internet na filial"
+    end).to include(match(/offline contingency.*14\/12\/2026/))
+
+    expect(issues_for(environment: :production, certificate: cte_certificate, clock: after_prod) do |cte|
+      cte.contingency :offline, since: after_prod.now - 60, reason: "Sem conexao com a internet na filial"
+    end).to eq([])
+
+    expect(issues_for(environment: :homologacao, certificate: cte_certificate, clock: before_hom) do |cte|
+      cte.contingency :offline, since: before_hom.now - 60, reason: "Sem conexao com a internet na filial"
+    end).to include(match(/offline contingency.*26\/10\/2026/))
+
+    expect(issues_for(environment: :production, certificate: cte_certificate, clock: after_prod) do |cte|
+      cte.contingency :epec
+    end).to eq([])
+  end
+
+  it "enforces NT 2026.002 IBS/CBS requirement in homologação only and NT 2026.005 CRT/regime matrix" do
+    after_jul = Struct.new(:now).new(Time.new(2026, 7, 1, 0, 0, 0, "-03:00"))
+    before_jul = Struct.new(:now).new(Time.new(2026, 6, 30, 23, 59, 0, "-03:00"))
+    after_sn = Struct.new(:now).new(Time.new(2026, 11, 20, 10, 0, 0, "-03:00"))
+
+    expect(issues_for(ibs_cbs: nil, clock: after_jul)).to include(match(/NT 2026\.002 001, rej\. 310/))
+    expect(issues_for(ibs_cbs: nil, clock: before_jul)).to eq([])
+    expect(issues_for(ibs_cbs: nil, environment: :production, clock: after_jul)).to eq([])
+
+    expect(issues_for(ibs_cbs: nil, clock: after_sn) do |cte|
+      cte.issuer tax_id: cte_issuer, name: "MEI TRANSPORTE", state_registration: "111111111111",
+        tax_regime: :mei, address: cte_sp_address
+      cte.icms simples: true
+      cte.ibs_cbs class_code: "000001", gIBSCBS: {vBC: "500.00", gIBSUF: {pIBSUF: "0.10", vIBSUF: "0.50"}, gIBSMun: {pIBSMun: "0.00", vIBSMun: "0.00"}, vIBS: "0.50", gCBS: {pCBS: "0.90", vCBS: "4.50"}}
+    end).to include(match(/NT 2026\.005 §6 11, rej\. 1107/))
+
+    expect(issues_for(ibs_cbs: nil, clock: after_sn) do |cte|
+      cte.issuer tax_id: cte_issuer, name: "SN TRANSPORTE", state_registration: "111111111111",
+        tax_regime: :simples, address: cte_sp_address
+      cte.icms simples: true
+      cte.ibs_cbs class_code: "000001"
+    end).to include(match(/NT 2026\.005 §6 03, rej\. 1101/))
+
+    crt2 = road_waybill(ibs_cbs: nil, clock: after_sn) do |cte|
+      cte.issuer tax_id: cte_issuer, name: "SN EXCESSO", state_registration: "111111111111",
+        tax_regime: :simples_excess, address: cte_sp_address
+      cte.ibs_cbs class_code: "000001", simples: {cbs: {rate: "0.50", amount: "2.50"}}
+    end
+    expect(crt2.resolved.dig("imp", "IBSCBS", "gIBSCBS", "gCBS", "pCBS")).to eq(BigDecimal(0))
+    expect(crt2).to be_valid
+
+    expect(issues_for(ibs_cbs: nil, clock: after_sn) do |cte|
+      cte.issuer tax_id: cte_issuer, name: "SN EXCESSO", state_registration: "111111111111",
+        tax_regime: :simples_excess, address: cte_sp_address
+      cte.ibs_cbs class_code: "000001", cbs: {rate: "0.90"}, simples: {cbs: {rate: "0.50", amount: "2.50"}}
+    end).to include(match(/NT 2026\.005 §6 05, rej\. 316/))
+
+    expect(issues_for(ibs_cbs: nil, clock: after_sn) do |cte|
+      cte.issuer tax_id: cte_issuer, name: "SN REGULAR", state_registration: "111111111111",
+        tax_regime: :simples, ibs_cbs_regime: 2, address: cte_sp_address
+      cte.icms simples: true
+    end).to include(match(/NT 2026\.005 §4 01, rej\. 1090/))
+  end
+
+  it "validates CPF issuer series (920..969) vs CNPJ issuer series" do
+    expect(issues_for(ibs_cbs: nil) do |cte|
+      cte.issuer tax_id: "52998224725", name: "TAC", state_registration: "111111111111",
+        tax_regime: :simples, address: cte_sp_address
+      cte.icms simples: true
+      cte.series 1
+    end).to include(match(/CPF issuer must use series 920 to 969/))
+
+    expect(issues_for { |cte| cte.series 920 }).to include(match(/series 920 to 969 are reserved for CPF/))
+  end
 end

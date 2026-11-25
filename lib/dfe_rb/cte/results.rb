@@ -9,7 +9,7 @@ module DfeRb
       :signed_xml, :protocol_xml, :response_xml, :recovered
     ) do
       def status
-        if StatusCodes.authorized?(code)
+        if StatusCodes.authorized?(code) && protocol && protocol_xml
           :authorized
         elsif code == StatusCodes::CANCELED
           :canceled
@@ -60,7 +60,7 @@ module DfeRb
     EventSummary = Data.define(:type, :sequence, :code, :message, :protocol, :description, :xml)
 
     EventResult = Data.define(:key, :type, :sequence, :code, :message, :protocol, :registered_at, :event_xml, :return_xml, :xml) do
-      def registered? = StatusCodes.event_registered?(code)
+      def registered? = StatusCodes.event_registered?(code) && !protocol.nil? && !registered_at.nil? && !return_xml.nil?
 
       def duplicate? = code == StatusCodes::DUPLICATE_EVENT
 

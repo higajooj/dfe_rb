@@ -132,12 +132,14 @@ module DfeRb
         ide["cUF"] ||= DfeRb::States.code(state) if state && DfeRb::States::CODES.key?(state)
         ide["tpAmb"] ||= Environment.code(@environment)
         ide["mod"] ||= AccessKey::MODEL
-        ide["serie"] ||= 1
-        ide["tpImp"] ||= 1
         if ide["tpEmis"] == :svc
           ide["tpEmis"] = (state && DfeRb::States::CODES.key?(state)) ? States.contingency_emission_type(state) : 7
         end
         ide["tpEmis"] ||= 1
+        emit = inf["emit"] || {}
+        default_series = (emit["CPF"] && emit["CNPJ"].nil? && ide["tpEmis"].to_s != NFF) ? AccessKey::PERSON_SERIES.min : 1
+        ide["serie"] ||= default_series
+        ide["tpImp"] ||= 1
         ide["tpCTe"] ||= derive_cte_type(inf)
         ide["procEmi"] ||= 0
         ide["verProc"] ||= "dfe_rb #{DfeRb::VERSION}"
@@ -269,10 +271,15 @@ module DfeRb
         year = issued&.year || @clock.now.year
         service_total = decimal(inf.dig("vPrest", "vTPrest"))
 
+        crt = inf.dig("emit", "CRT")&.to_s
+        regime = inf.dig("emit", "tpRegimeIBSCBS")&.to_s
         if (group = ibscbs["gIBSCBS"]) || classification&.taxed?
-          group ||= (ibscbs["gIBSCBS"] = {}) if classification&.taxed? && !simples_issuer?(inf)
+          sn_active = simples_ibs_cbs_in_force?(ide, issued)
+          exempt = sn_active ? gibscbs_exempt?(crt, regime) : %w[1 2 4].include?(crt)
+          group ||= (ibscbs["gIBSCBS"] = {}) if classification&.taxed? && !exempt
           if group.is_a?(Hash)
-            complete_gibscbs(group, classification, year, service_total, ide["gCompraGov"])
+            zero_cbs = sn_active && crt == "2" && regime.nil?
+            complete_gibscbs(group, classification, year, service_total, ide["gCompraGov"], zero_cbs: zero_cbs)
           end
         end
 
@@ -287,11 +294,16 @@ module DfeRb
         end
       end
 
-      def simples_issuer?(inf)
-        %w[1 2 4].include?(inf.dig("emit", "CRT")&.to_s)
+      def simples_ibs_cbs_in_force?(ide, issued)
+        since = Validator::SIMPLES_IBS_CBS_SINCE[ide["tpAmb"].to_s] or return false
+        (issued || @clock.now) >= since
       end
 
-      def complete_gibscbs(group, classification, year, service_total, gov)
+      def gibscbs_exempt?(crt, regime)
+        crt == "4" || (crt == "1" && regime.nil?)
+      end
+
+      def complete_gibscbs(group, classification, year, service_total, gov, zero_cbs: false)
         group["vBC"] = service_total if group["vBC"].nil? && service_total.positive?
         base = decimal(group["vBC"])
         standard = Nfe::Rates.ibs_cbs(year)
@@ -304,7 +316,7 @@ module DfeRb
         zero_main = classification&.regular_taxation?
         uf["pIBSUF"] ||= zero_main ? BigDecimal(0) : standard[:uf]
         mun["pIBSMun"] ||= zero_main ? BigDecimal(0) : standard[:municipal]
-        cbs["pCBS"] ||= zero_main ? BigDecimal(0) : standard[:cbs]
+        cbs["pCBS"] ||= (zero_main || zero_cbs) ? BigDecimal(0) : standard[:cbs]
 
         ibs_red = classification&.rate_reduction? ? classification.ibs_reduction : nil
         cbs_red = classification&.rate_reduction? ? classification.cbs_reduction : nil

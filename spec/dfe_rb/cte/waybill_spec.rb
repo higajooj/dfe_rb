@@ -34,7 +34,7 @@ RSpec.describe DfeRb::Cte::Waybill do
     expect(w20.resolved.dig("imp", "ICMS", "ICMS20", "vBC")).to eq(BigDecimal("400.00"))
     expect(w20.resolved.dig("imp", "ICMS", "ICMS20", "vICMS")).to eq(BigDecimal("48.00"))
 
-    wsn = road_waybill do |cte|
+    wsn = road_waybill(ibs_cbs: nil) do |cte|
       cte.issuer tax_id: cte_issuer, name: "TRANSPORTES LTDA", state_registration: "111111111111",
         tax_regime: :simples, address: cte_sp_address
       cte.icms simples: true
@@ -96,6 +96,7 @@ RSpec.describe DfeRb::Cte::Waybill do
       cte.taker :sender
       cte.freight total: "100.00"
       cte.icms cst: "00", rate: "12.00"
+      cte.ibs_cbs class_code: "000001"
       cte.complement orig_key
     end
     expect(comp).to be_valid
@@ -133,6 +134,7 @@ RSpec.describe DfeRb::Cte::Waybill do
         cte.taker :sender
         cte.freight total: "500.00"
         cte.icms cst: "00", rate: "12.00"
+        cte.ibs_cbs class_code: "000001"
         cte.cargo value: "5000.00", product: "Carga" do |c|
           c.measure :kg, "100.0"
         end

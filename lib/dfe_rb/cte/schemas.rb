@@ -18,13 +18,15 @@ module DfeRb
         "110111" => "evCancCTe_v4.00.xsd",
         "110113" => "evEPECCTe_v4.00.xsd",
         "110160" => "evRegMultimodal_v4.00.xsd",
-        "110170" => "evGTV_v4.00.xsd",
         "110180" => "evCECTe_v4.00.xsd",
         "110181" => "evCancCECTe_v4.00.xsd",
         "110190" => "evIECTe_v4.00.xsd",
         "110191" => "evCancIECTe_v4.00.xsd",
         "110300" => "evVincPgto_v4.00.xsd",
         "110301" => "evCancVincPgto_v4.00.xsd",
+        "211110" => "evApropriaCredPres_v4.00.xsd",
+        "412140" => "evTributacaoSN_v1.00.xsd",
+        "412141" => "evCancTributacaoSN_v1.00.xsd",
         "610110" => "evPrestDesacordo_v4.00.xsd",
         "610111" => "evCancPrestDesacordo_v4.00.xsd"
       }.freeze

@@ -40,6 +40,17 @@ module DfeRb
       NO_EXEMPT_IE_STATES = %w[AM BA CE GO MG MS MT PE RN SE SP PI PA RJ].freeze
       SUFRAMA_STATES = %w[AC AM RO RR].freeze
       SUFRAMA_AP_CITIES = %w[1600303 1600600].freeze
+      OFFLINE_CONTINGENCY_SINCE = {
+        "2" => Time.new(2026, 10, 26, 0, 0, 0, "-03:00"),
+        "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")
+      }.freeze
+      IBS_CBS_REQUIRED_SINCE = {
+        "2" => Time.new(2026, 7, 1, 0, 0, 0, "-03:00")
+      }.freeze
+      SIMPLES_IBS_CBS_SINCE = {
+        "2" => Time.new(2026, 11, 16, 0, 0, 0, "-03:00"),
+        "1" => Time.new(2026, 12, 14, 0, 0, 0, "-03:00")
+      }.freeze
 
       PARTY_CHECKS = {
         "rem" => {addr: "enderReme", cnpj: [415, "G114"], cpf: [416, "G115"], city_uf: [418, "G116"], city: [532, "G117"], hom: [646, "G002"]},
@@ -128,10 +139,21 @@ module DfeRb
 
       def check_identification
         add "ide/nCT: the waybill number is required" if @ide["nCT"].nil?
-        add "ide/serie: series #{RESERVED_SERIES.min} to #{RESERVED_SERIES.max} are reserved (G006, rej. 670)" if !nff? && RESERVED_SERIES.cover?(@ide["serie"].to_i)
+        serie = @ide["serie"].to_i
+        add "ide/serie: series #{RESERVED_SERIES.min} to #{RESERVED_SERIES.max} are reserved (G006, rej. 670)" if !nff? && RESERVED_SERIES.cover?(serie)
+        if @emit["CPF"] && @emit["CNPJ"].nil? && !nff? && !AccessKey::PERSON_SERIES.cover?(serie)
+          add "ide/serie: a CPF issuer must use series #{AccessKey::PERSON_SERIES.min} to #{AccessKey::PERSON_SERIES.max} (MOC emit/CPF, rej. 670)"
+        elsif @emit["CNPJ"] && AccessKey::PERSON_SERIES.cover?(serie)
+          add "ide/serie: series #{AccessKey::PERSON_SERIES.min} to #{AccessKey::PERSON_SERIES.max} are reserved for CPF issuers (MOC emit/CPF, rej. 670)"
+        end
         add "infSolicNFF: only for the Nota Fiscal Fácil, tpEmis 3 (G218, rej. 902)" if @inf["infSolicNFF"] && !nff?
 
         if emission_type == EMIS_OFFLINE
+          unless in_force?(OFFLINE_CONTINGENCY_SINCE)
+            since = OFFLINE_CONTINGENCY_SINCE[@ide["tpAmb"].to_s]
+            env_label = (@ide["tpAmb"].to_s == "1") ? "production" : "homologação"
+            add "ide/tpEmis: offline contingency (tpEmis 2) is only active in #{env_label} from #{since.strftime("%d/%m/%Y")} (NT 2026.004 v1.01)" if since
+          end
           add "ide/dhCont: contingency timestamp and reason are required for offline emission (G009, rej. 587)" if @ide["dhCont"].nil? || @ide["xJust"].to_s.empty?
         elsif @ide["dhCont"] || @ide["xJust"]
           add "ide/dhCont: contingency timestamp and reason are for offline emission (tpEmis 2) only (G008, rej. 586)"
@@ -459,11 +481,17 @@ module DfeRb
       end
 
       def check_ibs_cbs
-        imp = @inf["imp"]
-        return unless imp.is_a?(Hash)
+        check_ibs_cbs_regime
 
-        ibscbs = imp["IBSCBS"]
-        return unless ibscbs.is_a?(Hash)
+        imp = @inf["imp"]
+        ibscbs = imp.is_a?(Hash) ? imp["IBSCBS"] : nil
+        crt = @emit["CRT"].to_s
+        unless ibscbs.is_a?(Hash)
+          if crt == "3" && in_force?(IBS_CBS_REQUIRED_SINCE)
+            add "imp/IBSCBS: IBS/CBS group is required for regime normal (CRT 3) in homologação from 01/07/2026 (NT 2026.002 001, rej. 310)"
+          end
+          return
+        end
 
         cst = ibscbs["CST"].to_s
         class_code = ibscbs["cClassTrib"].to_s
@@ -482,21 +510,19 @@ module DfeRb
         end
 
         group = ibscbs["gIBSCBS"]
-        if classification
-          if !classification.taxed? && group
-            add "imp/IBSCBS/gIBSCBS: forbidden for CST #{cst} (NT 2025.001 005, rej. 314)"
-          elsif classification.taxed? && group.nil? && !%w[1 2 4].include?(@emit["CRT"]&.to_s)
-            add "imp/IBSCBS/gIBSCBS: required for CST #{cst} (NT 2025.001 006, rej. 315)"
-          end
+        sn = ibscbs["gTribSN"]
+        if classification && !classification.taxed? && group
+          add "imp/IBSCBS/gIBSCBS: forbidden for CST #{cst} (NT 2025.001 005, rej. 314)"
         end
 
+        issued = time(@ide["dhEmi"])
+        year = issued&.year || @clock.now.year
+        check_ibs_cbs_sn_matrix(crt: crt, regime: @emit["tpRegimeIBSCBS"]&.to_s, cst: cst, classification: classification, group: group, sn: sn, year: year)
         check_gibscbs_math(group) if group.is_a?(Hash)
 
         if imp["vTotDFe"].nil?
           add "imp/vTotDFe: required whenever IBSCBS is present (NT 2025.001 §7, rej. 360)"
         else
-          issued = time(@ide["dhEmi"])
-          year = issued&.year || @clock.now.year
           vprest = number(@inf.dig("vPrest", "vTPrest"))
           expected_tot = if year >= 2027
             vprest + number(group&.[]("vIBS")) + number(group&.dig("gCBS", "vCBS"))
@@ -506,6 +532,71 @@ module DfeRb
           if (number(imp["vTotDFe"]) - expected_tot).abs > TOLERANCE
             add "imp/vTotDFe: #{imp["vTotDFe"]} differs from expected #{expected_tot.to_s("F")} (NT 2026.004 §4, rej. 365)"
           end
+        end
+      end
+
+      def check_ibs_cbs_regime
+        regime = @emit["tpRegimeIBSCBS"]&.to_s
+        return if regime.nil? || regime.empty?
+
+        crt = @emit["CRT"].to_s
+        if %w[1 2].include?(crt) && regime != "1"
+          add "emit/tpRegimeIBSCBS: must be 1 for Simples Nacional (CRT #{crt}) (NT 2026.005 §4 01, rej. 1090)"
+        elsif crt == "3" && !%w[2 3 4].include?(regime)
+          add "emit/tpRegimeIBSCBS: must be 2, 3 or 4 for regime normal (CRT 3) (NT 2026.005 §4 02, rej. 1091)"
+        elsif crt == "4"
+          add "emit/tpRegimeIBSCBS: must not be informed for MEI (CRT 4) (NT 2026.005 §4 03, rej. 1092)"
+        end
+      end
+
+      def check_ibs_cbs_sn_matrix(crt:, regime:, cst:, classification:, group:, sn:, year:)
+        taxed = classification&.taxed?
+        unless in_force?(SIMPLES_IBS_CBS_SINCE)
+          if taxed && group.nil? && !%w[1 2 4].include?(crt)
+            add "imp/IBSCBS/gIBSCBS: required for CST #{cst} (NT 2025.001 006, rej. 315)"
+          end
+          return
+        end
+
+        case [crt, regime]
+        when ["4", nil], ["4", "1"], ["4", "2"], ["4", "3"], ["4", "4"]
+          add "imp/IBSCBS: gIBSCBS and gTribSN must not be informed for MEI (CRT 4) (NT 2026.005 §6 11, rej. 1107)" if group || sn
+        when ["1", nil]
+          add "imp/IBSCBS/gIBSCBS: forbidden for Simples Nacional without regular regime (NT 2026.005 §6 02, rej. 1100)" if group
+          unless sn.is_a?(Hash) && sn["gIBSSN"] && sn["gCBSSN"]
+            add "imp/IBSCBS/gTribSN: gIBSSN and gCBSSN are required for Simples Nacional without regular regime (NT 2026.005 §6 03, rej. 1101)"
+          end
+        when ["1", "1"], ["2", "1"], ["3", "4"]
+          add "imp/IBSCBS/gIBSCBS: required for CST #{cst} (NT 2026.005 §6 01, rej. 315)" if taxed && group.nil?
+          add "imp/IBSCBS/gTribSN: forbidden for taxpayer in regular IBS/CBS regime (NT 2026.005 §6 04, rej. 1102)" if sn
+        when ["2", nil]
+          add "imp/IBSCBS/gIBSCBS: required for CST #{cst} (NT 2026.005 §6 01, rej. 315)" if taxed && group.nil?
+          if group.is_a?(Hash) && group.dig("gCBS", "pCBS") && !number(group.dig("gCBS", "pCBS")).zero?
+            add "imp/IBSCBS/gIBSCBS/gCBS/pCBS: CBS rate must be 0.00 for CRT 2 without regular regime (NT 2026.005 §6 05, rej. 316)"
+          end
+          add "imp/IBSCBS/gTribSN/gCBSSN: required for CRT 2 without regular regime (NT 2026.005 §6 07, rej. 1103)" unless sn.is_a?(Hash) && sn["gCBSSN"]
+          add "imp/IBSCBS/gTribSN/gIBSSN: forbidden for CRT 2 without regular regime (NT 2026.005 §6 08, rej. 1104)" if sn.is_a?(Hash) && sn["gIBSSN"]
+        when ["3", "2"]
+          if (taxed && group.nil?) || !sn.is_a?(Hash) || sn["gIBSSN"].nil? || sn["gCBSSN"].nil?
+            add "imp/IBSCBS: gIBSCBS and gTribSN (with gIBSSN and gCBSSN) are required for CRT 3 with tpRegimeIBSCBS 2 (NT 2026.005 §6 09, rej. 1105)"
+          end
+        when ["3", "3"]
+          if (taxed && group.nil?) || !sn.is_a?(Hash) || sn["gCBSSN"].nil? || sn["gIBSSN"]
+            add "imp/IBSCBS: gIBSCBS and gTribSN (with gCBSSN only) are required for CRT 3 with tpRegimeIBSCBS 3 (NT 2026.005 §6 10, rej. 1106)"
+          end
+        else
+          add "imp/IBSCBS/gIBSCBS: required for CST #{cst} (NT 2025.001 006, rej. 315)" if taxed && group.nil?
+          add "imp/IBSCBS/gTribSN: forbidden for regime normal without pending Simples Nacional option (NT 2026.005 §6 04, rej. 1102)" if sn
+        end
+
+        return unless @ide.dig("gCompraGov", "tpEnteGov").to_s == "1" && (2027..2028).cover?(year)
+        return unless sn.is_a?(Hash) && (ibs_sn = sn["gIBSSN"]).is_a?(Hash)
+
+        if ibs_sn["pIBSSN"] && !number(ibs_sn["pIBSSN"]).zero?
+          add "imp/IBSCBS/gTribSN/gIBSSN/pIBSSN: must be 0 for Union government purchase in #{year} (NT 2026.005 §6 12, rej. 1108)"
+        end
+        if ibs_sn["vIBSSN"] && !number(ibs_sn["vIBSSN"]).zero?
+          add "imp/IBSCBS/gTribSN/gIBSSN/vIBSSN: must be 0.00 for Union government purchase in #{year} (NT 2026.005 §6 13, rej. 1109)"
         end
       end
 
@@ -709,6 +800,9 @@ module DfeRb
 
         key = @inf["@Id"].to_s.delete_prefix("CTe")
         add "infCTeSupl/qrCodCTe: chCTe differs from the waybill's key, #{key} (G214, rej. 852)" unless parts[:key] == key
+        if @ide["tpAmb"] && parts[:environment] != @ide["tpAmb"].to_s
+          add "infCTeSupl/qrCodCTe: tpAmb #{parts[:environment]} differs from ide/tpAmb #{@ide["tpAmb"]} (G214, rej. 852)"
+        end
 
         case emission_type
         when EMIS_OFFLINE, EMIS_EPEC
@@ -779,6 +873,11 @@ module DfeRb
         BigDecimal(value.to_s)
       rescue ArgumentError
         BigDecimal(0)
+      end
+
+      def in_force?(schedule)
+        since = schedule[@ide["tpAmb"].to_s] or return false
+        (time(@ide["dhEmi"]) || @clock.now) >= since
       end
 
       def time(value)

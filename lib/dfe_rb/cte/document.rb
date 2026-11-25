@@ -24,6 +24,12 @@ module DfeRb
       def cte_type = text("ide/tpCTe")
 
       def model = text("ide/mod")&.to_i
+
+      def nff? = emission_type == "3"
+
+      def paa? = !info&.at_xpath("doc:infPAA", namespaces).nil?
+
+      def paa_cnpj = text("infPAA/CNPJPAA")
     end
   end
 end

@@ -28,15 +28,15 @@ module DfeRb
 
       module_function
 
-      def resolve(uf:, environment:, service:, overrides: {}, contingency: false)
+      def resolve(uf:, environment:, service:, overrides: {}, contingency: false, authorizer: nil)
         definition = SERVICES.fetch(service) { raise ArgumentError, "unknown service: #{service.inspect} (#{SERVICE_KEYS.join(", ")})" }
-        authorizer = contingency ? States.contingency(uf) : States.authorizer(uf)
+        resolved_authorizer = authorizer || (contingency ? States.contingency(uf) : States.authorizer(uf))
         override = contingency ? overrides[:contingency]&.[](service) : overrides[service]
-        url = override || url_for(authorizer, Environment.normalize(environment), definition[:name])
+        url = override || url_for(resolved_authorizer, Environment.normalize(environment), definition[:name])
 
         Endpoint.new(
           service: service, url: url, namespace: format(NAMESPACE, definition[:name]),
-          operation: definition[:operation], authorizer: authorizer, request_tag: REQUEST_TAG,
+          operation: definition[:operation], authorizer: resolved_authorizer, request_tag: REQUEST_TAG,
           answer: definition[:answer]
         )
       end

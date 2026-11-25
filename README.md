@@ -692,7 +692,7 @@ if result.authorized?
 end
 ```
 
-CT-e 4.00 (modelo 57) is authorized synchronously (`CTeRecepcaoSincV4`, GZip in Base64, one waybill per request). MG, MS, MT, PR and SP have their own authorizers; AP, PE and RR go to SVSP, and the remaining states (RS included) go to SVRS. `authorize` returns an `AuthorizationResult` (cStat 100 and 150 both count as `authorized?`); `authorize!` raises `DfeRb::Cte::Rejected` or `ConsumptionBlocked`. Lost responses and duplicates (204, 539) are resolved by consulting the key and verifying the stored digest (`result.recovered?`, or `Conflict` on mismatch).
+CT-e 4.00 (modelo 57) is authorized synchronously (`CTeRecepcaoSincV4`, GZip in Base64, one waybill per request). MG, MS, MT, PR and SP have their own authorizers; AP, PE and RR go to SVSP, and the remaining states (RS included) go to SVRS. `authorize` returns an `AuthorizationResult` (cStat 100 and 150 with a complete verified `protCTe` count as `authorized?`); `authorize!` raises `DfeRb::Cte::Rejected` or `ConsumptionBlocked`. Lost or incomplete answers and same-key duplicates (204) are resolved by consulting the key and verifying the stored protocol and digest (`result.recovered?`, or `Conflict` on mismatch). A `539` duplicate with a different access key raises `Conflict` immediately and exposes `error.existing_key` when SEFAZ's rejection text carries a matching key.
 
 The gem derives the access key, `cUF`, `cMunEnv`/`xMunEnv`/`UFEnv` from the issuer's address, `cMunIni` and `cMunFim` from the sender and recipient when omitted, city names from IBGE, the modal code and its version, `indIEToma` from the active taker's IE, homologação party names (G002-G005), `vRec`, ICMS base and amount, DIFAL, IBS/CBS rates and `vTotDFe` (NT 2025.001, NT 2026.004), cargo measure labels, installment numbering and the authorizer's QR code. All six modals (`road`, `air`, `water`, `rail`, `pipeline`, `multimodal`) are grafted into the schema and validated against their own XSDs. Complementary (`cte.complement key`) and substitution (`cte.substitute key, change_taker: true`) CT-e are supported through the same builder.
 
@@ -713,11 +713,13 @@ client.link_payment(key, protocol: result.protocol, method: :pix, transaction_id
 client.cancel_payment_link(key, protocol: result.protocol, event_protocol: link.protocol)
 ```
 
-A taker registers or cancels a service disagreement (`610110` / `610111`) with its own certificate:
+A taker registers or cancels a service disagreement (`610110` / `610111`) or claims presumed IBS/CBS credit on TAC/MEI transport (`211110`, routed exclusively to SVRS) with its own certificate:
 
 ```ruby
 taker_client.disagree(key, reason: "Frete cobrado em desacordo com o combinado")
 taker_client.cancel_disagreement(key, protocol: disagreement.protocol)
+taker_client.claim_presumed_credit(key, base: "500.00", code: "01",
+  ibs: {rate: "0.10"}, cbs: {rate: "0.90"}, payment_declaration: true)
 ```
 
 Each event returns an `EventResult` with `registered?`, `protocol`, `proc_xml` (`procEventoCTe`) and `filename`. `correct` refuses locally the fields MOC 13.1 and NT 2024.001 bar from Carta de Correção (rej. 681).
@@ -738,7 +740,7 @@ batch.last_nsu; batch.more?; batch.retry_at
 distribution.fetch_nsu("42")
 ```
 
-It queries the Ambiente Nacional's `CTeDistribuicaoDFe` (NT 2015.002) and returns `WaybillDocument` (`cteProc`) and `EventDocument` (`procEventoCTe`) values with typed metadata and untouched XML.
+It queries the Ambiente Nacional's `CTeDistribuicaoDFe` (NT 2015.002) and returns `WaybillDocument` (`cteProc`) and `EventDocument` (`procEventoCTe`) values with typed metadata and untouched XML. Because the CT-e distribution XSD defines `dhResp` without a timezone offset, `responded_at` is read in UTC while `response_xml` preserves the raw value verbatim.
 
 ## NFS-e
 

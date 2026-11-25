@@ -85,7 +85,7 @@ module DfeRb
         xml = writer.write({"infCte" => tree, "infCTeSupl" => ({"qrCodCTe" => url} if url)}.compact)
         found = problems + writer.issues
         found.concat(Schemas.cte_issues(xml)) if found.empty?
-        found.concat(Validator.new(tree, qr_code: url, clock: @clock, csrt: @csrt, qr_code_base_url: @qr_code_url).issues) if strict
+        found.concat(Validator.new(tree, qr_code: url, clock: @clock, csrt: @csrt, signer: @certificate&.certificate, qr_code_base_url: @qr_code_url).issues) if strict
         [xml, found]
       end
     end

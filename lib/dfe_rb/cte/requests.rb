@@ -14,6 +14,13 @@ module DfeRb
         "relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, " \
         "aliquota, diferenca de preco, quantidade, valor da prestacao;II - a correcao de dados cadastrais que " \
         "implique mudanca do emitente, tomador, remetente ou do destinatario;III - a data de emissao ou de saida."
+      PRESUMED_CREDIT_DECLARATION = "Declaro, para fins de apropriacao do credito presumido solicitado, " \
+        "relativo a operacao registrada no documento fiscal eletronico a que se refere este evento: " \
+        "I – ja ter efetuado o pagamento integral do valor da prestacao do servico ao transportador, " \
+        "nos termos do art. 126, paragrafo 5o, II, da Lei Complementar no 214, de 16 de janeiro de 2025; " \
+        "II – estar ciente de que a prestacao de declaracao falsa sujeita-me as penalidades administrativas " \
+        "e sancoes penais previstas na legislacao, sem prejuizo do estorno do credito indevidamente apropriado " \
+        "com os acrescimos legais.".freeze
       DELIVERY_FAILURE_REASONS = {
         recipient_not_found: "1",
         refused: "2",
@@ -182,6 +189,27 @@ module DfeRb
       def cancel_payment_link(protocol:, event_protocol:)
         %(<evCancVincPgto><descEvento>Cancelamento da vinculacao do pagamento</descEvento>) +
           %(<nProt>#{protocol}</nProt><nProtVincPgto>#{event_protocol}</nProtVincPgto></evCancVincPgto>)
+      end
+
+      def presumed_credit(base:, code:, ibs: nil, cbs: nil, payment_declaration: nil)
+        xml = %(<evApropriaCredPres><descEvento>Apropriacao Credito Presumido</descEvento>)
+        xml << %(<vBCCredPres>#{format("%.2f", base)}</vBCCredPres><cCredPres>#{code}</cCredPres>)
+        if ibs
+          xml << %(<gIBSCredPres><pCredPres>#{format_rate(ibs[:rate])}</pCredPres>)
+          xml << %(<vCredPres>#{format("%.2f", ibs[:amount])}</vCredPres></gIBSCredPres>)
+        end
+        if cbs
+          xml << %(<gCBSCredPres><pCredPres>#{format_rate(cbs[:rate])}</pCredPres>)
+          xml << %(<vCredPres>#{format("%.2f", cbs[:amount])}</vCredPres></gCBSCredPres>)
+        end
+        xml << %(<xDecPag>#{escape(payment_declaration)}</xDecPag>) if payment_declaration
+        xml << "</evApropriaCredPres>"
+      end
+
+      def format_rate(value)
+        formatted = format("%.4f", value).sub(/0+\z/, "")
+        integer, decimals = formatted.split(".", 2)
+        "#{integer}.#{(decimals || "").ljust(2, "0")}"
       end
 
       def format_time(value)

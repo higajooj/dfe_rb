@@ -30,7 +30,8 @@ module DfeRb
         end
 
         def fetch_nsu(nsu)
-          query(:cons_nsu, "<consNSU><NSU>#{READER.nsu(nsu, allow_zero: false)}</NSU></consNSU>")
+          normalized = READER.nsu(nsu, allow_zero: false)
+          query(:cons_nsu, "<consNSU><NSU>#{normalized}</NSU></consNSU>", requested_nsu: normalized)
         end
 
         def distribute!(after: 0) = accepted!(distribute(after: after))
@@ -46,7 +47,7 @@ module DfeRb
 
         private
 
-        def query(kind, detail)
+        def query(kind, detail, requested_nsu: nil)
           check_identity!
           tag = (TaxId.type(tax_id) == :cnpj) ? "CNPJ" : "CPF"
           xml = %(<distDFeInt xmlns="#{Signature::CTE}" versao="#{VERSION}"><tpAmb>#{Environment.code(environment)}</tpAmb>) +
@@ -55,8 +56,10 @@ module DfeRb
           raise ValidationError, problems unless problems.empty?
 
           response = transport.post(endpoint, xml)
-          DfeRb::Distribution::Response.new(response, reader: READER, documents: Documents, max_document_bytes: @max_document_bytes)
-            .result(query: kind, request_xml: xml, environment: environment, received_at: @clock.now)
+          DfeRb::Distribution::Response.new(
+            response, reader: READER, documents: Documents, max_document_bytes: @max_document_bytes,
+            require_nsu: true, require_cursors: true
+          ).result(query: kind, request_xml: xml, environment: environment, received_at: @clock.now, requested_nsu: requested_nsu)
         end
 
         def check_identity!
