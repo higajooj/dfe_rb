@@ -10,12 +10,13 @@ Ruby client for the Brazilian SEFAZ DF-e web services, with an A1 certificate.
 - **Consulta cadastro**: a taxpayer's state registration, situation and address, from the state itself.
 - **Emit NFC-e** (modelo 65, layout 4.00) through `DfeRb::Nfce::Client`: the same builder, with the QR code version 3 (no CSC), its off-line contingency, the cancellation by substitution and the rules of modelo 65. See [NFC-e](#nfc-e).
 - **Print an NF-e as the DANFE Simplificado Tipo 2** (`tpImp` 6), for a counter sale an NFC-e would otherwise cover: the NFC-e's QR code, on-line or off-line, and its rules. See [DANFE Simplificado Tipo 2](#danfe-simplificado-tipo-2).
+- **Emit CT-e** (modelo 57, layout 4.00), all six modals: build, validate, sign, authorize synchronously, consult, cancel, correct (CC-e), record delivery receipts and failures, register service disagreements and payment links, SVC and off-line contingency, IBS/CBS (Reforma Tributária), and its distribution service. See [CT-e](#ct-e).
 - **Emit MDF-e** (modelo 58, layout 3.00), all four modals: build, validate, sign, authorize, consult, cancel, close, add drivers and documents, off-line contingency, and its distribution service. See [MDF-e](#mdf-e).
 - **Issue NFS-e** of the Padrão Nacional through the Sistema Nacional NFS-e (the Sefin Nacional's API, JSON over mutual TLS): build the DPS in the production layout or NT 009's (IBS/CBS included), validate, sign, issue, look up, cancel, confirm or reject as a party, and the ADN's distribution and municipal parameters. See [NFS-e](#nfs-e).
 - **Write the EFD ICMS/IPI** (SPED Fiscal) of a period: its registers, the blocks' openings and closings and Block 9, an NF-e's or NFC-e's C100, C101, C170 and C190 from its XML, and the apurações of Block E. See [EFD ICMS/IPI](#efd-icmsipi).
 - **Write the EFD-Contribuições** (PIS/Pasep and COFINS) of a period up to December 2026: its registers, an NF-e's C100 and C170 or an NFC-e's C175 with their PIS and COFINS, the apuração of Block M and the credits carried in Block 1. See [EFD-Contribuições](#efd-contribuições).
 
-Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), the CT-e, the DAMDFE and the DANFSe, municipal NFS-e systems outside the Sistema Nacional, and the MDF-e's ANTT payment events.
+Not covered yet: the NFC-e's EPEC (NT 2014.003) and QR code version 2 (with CSC), paper contingency of the NF-e (FS-IA, FS-DA), CT-e OS (modelo 67), CT-e Simplificado and GTV-e (modelo 64), the DACTE, DAMDFE and DANFSe, municipal NFS-e systems outside the Sistema Nacional, and the MDF-e's ANTT payment events.
 
 ```ruby
 gem "dfe_rb", github: "higajooj/dfe_rb", tag: "v0.23.0"
@@ -652,6 +653,92 @@ distribution.fetch_nsu("42")                        # one specific document
 ```
 
 It returns MDF-e (`ManifestDocument`) and their events (`EventDocument`) of interest to the certificate's holder that someone else issued, such as those naming it in `autXML`, with the same results, cursor rules and failure handling as the NF-e's distribution. A consumption block is cStat 678 here.
+
+## CT-e
+
+```ruby
+client = DfeRb::Cte::Client.new(certificate: certificate, uf: "SP")   # homologação unless told otherwise
+
+waybill = client.build_waybill do |cte|
+  cte.number 42
+  cte.cfop "6353"
+  cte.nature_of_operation "Prestacao de servico de transporte"
+  cte.issuer tax_id: "11.444.777/0001-61", name: "TRANSPORTES LTDA", state_registration: "111111111111",
+    tax_regime: :normal, address: {street: "Rua A", number: "100", district: "Centro", city_code: "3550308", zip: "01001-000"}
+  cte.sender tax_id: "11.222.333/0001-81", name: "REMETENTE SA", state_registration: "222222222222",
+    address: {street: "Rua B", number: "10", district: "Centro", city_code: "3550308", zip: "01001-000"}
+  cte.recipient tax_id: "33.000.167/0001-01", name: "DESTINATARIO SA", state_registration: "333333333333",
+    address: {street: "Rua C", number: "20", district: "Centro", city_code: "3304557", zip: "20000-000"}
+  cte.taker :sender
+  cte.freight total: "500.00" do |f|
+    f.component "FRETE VALOR", "500.00"
+  end
+  cte.icms cst: "00", rate: "12.00"
+  cte.ibs_cbs class_code: "000001"
+  cte.cargo value: "15000.00", product: "Eletronicos" do |c|
+    c.measure :kg, "1200.5"
+  end
+  cte.nfe "3526..."
+  cte.road rntrc: "12345678"
+end
+
+waybill.issues                          # every problem found locally, as messages
+signed = client.sign(waybill)           # store signed.xml before sending
+result = client.authorize(signed)
+
+if result.authorized?
+  File.write(result.filename, result.proc_xml)       # <key>-procCTe.xml
+  result.qr_code                                     # the URL for the DACTE's QR code
+end
+```
+
+CT-e 4.00 (modelo 57) is authorized synchronously (`CTeRecepcaoSincV4`, GZip in Base64, one waybill per request). MG, MS, MT, PR and SP have their own authorizers; AP, PE and RR go to SVSP, and the remaining states (RS included) go to SVRS. `authorize` returns an `AuthorizationResult` (cStat 100 and 150 both count as `authorized?`); `authorize!` raises `DfeRb::Cte::Rejected` or `ConsumptionBlocked`. Lost responses and duplicates (204, 539) are resolved by consulting the key and verifying the stored digest (`result.recovered?`, or `Conflict` on mismatch).
+
+The gem derives the access key, `cUF`, `cMunEnv`/`xMunEnv`/`UFEnv` from the issuer's address, `cMunIni` and `cMunFim` from the sender and recipient when omitted, city names from IBGE, the modal code and its version, `indIEToma` from the active taker's IE, homologação party names (G002-G005), `vRec`, ICMS base and amount, DIFAL, IBS/CBS rates and `vTotDFe` (NT 2025.001, NT 2026.004), cargo measure labels, installment numbering and the authorizer's QR code. All six modals (`road`, `air`, `water`, `rail`, `pipeline`, `multimodal`) are grafted into the schema and validated against their own XSDs. Complementary (`cte.complement key`) and substitution (`cte.substitute key, change_taker: true`) CT-e are supported through the same builder.
+
+### After authorization
+
+```ruby
+client.consult(key).status                            # :authorized, :canceled, :not_found or :rejected
+client.cancel(key, protocol: result.protocol, reason: "Cancelamento por erro de digitacao")
+client.correct(key, changes: [{group: "compl", field: "xObs", value: "Observacao corrigida"}])
+client.deliver(key, protocol: result.protocol, document: "123456789", name: "Joao Silva",
+  image: File.binread("assinatura.jpg"), nfe: ["3526..."])
+client.cancel_delivery(key, protocol: result.protocol, event_protocol: delivery.protocol)
+client.report_delivery_failure(key, protocol: result.protocol, reason: :recipient_not_found, attempt: 1)
+client.cancel_delivery_failure(key, protocol: result.protocol, event_protocol: failure.protocol)
+client.record_multimodal(key, text: "Registro de transbordo rodoviario concluido")
+client.link_payment(key, protocol: result.protocol, method: :pix, transaction_id: "E1234567890",
+  receiver_cnpj: "11444777000161", psp_cnpj_base: "11444777")
+client.cancel_payment_link(key, protocol: result.protocol, event_protocol: link.protocol)
+```
+
+A taker registers or cancels a service disagreement (`610110` / `610111`) with its own certificate:
+
+```ruby
+taker_client.disagree(key, reason: "Frete cobrado em desacordo com o combinado")
+taker_client.cancel_disagreement(key, protocol: disagreement.protocol)
+```
+
+Each event returns an `EventResult` with `registered?`, `protocol`, `proc_xml` (`procEventoCTe`) and `filename`. `correct` refuses locally the fields MOC 13.1 and NT 2024.001 bar from Carta de Correção (rej. 681).
+
+### Contingency
+
+- **SVC-RS / SVC-SP**: `cte.contingency :svc` picks the state's SVC emission type (`7` for MS, MT, SP and SVSP; `8` for MG, PR and SVRS) and routes `authorize`, `consult` and `cancel` to it. `client.status(contingency: true)` checks whether the SVC is active (`cStat` 113).
+- **Off-line (NT 2026.004)**: `cte.contingency :offline, since: Time.now, reason: "Sem conexao com a internet"` emits with `tpEmis` 2 and signs the QR code's `sign` parameter with the certificate.
+
+### Distribution
+
+```ruby
+distribution = DfeRb::Cte::Distribution::Client.new(certificate: certificate, uf: "SP", environment: :production)
+
+batch = distribution.distribute(after: last_nsu)
+batch.documents.each { |document| File.binwrite(document.filename, document.xml) }
+batch.last_nsu; batch.more?; batch.retry_at
+distribution.fetch_nsu("42")
+```
+
+It queries the Ambiente Nacional's `CTeDistribuicaoDFe` (NT 2015.002) and returns `WaybillDocument` (`cteProc`) and `EventDocument` (`procEventoCTe`) values with typed metadata and untouched XML.
 
 ## NFS-e
 
