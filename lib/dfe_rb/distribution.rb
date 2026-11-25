@@ -15,7 +15,7 @@ module DfeRb
     # The certificate the request went with, refused: its own checks (group A, 280 to 287)
     # or a holder other than the one asked about (593 and 472 at the NF-e's service, 491
     # and 492 at the MDF-e's). Only a new certificate gets past them.
-    CERTIFICATE_REFUSED = [280, 281, 282, 283, 284, 285, 286, 287, 472, 491, 492, 593].freeze
+    CERTIFICATE_REFUSED = [280, 281, 282, 283, 284, 285, 286, 287, 472, 473, 491, 492, 593].freeze
 
     # What a cStat of the distribution means: :documents (138), :empty (137), :blocked,
     # :unavailable, :certificate or :rejected. Result#status for an answer at hand; this for
@@ -138,25 +138,29 @@ module DfeRb
     class Response
       # reader: the document type's Reader. documents: what turns a decoded document into a
       # value, as #parse(xml, schema:, nsu:).
-      def initialize(xml, reader:, documents:, max_document_bytes:)
+      def initialize(xml, reader:, documents:, max_document_bytes:, require_nsu: false, require_cursors: false)
         @xml = xml
         @reader = reader
         @documents = documents
         @max_document_bytes = max_document_bytes
+        @require_nsu = require_nsu
+        @require_cursors = require_cursors
       end
 
-      def result(query:, request_xml:, environment:, received_at:)
+      def result(query:, request_xml:, environment:, received_at:, requested_nsu: nil)
         root = @reader.parse(@xml, root: "retDistDFeInt").root
         code = @reader.integer(root, "cStat", required: true)
         declared = Environment.normalize(@reader.text(root, "tpAmb", required: true))
         raise ArgumentError, "response environment differs" unless declared == environment
         last_nsu = optional_nsu(root, "ultNSU")
         max_nsu = optional_nsu(root, "maxNSU")
+        raise ArgumentError, "ultNSU #{last_nsu} exceeds maxNSU #{max_nsu}" if last_nsu && max_nsu && last_nsu > max_nsu
         zips = root.xpath("doc:loteDistDFeInt/doc:docZip", @reader.namespaces)
         raise ArgumentError, "distribution returned more than 50 documents" if zips.size > 50
         raise ArgumentError, "138 without documents" if code == 138 && zips.empty?
         raise ArgumentError, "documents in a non-138 response" if code != 138 && zips.any?
         documents = zips.map { |zip| decode(zip) }.freeze
+        check_nsus(query: query, code: code, documents: documents, last_nsu: last_nsu, max_nsu: max_nsu, requested_nsu: requested_nsu)
         exhausted = query == :dist_nsu && (code == 137 || (code == 138 && last_nsu && max_nsu && last_nsu == max_nsu))
         Result.new(**@reader.freeze_values(
           query: query, code: code, message: @reader.text(root, "xMotivo", required: true), environment: declared,
@@ -177,12 +181,28 @@ module DfeRb
         value && @reader.nsu(value)
       end
 
+      def check_nsus(query:, code:, documents:, last_nsu:, max_nsu:, requested_nsu:)
+        nsus = documents.filter_map(&:nsu)
+        raise ArgumentError, "duplicate docZip NSU in batch" unless nsus.uniq.size == nsus.size
+        return unless code == 138
+
+        if query == :dist_nsu && @require_cursors
+          raise ArgumentError, "138 distNSU response missing ultNSU or maxNSU" if last_nsu.nil? || max_nsu.nil?
+          raise ArgumentError, "docZip NSU exceeds ultNSU #{last_nsu}" if nsus.any? { |nsu| nsu > last_nsu }
+        elsif query == :cons_nsu && requested_nsu
+          raise ArgumentError, "consNSU returned #{documents.size} documents, expected 1" unless documents.size == 1
+          returned = documents.first.nsu
+          raise ArgumentError, "returned NSU #{returned} differs from requested #{requested_nsu}" if returned != requested_nsu
+        end
+      end
+
       def decode(zip)
         schema = zip["schema"]
         nsu = zip["NSU"]
         raise ArgumentError, "docZip has no schema" if schema.nil? || schema.empty?
+        raise ArgumentError, "docZip has no NSU" if @require_nsu && (nsu.nil? || nsu.empty?)
         raise ArgumentError, "docZip must contain only Base64 text" unless zip.element_children.empty?
-        nsu = @reader.nsu(nsu) if nsu
+        nsu = @reader.nsu(nsu, allow_zero: !@require_nsu) if nsu
         compressed = Base64.strict_decode64(zip.text.delete(" \t\r\n"))
         xml = Zlib::GzipReader.wrap(StringIO.new(compressed)) do |gzip|
           output = +""

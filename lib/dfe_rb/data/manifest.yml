@@ -626,6 +626,114 @@ documents:
     sha256: 2dc8844ca085da8b7ebfab631425a3542b45f75e632af58e95350d2d77ee8725
     note: Identical to the bundled folder.
 
+  - id: moc-cte-4.00
+    document: MOC CT-e, Visão Geral
+    kind: moc
+    status: implemented
+    dfe: [cte, events]
+    version: "4.00"
+    published: "2022-08"
+    production: null
+    implemented_in: [lib/dfe_rb/cte/client.rb, lib/dfe_rb/cte/requests.rb, lib/dfe_rb/cte/endpoints.rb, lib/dfe_rb/cte/qr_code.rb]
+    source: Portal CT-e (dfe-portal.svrs.rs.gov.br/Cte), Documentos
+    sha256: null
+    note: Synchronous CT-e modelo 57 (CTeRecepcaoSincV4), consult, status, events and QR code.
+  - id: moc-cte-anexo-i
+    document: MOC CT-e Anexo I, Leiaute e Regras de Validação
+    kind: moc
+    status: implemented
+    dfe: [cte, events]
+    version: "4.00"
+    published: "2022-08"
+    production: null
+    implemented_in: [lib/dfe_rb/cte/validator.rb, lib/dfe_rb/cte/resolver.rb, lib/dfe_rb/cte/status_codes.rb]
+    source: Portal CT-e, Documentos
+    sha256: null
+    note: Modelo 57 rules (Grupo G) that do not consult SEFAZ databases.
+  - id: nt-cte-2015.002
+    document: NT CT-e 2015.002, Web Service CTeDistribuicaoDFe
+    kind: nt
+    status: implemented
+    dfe: [cte, distribution]
+    version: "1.00"
+    published: "2015-06"
+    production: null
+    implemented_in: [lib/dfe_rb/cte/distribution.rb, lib/dfe_rb/cte/distribution]
+    source: Portal CT-e, Documentos
+    sha256: null
+  - id: nt-cte-2024.001
+    document: NT CT-e 2024.001, Alterações de leiaute e regras de validação do CT-e
+    kind: nt
+    status: implemented
+    dfe: [cte, events]
+    version: "1.04"
+    published: "2024-10"
+    production: null
+    implemented_in: [lib/dfe_rb/cte/validator.rb, lib/dfe_rb/cte/requests.rb]
+    source: Portal CT-e, Documentos
+    sha256: null
+    note: 6-month and 12/24-month referenced key limits and updated CC-e forbidden fields.
+  - id: nt-cte-2025.001
+    document: NT CT-e 2025.001, Reforma Tributária do Consumo (IBS e CBS)
+    kind: nt
+    status: implemented
+    dfe: [cte, ibs_cbs]
+    version: "1.14b"
+    published: "2026-05"
+    production: "2026-05-15"
+    implemented_in: [lib/dfe_rb/cte/resolver.rb, lib/dfe_rb/cte/validator.rb, lib/dfe_rb/cte/names.rb]
+    source: Portal CT-e, Documentos
+    sha256: null
+    note: IBSCBS, vTotDFe, gCompraGov, expanded G024 states and 4-digit cStat.
+  - id: nt-cte-2026.001
+    document: NT CT-e 2026.001, Vinculação da transação de pagamento (split payment)
+    kind: nt
+    status: implemented
+    dfe: [cte, events, ibs_cbs]
+    version: "1.01"
+    published: "2026-04"
+    production: "2026-05-04"
+    implemented_in: [lib/dfe_rb/cte/validator.rb, lib/dfe_rb/cte/requests.rb, lib/dfe_rb/cte/client.rb]
+    source: Portal CT-e, Documentos
+    sha256: null
+    note: pgtoVinc group and events 110300 and 110301.
+  - id: nt-cte-2026.004
+    document: NT CT-e 2026.004, RTC, valor líquido, contingência offline e formas de emissão
+    kind: nt
+    status: implemented
+    dfe: [cte, ibs_cbs]
+    version: "1.01"
+    published: "2026-10"
+    production: "2026-12-14"
+    implemented_in: [lib/dfe_rb/cte/resolver.rb, lib/dfe_rb/cte/validator.rb, lib/dfe_rb/cte/status_codes.rb]
+    source: Portal CT-e, Documentos
+    sha256: null
+    note: Replaces FS-DA with offline contingency (tpEmis 2), cStat 150 and 2027 vTotDFe sum.
+  - id: pl-cte-400-nt2026.005
+    document: Pacote de schemas PL_CTe_400_NT2026.005 RTC SN_1.00_corr
+    kind: schema
+    status: implemented
+    dfe: [cte, events, ibs_cbs]
+    version: "1.00"
+    published: "2026-11-11"
+    production: "2026-12-14"
+    implemented_in: [lib/dfe_rb/cte/schema.rb, lib/dfe_rb/cte/schemas.rb]
+    schemas: [lib/dfe_rb/xml/schemas/cte_4.00]
+    source: Portal CT-e (dfe-portal.svrs.rs.gov.br/Cte), Documentos
+    sha256: 9e0610eacbe5d83d61fead11582c3d33a70ce204db9465221b1de6832992424c
+  - id: pl-ctedistdfe-100
+    document: Pacote de schemas PL_CTeDistDFe_100
+    kind: schema
+    status: implemented
+    dfe: [cte, distribution]
+    version: "1.00"
+    published: null
+    production: null
+    implemented_in: [lib/dfe_rb/cte/distribution.rb]
+    schemas: [lib/dfe_rb/xml/schemas/PL_CTeDistDFe_100]
+    source: Portal CT-e (dfe-portal.svrs.rs.gov.br/Cte), Documentos
+    sha256: f546a5792e2b70af28a825a944a34e0e91a78722d014be021d86318217f3b7b6
+
   # ---------------------------------------------------------------- tables published outside an NT or IT, laws and certificates
   - id: ibge-municipalities
     document: IBGE, API de localidades (municípios)

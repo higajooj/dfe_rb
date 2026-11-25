@@ -6,10 +6,12 @@ Gem::Specification.new do |spec|
   spec.authors = ["Daniel Higa"]
   spec.email = ["danielhiga10@gmail.com"]
 
-  spec.summary = "Brazilian DF-e client: emit NF-e, NFC-e, MDF-e and NFS-e, query distribution, manifest as recipient."
+  spec.summary = "Brazilian DF-e client: emit NF-e, NFC-e, CT-e, MDF-e and NFS-e, query distribution, manifest as recipient."
   spec.description = "Issues NF-e (modelo 55, layout 4.00) in production and homologacao with an A1 certificate: " \
     "builds and validates the XML, signs it, authorizes it (sync and lot), consults, cancels, corrects and " \
     "inutilizes. Also queries NFeDistribuicaoDFe with typed document metadata and sends all four recipient manifestation events. " \
+    "Issues CT-e (modelo 57, layout 4.00), all six modals: authorizes synchronously, consults, cancels, corrects, " \
+    "registers delivery receipts, failures, disagreements and payment links, supports SVC and off-line contingency, and queries CTeDistribuicaoDFe. " \
     "Issues MDF-e (modelo 58, layout 3.00) the same way: authorizes, consults, cancels, closes, adds drivers and documents. " \
     "Issues NFS-e of the Padrão Nacional through the Sistema Nacional NFS-e: builds and signs the DPS, issues, consults, cancels and distributes."
   spec.homepage = "https://github.com/higajooj/dfe_rb"
