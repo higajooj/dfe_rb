@@ -174,7 +174,7 @@ module DfeRb
       def payment_link(protocol:, number:, transaction_id:, method:, receiver_cnpj:, psp_cnpj_base:)
         method_code = method.is_a?(Symbol) ? Names.enum_value("tpMeioPgto", method) : method.to_s.rjust(2, "0")
         %(<evVincPgto><descEvento>Vinculacao do Pagamento</descEvento><nProt>#{protocol}</nProt>) +
-          %(<pgto nPag="#{format("%03d", number.to_i)}" idTransacao="#{escape_attr(transaction_id)}">) +
+          %(<pgto nPag="#{number.to_i}" idTransacao="#{escape_attr(transaction_id)}">) +
           %(<tpMeioPgto>#{method_code}</tpMeioPgto><CNPJReceb>#{TaxId.normalize(receiver_cnpj)}</CNPJReceb>) +
           %(<CNPJBasePSP>#{TaxId.normalize(psp_cnpj_base)}</CNPJBasePSP></pgto></evVincPgto>)
       end

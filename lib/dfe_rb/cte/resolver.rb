@@ -362,7 +362,7 @@ module DfeRb
 
       def complete_payment_links(inf)
         Array(inf.dig("pgtoVinc", "pgto")).each_with_index do |entry, index|
-          entry["@nPag"] ||= format("%03d", index + 1) if entry.is_a?(Hash)
+          entry["@nPag"] ||= (index + 1).to_s if entry.is_a?(Hash)
         end
       end
 
@@ -418,7 +418,12 @@ module DfeRb
 
       def technical_contact(inf)
         contact = inf["infRespTec"]
-        return unless @csrt && contact && inf["@Id"]
+        return unless contact
+
+        if contact["idCSRT"].to_s.match?(/\A\d{1,2}\z/)
+          contact["idCSRT"] = contact["idCSRT"].to_s.rjust(3, "0")
+        end
+        return unless @csrt && inf["@Id"]
 
         contact["hashCSRT"] ||= Base64.strict_encode64(Digest::SHA1.digest("#{@csrt}#{inf["@Id"].delete_prefix("CTe")}"))
       end
