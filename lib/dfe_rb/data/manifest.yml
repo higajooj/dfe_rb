@@ -626,7 +626,6 @@ documents:
     sha256: 2dc8844ca085da8b7ebfab631425a3542b45f75e632af58e95350d2d77ee8725
     note: Identical to the bundled folder.
 
-  # ---------------------------------------------------------------- CT-e
   - id: moc-cte-4.00
     document: MOC CT-e, Visão Geral
     kind: moc
