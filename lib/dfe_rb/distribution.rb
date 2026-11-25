@@ -15,7 +15,7 @@ module DfeRb
     # The certificate the request went with, refused: its own checks (group A, 280 to 287)
     # or a holder other than the one asked about (593 and 472 at the NF-e's service, 491
     # and 492 at the MDF-e's). Only a new certificate gets past them.
-    CERTIFICATE_REFUSED = [280, 281, 282, 283, 284, 285, 286, 287, 472, 491, 492, 593].freeze
+    CERTIFICATE_REFUSED = [280, 281, 282, 283, 284, 285, 286, 287, 472, 473, 491, 492, 593].freeze
 
     # What a cStat of the distribution means: :documents (138), :empty (137), :blocked,
     # :unavailable, :certificate or :rejected. Result#status for an answer at hand; this for
